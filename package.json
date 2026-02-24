@@ -1,0 +1,27 @@
+{
+  "name": "admin-costockage",
+  "version": "1.0.0",
+  "description": "Admin interne pour Costockage, construit avec Next.js, React et TypeScript.",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@google-cloud/bigquery": "^8.1.1",
+    "better-sqlite3": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "typescript": "latest"
+  }
+}

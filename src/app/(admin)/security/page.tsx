@@ -1,0 +1,914 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { getCurrentUser } from "@/lib/mock/auth";
+import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
+import { useLocale } from "@/lib/use-locale";
+import type { AccountGroupMembership, IpAllowlistEntry, SecuritySettings, UserGroup } from "@/lib/types";
+
+type AccountLite = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+};
+
+interface SecurityOverview {
+  accounts: AccountLite[];
+  groups: UserGroup[];
+  memberships: AccountGroupMembership[];
+  settings: SecuritySettings;
+  ipAllowlist: IpAllowlistEntry[];
+}
+
+type TabAccessLite = {
+  id: string;
+  title: string;
+  slug: string;
+  groupIds: string[];
+};
+
+type ConnectorLite = {
+  id: string;
+  name: string;
+  provider: "bigquery";
+  enabled: boolean;
+  config?: {
+    projectId?: string;
+    dataset?: string;
+  };
+};
+
+export default function SecurityPage() {
+  const { locale } = useLocale();
+  const [overview, setOverview] = useState<SecurityOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [groupName, setGroupName] = useState("");
+  const [newIpValue, setNewIpValue] = useState("");
+  const [newIpLabel, setNewIpLabel] = useState("");
+  const [connectors, setConnectors] = useState<ConnectorLite[]>([]);
+  const [connectorName, setConnectorName] = useState("BigQuery");
+  const [connectorProvider, setConnectorProvider] = useState<"mock" | "bigquery">("mock");
+  const [projectId, setProjectId] = useState("");
+  const [dataset, setDataset] = useState("");
+  const [serviceAccountJson, setServiceAccountJson] = useState("");
+  const [connectorTables, setConnectorTables] = useState<Array<{ table: string; rowCount?: number }>>([]);
+  const [tabs, setTabs] = useState<TabAccessLite[]>([]);
+  const [savingTabAccess, setSavingTabAccess] = useState<string | null>(null);
+  const [deletingConnectorId, setDeletingConnectorId] = useState<string | null>(null);
+  const [previewingConnectorId, setPreviewingConnectorId] = useState<string | null>(null);
+  const [connectorFeedback, setConnectorFeedback] = useState<string | null>(null);
+  const [connectorFeedbackTone, setConnectorFeedbackTone] = useState<"info" | "error">("info");
+
+  const labels =
+    locale === "fr"
+      ? {
+          title: "Admin & sécurité",
+          description:
+            "Gestion des groupes, des affectations utilisateurs et de la restriction d'accès par IP.",
+          createGroup: "Créer un groupe",
+          groupName: "Nom du groupe",
+          add: "Ajouter",
+          assignGroup: "Affecter un groupe",
+          groupTabs: "Onglets autorisés par groupe",
+          groupTabsDescription: "Cochez les onglets visibles pour chaque groupe opérateur.",
+          noTabs: "Aucun onglet configurable",
+          role: "Rôle",
+          account: "Compte",
+          group: "Groupe",
+          noGroup: "Aucun groupe",
+          ipTitle: "Restriction IP",
+          ipEnabled: "Activer la restriction d'accès par IP",
+          ipInput: "IP ou CIDR",
+          ipLabel: "Label",
+          ipListTitle: "Entrées allowlist",
+          ip: "IP / CIDR",
+          active: "Actif",
+          yes: "Oui",
+          no: "Non",
+          loading: "Chargement...",
+          forbidden: "Accès réservé aux administrateurs.",
+          operatorsOnly: "Les comptes non-admin sont traités comme opérateurs.",
+          connectorsTitle: "Connecteurs de données",
+          connectorName: "Nom",
+          projectId: "Project ID",
+          dataset: "Dataset",
+          serviceAccount: "Service account JSON",
+          provider: "Provider",
+          enabled: "Actif",
+          table: "Table",
+          rowCount: "Nb lignes",
+          previewTables: "Aperçu tables",
+          actions: "Actions",
+          remove: "Supprimer",
+          previewError: "Impossible de récupérer les tables du connecteur.",
+          previewEmpty: "Aucune table trouvée pour ce connecteur.",
+          previewSuccess: "Tables chargées.",
+          activeConnector: "Connecteur actif",
+        }
+      : {
+          title: "Admin & security",
+          description:
+            "Manage groups, user assignments and IP-based access restriction.",
+          createGroup: "Create group",
+          groupName: "Group name",
+          add: "Add",
+          assignGroup: "Assign group",
+          groupTabs: "Allowed tabs by group",
+          groupTabsDescription: "Select which tabs are visible for each operator group.",
+          noTabs: "No configurable tabs",
+          role: "Role",
+          account: "Account",
+          group: "Group",
+          noGroup: "No group",
+          ipTitle: "IP restriction",
+          ipEnabled: "Enable IP allowlist login restriction",
+          ipInput: "IP or CIDR",
+          ipLabel: "Label",
+          ipListTitle: "Allowlist entries",
+          ip: "IP / CIDR",
+          active: "Active",
+          yes: "Yes",
+          no: "No",
+          loading: "Loading...",
+          forbidden: "Admin-only access.",
+          operatorsOnly: "Non-admin accounts are treated as operators.",
+          connectorsTitle: "Data connectors",
+          connectorName: "Name",
+          projectId: "Project ID",
+          dataset: "Dataset",
+          serviceAccount: "Service account JSON",
+          provider: "Provider",
+          enabled: "Enabled",
+          table: "Table",
+          rowCount: "Rows",
+          previewTables: "Tables preview",
+          actions: "Actions",
+          remove: "Delete",
+          previewError: "Unable to fetch connector tables.",
+          previewEmpty: "No tables found for this connector.",
+          previewSuccess: "Tables loaded.",
+          activeConnector: "Active connector",
+        };
+
+  const actor = getCurrentUser();
+
+  const loadOverview = async () => {
+    if (!actor) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/security/overview?userId=${encodeURIComponent(actor.id)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setOverview(null);
+        return;
+      }
+      const data = (await res.json()) as SecurityOverview;
+      setOverview(data);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOverview();
+  }, []);
+
+  const loadTabs = async () => {
+    if (!actor) return;
+    const res = await fetch(`/api/tabs?userId=${encodeURIComponent(actor.id)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      setTabs([]);
+      return;
+    }
+    const data = (await res.json()) as Array<{
+      id: string;
+      title: string;
+      slug: string;
+      groupIds?: string[];
+    }>;
+    setTabs(
+      data.map((tab) => ({
+        id: tab.id,
+        title: tab.title,
+        slug: tab.slug,
+        groupIds: tab.groupIds ?? [],
+      }))
+    );
+  };
+
+  useEffect(() => {
+    loadTabs();
+  }, [actor?.id]);
+
+  const loadConnectors = async () => {
+    if (!actor) return;
+    const res = await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      setConnectors([]);
+      return;
+    }
+    const data = (await res.json()) as ConnectorLite[];
+    setConnectors(data);
+  };
+
+  useEffect(() => {
+    loadConnectors();
+  }, [actor?.id]);
+
+  const membershipMap = useMemo(() => {
+    const map = new Map<string, string>();
+    overview?.memberships.forEach((membership) => {
+      map.set(membership.accountId, membership.groupId);
+    });
+    return map;
+  }, [overview]);
+
+  const groupNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    overview?.groups.forEach((group) => {
+      map.set(group.id, group.name);
+    });
+    return map;
+  }, [overview]);
+
+  const operatorGroupIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!overview) return ids;
+    for (const account of overview.accounts) {
+      if (account.role !== "operator") continue;
+      const groupId = membershipMap.get(account.id);
+      if (groupId) ids.add(groupId);
+    }
+    return ids;
+  }, [overview, membershipMap]);
+
+  if (actor?.role !== "admin") {
+    return (
+      <div>
+        <h1 className="admin-page-title">{labels.title}</h1>
+        <p className="admin-page-description">{labels.forbidden}</p>
+      </div>
+    );
+  }
+
+  const createGroup = async () => {
+    if (!actor || !groupName.trim()) return;
+    await fetch(`/api/security/groups?userId=${encodeURIComponent(actor.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: groupName.trim() }),
+    });
+    setGroupName("");
+    await loadOverview();
+  };
+
+  const setMembership = async (accountId: string, groupId: string) => {
+    if (!actor || !groupId) return;
+    await fetch(`/api/security/memberships?userId=${encodeURIComponent(actor.id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accountId, groupId }),
+    });
+    await loadOverview();
+  };
+
+  const setRole = async (accountId: string, role: "admin" | "operator") => {
+    if (!actor) return;
+    await fetch(
+      `/api/security/accounts/${encodeURIComponent(accountId)}/role?userId=${encodeURIComponent(actor.id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role }),
+      }
+    );
+    await loadOverview();
+  };
+
+  const setIpEnabled = async (enabled: boolean) => {
+    if (!actor) return;
+    await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ipAllowlistEnabled: enabled }),
+    });
+    await loadOverview();
+  };
+
+  const addIpEntry = async () => {
+    if (!actor || !newIpValue.trim()) return;
+    await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ipOrCidr: newIpValue.trim(),
+        label: newIpLabel.trim() || undefined,
+        isActive: true,
+      }),
+    });
+    setNewIpValue("");
+    setNewIpLabel("");
+    await loadOverview();
+  };
+
+  const addConnector = async () => {
+    if (!actor || !connectorName.trim()) return;
+    if (connectorProvider === "bigquery" && (!projectId.trim() || !dataset.trim())) return;
+    await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: connectorName.trim(),
+        provider: connectorProvider,
+        projectId: projectId.trim(),
+        dataset: dataset.trim(),
+        serviceAccountJson: serviceAccountJson.trim() || undefined,
+      }),
+    });
+    await loadConnectors();
+  };
+
+  const previewTables = async (connectorId?: string) => {
+    if (!actor) return;
+    if (!connectorId) return;
+    setPreviewingConnectorId(connectorId);
+    setConnectorFeedback(null);
+    const query = connectorId ? `&connectorId=${encodeURIComponent(connectorId)}` : "";
+    try {
+      const res = await fetch(
+        `/api/connectors/tables?userId=${encodeURIComponent(actor.id)}${query}`,
+        { cache: "no-store" }
+      );
+      const data = (await res.json()) as {
+        connector?: { name?: string; provider?: string } | null;
+        tables?: Array<{ table: string; rowCount?: number }>;
+        error?: string;
+      };
+
+      const connectorLabel = data.connector?.name
+        ? `${labels.activeConnector}: ${data.connector.name}${data.connector.provider ? ` (${data.connector.provider})` : ""}`
+        : labels.activeConnector;
+
+      if (!res.ok) {
+        setConnectorTables([]);
+        setConnectorFeedbackTone("error");
+        setConnectorFeedback(`${labels.previewError} ${data.error ? `(${data.error})` : ""}`.trim());
+        return;
+      }
+
+      const tables = data.tables ?? [];
+      setConnectorTables(tables);
+      setConnectorFeedbackTone("info");
+      setConnectorFeedback(
+        tables.length === 0
+          ? `${labels.previewEmpty} (${connectorLabel})`
+          : `${labels.previewSuccess} (${connectorLabel})`
+      );
+    } finally {
+      setPreviewingConnectorId(null);
+    }
+  };
+
+  const removeConnector = async (connectorId: string, connectorName: string) => {
+    if (!actor) return;
+    const confirmed = window.confirm(
+      locale === "fr"
+        ? `Supprimer le connecteur \"${connectorName}\" ?`
+        : `Delete connector \"${connectorName}\"?`
+    );
+    if (!confirmed) return;
+
+    setDeletingConnectorId(connectorId);
+    try {
+      await fetch(`/api/connectors/${encodeURIComponent(connectorId)}?userId=${encodeURIComponent(actor.id)}`, {
+        method: "DELETE",
+      });
+      setConnectorTables([]);
+      setConnectorFeedback(null);
+      await loadConnectors();
+    } finally {
+      setDeletingConnectorId(null);
+    }
+  };
+
+  const setGroupTabAccess = async (groupId: string, tabId: string, enabled: boolean) => {
+    if (!actor) return;
+
+    const currentTab = tabs.find((tab) => tab.id === tabId);
+    if (!currentTab) return;
+
+    const nextGroupIds = enabled
+      ? Array.from(new Set([...currentTab.groupIds, groupId]))
+      : currentTab.groupIds.filter((id) => id !== groupId);
+
+    setSavingTabAccess(tabId);
+    setTabs((current) =>
+      current.map((tab) => (tab.id === tabId ? { ...tab, groupIds: nextGroupIds } : tab))
+    );
+
+    const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}?userId=${encodeURIComponent(actor.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupIds: nextGroupIds }),
+    });
+
+    if (!res.ok) {
+      await loadTabs();
+    }
+
+    setSavingTabAccess(null);
+  };
+
+  return (
+    <div>
+      <h1 className="admin-page-title">{labels.title}</h1>
+      <p className="admin-page-description">{labels.description}</p>
+
+      {loading || !overview ? (
+        <section className="admin-placeholder-card">{labels.loading}</section>
+      ) : (
+        <>
+          <section className="admin-placeholder-card" style={{ marginBottom: "1rem" }}>
+            <div className="admin-placeholder-title">{labels.createGroup}</div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>
+              {labels.operatorsOnly}
+            </p>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                value={groupName}
+                placeholder={labels.groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+                style={{
+                  minWidth: "260px",
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--input-bg)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              <button
+                type="button"
+                onClick={createGroup}
+                style={{
+                  padding: "0.45rem 0.75rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                }}
+              >
+                {labels.add}
+              </button>
+            </div>
+          </section>
+
+          <section className="admin-placeholder-card" style={{ marginBottom: "1rem" }}>
+            <div className="admin-placeholder-title">{labels.assignGroup}</div>
+            <div style={{ marginTop: "0.7rem" }}>
+              <TableWithColumnFilters
+                title={labels.assignGroup}
+                stickyFilters={false}
+                data={overview.accounts.map((account) => ({
+                  id: account.id,
+                  accountId: account.id,
+                  account: account.fullName,
+                  role: account.role,
+                  group: groupNameById.get(membershipMap.get(account.id) || "") || labels.noGroup,
+                }))}
+                columns={[
+                  { key: "account", label: labels.account, filterType: "text" },
+                  {
+                    key: "role",
+                    label: labels.role,
+                    filterType: "select",
+                    selectOptions: [
+                      { value: "admin", label: "admin" },
+                      { value: "operator", label: "operator" },
+                    ],
+                    render: (row) => {
+                      if (!row.accountId) return row.role;
+
+                      return (
+                        <select
+                          value={row.role}
+                          onChange={(e) => setRole(row.accountId, e.target.value as "admin" | "operator")}
+                          style={{
+                            width: "100%",
+                            maxWidth: "180px",
+                            padding: "0.35rem 0.55rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          <option value="admin">admin</option>
+                          <option value="operator">operator</option>
+                        </select>
+                      );
+                    },
+                  },
+                  {
+                    key: "group",
+                    label: labels.group,
+                    filterType: "none",
+                    render: (row) => {
+                      if (!row.accountId) return row.group;
+                      const currentGroupId = membershipMap.get(row.accountId) || "";
+                      return (
+                        <select
+                          value={currentGroupId}
+                          onChange={(e) => setMembership(row.accountId, e.target.value)}
+                          style={{
+                            width: "100%",
+                            maxWidth: "220px",
+                            padding: "0.35rem 0.55rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        >
+                          <option value="">{labels.noGroup}</option>
+                          {overview.groups.map((group) => (
+                            <option key={group.id} value={group.id}>
+                              {group.name}
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    },
+                  },
+                ]}
+              />
+            </div>
+
+            <div style={{ marginTop: "1rem" }}>
+              <div className="admin-placeholder-title">{labels.groupTabs}</div>
+              <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", margin: "0.45rem 0 0.65rem 0" }}>
+                {labels.groupTabsDescription}
+              </p>
+
+              {tabs.length === 0 ? (
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>{labels.noTabs}</div>
+              ) : (
+                <div style={{ display: "grid", gap: "0.6rem" }}>
+                  {overview.groups
+                    .filter((group) => operatorGroupIds.size === 0 || operatorGroupIds.has(group.id))
+                    .map((group) => (
+                      <div
+                        key={group.id}
+                        style={{
+                          border: "1px solid var(--border-color)",
+                          borderRadius: "0.55rem",
+                          padding: "0.6rem",
+                          display: "grid",
+                          gap: "0.4rem",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>{group.name}</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem", alignItems: "center" }}>
+                          {tabs.map((tab) => {
+                            const checked = tab.groupIds.includes(group.id);
+                            const disabled = savingTabAccess === tab.id;
+                            return (
+                              <label
+                                key={`${group.id}-${tab.id}`}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "0.35rem",
+                                  border: "1px solid var(--border-color)",
+                                  borderRadius: "999px",
+                                  padding: "0.2rem 0.45rem",
+                                  opacity: disabled ? 0.7 : 1,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={disabled}
+                                  onChange={(e) => setGroupTabAccess(group.id, tab.id, e.target.checked)}
+                                />
+                                <span style={{ fontSize: "0.78rem" }}>
+                                  {tab.title}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="admin-placeholder-card">
+            <div className="admin-placeholder-title">{labels.ipTitle}</div>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", margin: "0.6rem 0" }}>
+              <input
+                type="checkbox"
+                checked={overview.settings.ipAllowlistEnabled}
+                onChange={(e) => setIpEnabled(e.target.checked)}
+              />
+              <span>{labels.ipEnabled}</span>
+            </label>
+
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.7rem" }}>
+              <input
+                type="text"
+                value={newIpValue}
+                placeholder={labels.ipInput}
+                onChange={(e) => setNewIpValue(e.target.value)}
+                style={{
+                  minWidth: "260px",
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--input-bg)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              <input
+                type="text"
+                value={newIpLabel}
+                placeholder={labels.ipLabel}
+                onChange={(e) => setNewIpLabel(e.target.value)}
+                style={{
+                  minWidth: "220px",
+                  padding: "0.45rem 0.65rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--input-bg)",
+                  color: "var(--text-primary)",
+                }}
+              />
+              <button
+                type="button"
+                onClick={addIpEntry}
+                style={{
+                  padding: "0.45rem 0.75rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                }}
+              >
+                {labels.add}
+              </button>
+            </div>
+
+            <TableWithColumnFilters
+              title={labels.ipListTitle}
+              stickyFilters={false}
+              data={overview.ipAllowlist.map((entry) => ({
+                id: entry.id,
+                ip: entry.ipOrCidr,
+                label: entry.label ?? "",
+                active: entry.isActive ? labels.yes : labels.no,
+              }))}
+              columns={[
+                { key: "ip", label: labels.ip, filterType: "text" },
+                { key: "label", label: labels.ipLabel, filterType: "text" },
+                { key: "active", label: labels.active, filterType: "select", selectOptions: [
+                  { value: labels.yes, label: labels.yes },
+                  { value: labels.no, label: labels.no },
+                ] },
+              ]}
+            />
+          </section>
+
+          <section className="admin-placeholder-card" style={{ marginTop: "1rem" }}>
+            <div className="admin-placeholder-title">{labels.connectorsTitle}</div>
+            <div
+              style={{
+                display: "grid",
+                gap: "0.55rem",
+                marginBottom: "0.8rem",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.connectorName}</span>
+                <input
+                  value={connectorName}
+                  onChange={(e) => setConnectorName(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.provider}</span>
+                <select
+                  value={connectorProvider}
+                  onChange={(e) => setConnectorProvider(e.target.value as "mock" | "bigquery")}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <option value="mock">mock</option>
+                  <option value="bigquery">bigquery</option>
+                </select>
+              </label>
+              {connectorProvider === "bigquery" && (
+                <>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.projectId}</span>
+                <input
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.dataset}</span>
+                <input
+                  value={dataset}
+                  onChange={(e) => setDataset(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.serviceAccount}</span>
+                <input
+                  value={serviceAccountJson}
+                  onChange={(e) => setServiceAccountJson(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+                </>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.8rem" }}>
+              <button
+                type="button"
+                onClick={addConnector}
+                style={{
+                  padding: "0.45rem 0.75rem",
+                  borderRadius: "0.45rem",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                }}
+              >
+                {labels.add}
+              </button>
+              {connectorFeedback && (
+                <span
+                  style={{
+                    color:
+                      connectorFeedbackTone === "error"
+                        ? "var(--error-text)"
+                        : "var(--text-secondary)",
+                    fontSize: "0.82rem",
+                  }}
+                >
+                  {connectorFeedback}
+                </span>
+              )}
+            </div>
+
+            <TableWithColumnFilters
+              title={labels.connectorsTitle}
+              stickyFilters={false}
+              data={connectors.map((connector) => ({
+                id: connector.id,
+                connectorId: connector.id,
+                name: connector.name,
+                provider: connector.provider,
+                projectId: connector.config?.projectId ?? "",
+                dataset: connector.config?.dataset ?? "",
+                enabled: connector.enabled ? labels.yes : labels.no,
+                actions: "",
+              }))}
+              columns={[
+                { key: "name", label: labels.connectorName, filterType: "text" },
+                {
+                  key: "provider",
+                  label: labels.provider,
+                  filterType: "select",
+                  selectOptions: [
+                    { value: "mock", label: "mock" },
+                    { value: "bigquery", label: "bigquery" },
+                  ],
+                },
+                { key: "projectId", label: labels.projectId, filterType: "text" },
+                { key: "dataset", label: labels.dataset, filterType: "text" },
+                {
+                  key: "enabled",
+                  label: labels.enabled,
+                  filterType: "select",
+                  selectOptions: [
+                    { value: labels.yes, label: labels.yes },
+                    { value: labels.no, label: labels.no },
+                  ],
+                },
+                {
+                  key: "actions",
+                  label: labels.actions,
+                  filterType: "none",
+                  render: (row) => {
+                    if (!row.connectorId) return "-";
+                    const isDeleting = deletingConnectorId === row.connectorId;
+                    const isPreviewing = previewingConnectorId === row.connectorId;
+                    return (
+                      <div style={{ display: "inline-flex", gap: "0.35rem", alignItems: "center" }}>
+                        <button
+                          type="button"
+                          onClick={() => previewTables(row.connectorId)}
+                          disabled={isPreviewing}
+                          style={{
+                            padding: "0.3rem 0.55rem",
+                            borderRadius: "0.4rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--button-bg)",
+                            color: "var(--text-primary)",
+                            cursor: isPreviewing ? "not-allowed" : "pointer",
+                            opacity: isPreviewing ? 0.7 : 1,
+                          }}
+                        >
+                          {isPreviewing ? `${labels.previewTables}...` : labels.previewTables}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeConnector(row.connectorId, row.name || row.connectorId)}
+                          disabled={isDeleting}
+                          style={{
+                            padding: "0.3rem 0.55rem",
+                            borderRadius: "0.4rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--button-bg)",
+                            color: "var(--text-primary)",
+                            cursor: isDeleting ? "not-allowed" : "pointer",
+                            opacity: isDeleting ? 0.7 : 1,
+                          }}
+                        >
+                          {isDeleting ? `${labels.remove}...` : labels.remove}
+                        </button>
+                      </div>
+                    );
+                  },
+                },
+              ]}
+            />
+
+            <div style={{ marginTop: "0.8rem" }}>
+              <TableWithColumnFilters
+                title={labels.previewTables}
+                stickyFilters={false}
+                data={connectorTables.map((table) => ({
+                  id: table.table,
+                  table: table.table,
+                  rowCount: table.rowCount ?? "-",
+                }))}
+                columns={[
+                  { key: "table", label: labels.table, filterType: "text" },
+                  { key: "rowCount", label: labels.rowCount, filterType: "text" },
+                ]}
+              />
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
