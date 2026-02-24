@@ -67,6 +67,7 @@ function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollap
 
   const navItems = [
     { href: "/dashboard", label: t.navigation.dashboard, icon: APP_MATERIAL_SYMBOLS.navigation.dashboard },
+    { href: "/geo", label: t.navigation.geo ?? "GEO", icon: APP_MATERIAL_SYMBOLS.navigation.geo },
     ...dynamicTabs.map((tab) => ({
       href: `/tabs/${tab.slug}`,
       label: tab.title,

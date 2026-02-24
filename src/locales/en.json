@@ -6,6 +6,7 @@
   "costockage_admin": "Costockage Admin",
   "navigation": {
     "dashboard": "Dashboard",
+    "geo": "GEO",
     "clients": "Clients",
     "pricing": "Pricing",
     "content": "Content",

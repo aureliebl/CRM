@@ -1,6 +1,7 @@
 export const APP_MATERIAL_SYMBOLS = {
   navigation: {
     dashboard: "dashboard",
+    geo: "travel_explore",
     clients: "group",
     pricing: "euro",
     content: "edit_square",
