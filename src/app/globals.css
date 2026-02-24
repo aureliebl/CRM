@@ -9,10 +9,14 @@
   --bg-secondary: #020617;
   --bg-tertiary: rgba(15, 23, 42, 0.96);
   --bg-hover: rgba(15, 23, 42, 0.98);
+  --accent-primary: #818cf8;
   --text-primary: #e5e7eb;
   --text-secondary: #9ca3af;
   --text-muted: #6b7280;
+  --text-tertiary: var(--text-muted);
   --border-color: rgba(148, 163, 184, 0.25);
+  --border-primary: var(--border-color);
+  --border-secondary: rgba(148, 163, 184, 0.4);
   --border-hover: rgba(148, 163, 184, 0.4);
   --search-bg: rgba(15, 23, 42, 0.98);
   --dropdown-bg: rgba(15, 23, 42, 0.98);
@@ -20,6 +24,8 @@
   --input-bg: rgba(15, 23, 42, 0.9);
   --button-bg: rgba(15, 23, 42, 0.98);
   --card-bg: rgba(15, 23, 42, 0.9);
+  --surface-primary: var(--bg-tertiary);
+  --surface-secondary: var(--card-bg);
   --shadow-color: rgba(0, 0, 0, 0.3);
   --overlay-bg: rgba(0, 0, 0, 0.6);
   --success-bg: rgba(34, 197, 94, 0.12);
@@ -33,10 +39,14 @@
   --bg-secondary: #f9fafb;
   --bg-tertiary: #ffffff;
   --bg-hover: #f3f4f6;
+  --accent-primary: #4f46e5;
   --text-primary: #111827;
   --text-secondary: #374151;
   --text-muted: #6b7280;
+  --text-tertiary: var(--text-muted);
   --border-color: #e5e7eb;
+  --border-primary: var(--border-color);
+  --border-secondary: #d1d5db;
   --border-hover: #d1d5db;
   --search-bg: #ffffff;
   --dropdown-bg: #ffffff;
@@ -44,6 +54,8 @@
   --input-bg: #ffffff;
   --button-bg: #ffffff;
   --card-bg: #f9fafb;
+  --surface-primary: #ffffff;
+  --surface-secondary: #f3f4f6;
   --shadow-color: rgba(0, 0, 0, 0.05);
   --overlay-bg: rgba(0, 0, 0, 0.4);
   --success-bg: rgba(34, 197, 94, 0.15);

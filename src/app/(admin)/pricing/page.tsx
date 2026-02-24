@@ -298,7 +298,7 @@ export default function PricingPage() {
               border: "1px solid rgba(129,140,248,0.8)",
               background:
                 "linear-gradient(120deg, rgba(30,64,175,0.9), rgba(79,70,229,0.9))",
-              color: "var(--text-primary)",
+              color: "#ffffff",
               cursor: "pointer",
             }}
           >

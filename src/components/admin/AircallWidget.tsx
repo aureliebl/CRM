@@ -13,6 +13,7 @@ import {
 import { getClients } from "@/lib/mock/clients";
 import { getCurrentUser } from "@/lib/mock/auth";
 import { useLocale } from "@/lib/use-locale";
+import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import type { AircallCall } from "@/lib/mock/aircall";
 
 export function AircallWidget() {
@@ -395,7 +396,7 @@ export function CallClientButton({ phoneNumber }: { phoneNumber: string }) {
         borderRadius: "999px",
         border: "1px solid var(--border-color)",
         background: "linear-gradient(120deg, rgba(30,64,175,0.9), rgba(79,70,229,0.9))",
-        color: "var(--text-primary)",
+        color: "#ffffff",
         cursor: "pointer",
         fontSize: "0.8rem",
         display: "flex",
@@ -403,7 +404,8 @@ export function CallClientButton({ phoneNumber }: { phoneNumber: string }) {
         gap: "0.4rem",
       }}
     >
-      📞 {labels.call}
+      <MaterialSymbol name="call" size={16} weight={500} opticalSize={20} />
+      {labels.call}
     </button>
   );
 }
