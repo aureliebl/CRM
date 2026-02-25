@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { IconPickerModal } from "@/components/admin/IconPickerModal";
 import { ColumnConfigModal } from "@/components/admin/ColumnConfigModal";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import { useLocale } from "@/lib/use-locale";
 import { getCurrentUser } from "@/lib/mock/auth";
@@ -61,12 +62,14 @@ export default function NewTabPage() {
   // ── Preview ──────────────────────────────────────────────────
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   // ── Groups & save ────────────────────────────────────────────
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   // ── Primary schema ───────────────────────────────────────────
@@ -313,6 +316,8 @@ export default function NewTabPage() {
       }
       const data = await res.json();
       setPreviewRows(data.rows ?? []);
+      setPreviewLoaded(true);
+      setTimeout(() => setPreviewLoaded(false), 900);
     } catch (e) { setPreviewError(String(e)); } finally { setLoadingPreview(false); }
   }, [user, buildConfig, labels.error]);
 
@@ -340,6 +345,8 @@ export default function NewTabPage() {
       setSelectedConnectorId(""); setExternalTable(""); setAvailableTables([]);
       setSelectedGroupIds([]); setColumns([]); setPreviewRows([]); setJoins([]);
       setMessage(labels.success); window.dispatchEvent(new Event("tabs:refresh"));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 900);
     } finally { setSaving(false); }
   };
 
@@ -660,9 +667,18 @@ export default function NewTabPage() {
       <section className="admin-placeholder-card" style={{ marginTop: "1rem" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
           <div className="admin-placeholder-title">{labels.preview}</div>
-          <button type="button" onClick={loadPreview} disabled={loadingPreview || columns.length === 0} style={{ padding: "0.4rem 0.7rem", borderRadius: "0.4rem", border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-primary)", cursor: loadingPreview ? "not-allowed" : "pointer", opacity: loadingPreview ? 0.7 : 1, fontSize: "0.82rem" }}>
-            {loadingPreview ? "..." : labels.loadPreview}
-          </button>
+          <AsyncButton
+            type="button"
+            onClick={loadPreview}
+            disabled={columns.length === 0}
+            isLoading={loadingPreview}
+            isSuccess={previewLoaded}
+            loadingLabel={labels.loadPreview}
+            successLabel={labels.loadPreview}
+            minWidth={160}
+          >
+            {labels.loadPreview}
+          </AsyncButton>
         </div>
         {previewError && <p style={{ color: "#ef4444", fontSize: "0.82rem", marginTop: "0.4rem" }}>{previewError}</p>}
         {previewRows.length === 0 && !previewError && <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.4rem" }}>{labels.noPreview}</p>}
@@ -711,9 +727,18 @@ export default function NewTabPage() {
 
       {/* ═══ CREATE ═══ */}
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "1rem" }}>
-        <button type="button" onClick={handleCreate} disabled={saving || !title.trim() || !normalizedSlug} style={{ padding: "0.5rem 0.8rem", borderRadius: "0.45rem", border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-primary)", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1 }}>
-          {saving ? labels.saving : labels.submit}
-        </button>
+        <AsyncButton
+          type="button"
+          onClick={handleCreate}
+          disabled={!title.trim() || !normalizedSlug}
+          isLoading={saving}
+          isSuccess={saved}
+          loadingLabel={labels.saving}
+          successLabel={labels.submit}
+          minWidth={150}
+        >
+          {labels.submit}
+        </AsyncButton>
         {message && <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>{message}</span>}
       </div>
 

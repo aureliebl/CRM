@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getCurrentUser } from "@/lib/mock/auth";
 import { useLocale } from "@/lib/use-locale";
 import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import type {
   DashboardGraphFieldOption,
   DashboardGraphMapRegion,
@@ -43,6 +44,7 @@ export default function NewDashboardGraphPage() {
   const router = useRouter();
   const [options, setOptions] = useState<DashboardGraphSourceOption[]>([]);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<PresetId>("custom");
 
@@ -588,11 +590,14 @@ export default function NewDashboardGraphPage() {
         throw new Error(body.error || "Save failed");
       }
 
+      setSaved(true);
+      await new Promise((resolve) => setTimeout(resolve, 800));
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
+      setTimeout(() => setSaved(false), 0);
     }
   };
 
@@ -889,23 +894,18 @@ export default function NewDashboardGraphPage() {
 
           {error && <div style={{ color: "rgb(248,113,113)", fontSize: "0.82rem" }}>{error}</div>}
 
-          <button
+          <AsyncButton
             type="button"
             onClick={onSave}
-            disabled={saving}
-            style={{
-              justifySelf: "start",
-              padding: "0.56rem 0.9rem",
-              borderRadius: "0.55rem",
-              border: "1px solid var(--border-color)",
-              background: "var(--button-bg)",
-              color: "var(--text-primary)",
-              cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.75 : 1,
-            }}
+            isLoading={saving}
+            isSuccess={saved}
+            loadingLabel={labels.saving}
+            successLabel={labels.save}
+            minWidth={170}
+            style={{ justifySelf: "start" }}
           >
-            {saving ? labels.saving : labels.save}
-          </button>
+            {labels.save}
+          </AsyncButton>
         </section>
 
         <section className="admin-placeholder-card" style={{ position: "sticky", top: "1rem" }}>

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { IconPickerModal } from "@/components/admin/IconPickerModal";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import { getCurrentUser } from "@/lib/mock/auth";
 import type { DynamicTabColumnConfig, DynamicTabConfig, DynamicTabFieldFormat, DynamicTabRowActionConfig, DynamicTabComputedColumn, DynamicTabDetailSection, DynamicTabDetailSectionField } from "@/lib/types";
@@ -34,6 +35,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
   const [configText, setConfigText] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [connectors, setConnectors] = useState<Array<{ id: string; name: string; provider: "mock" | "bigquery"; enabled: boolean }>>([]);
   const [availableTables, setAvailableTables] = useState<Array<{ table: string; rowCount?: number }>>([]);
@@ -429,10 +431,13 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
       }
 
       setMessage("Saved");
+      setSaved(true);
+      await new Promise((resolve) => setTimeout(resolve, 800));
       window.dispatchEvent(new Event("tabs:refresh"));
       router.push(`/tabs/${normalizedSlug}`);
     } finally {
       setSaving(false);
+      setTimeout(() => setSaved(false), 0);
     }
   };
 
@@ -1188,22 +1193,17 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
-          <button
+          <AsyncButton
             type="button"
             onClick={handleSave}
-            disabled={saving}
-            style={{
-              padding: "0.5rem 0.85rem",
-              borderRadius: "0.45rem",
-              border: "1px solid var(--border-color)",
-              background: "var(--button-bg)",
-              color: "var(--text-primary)",
-              cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.75 : 1,
-            }}
+            isLoading={saving}
+            isSuccess={saved}
+            loadingLabel="Saving..."
+            successLabel="Save"
+            minWidth={130}
           >
-            {saving ? "Saving..." : "Save"}
-          </button>
+            Save
+          </AsyncButton>
           {message && <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>{message}</span>}
         </div>
       </section>

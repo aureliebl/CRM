@@ -18,6 +18,7 @@ import { centers, boxTypes } from "@/lib/mock/centers-and-pricing";
 import { CallClientButton } from "@/components/admin/AircallWidget";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 
 type SubTab = "info" | "contrats" | "communication" | "transactions" | "booking" | "devis" | "boxes";
@@ -359,23 +360,37 @@ function CommunicationTab({ conversations, clientId, fr }: { conversations: any[
   const [convList, setConvList] = useState(conversations);
   const [newSubject, setNewSubject] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [messageSent, setMessageSent] = useState(false);
+  const [creatingConversation, setCreatingConversation] = useState(false);
+  const [conversationCreated, setConversationCreated] = useState(false);
 
   const activeConv = convList.find((c) => c.id === selectedConv);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!selectedConv || !newMessage.trim()) return;
+    setSendingMessage(true);
+    await new Promise((resolve) => setTimeout(resolve, 350));
     addMessageToConversation(selectedConv, "outbound", newMessage.trim());
     setNewMessage("");
     setConvList([...getConversationsByClient(clientId)]);
+    setSendingMessage(false);
+    setMessageSent(true);
+    setTimeout(() => setMessageSent(false), 800);
   };
 
-  const handleNewConversation = () => {
+  const handleNewConversation = async () => {
     if (!newSubject.trim()) return;
+    setCreatingConversation(true);
+    await new Promise((resolve) => setTimeout(resolve, 350));
     const conv = addConversation(clientId, "email", newSubject.trim());
     setConvList([...getConversationsByClient(clientId)]);
     setSelectedConv(conv.id);
     setNewSubject("");
     setShowNewForm(false);
+    setCreatingConversation(false);
+    setConversationCreated(true);
+    setTimeout(() => setConversationCreated(false), 800);
   };
 
   return (
@@ -397,9 +412,17 @@ function CommunicationTab({ conversations, clientId, fr }: { conversations: any[
               className="admin-input"
               style={{ fontSize: 12, marginBottom: 4, width: "100%" }}
             />
-            <button type="button" onClick={handleNewConversation} className="admin-btn admin-btn-primary" style={{ fontSize: 11, padding: "3px 8px", width: "100%" }}>
+            <AsyncButton
+              type="button"
+              onClick={handleNewConversation}
+              isLoading={creatingConversation}
+              isSuccess={conversationCreated}
+              loadingLabel={fr ? "Création..." : "Creating..."}
+              successLabel={fr ? "Créer" : "Create"}
+              style={{ fontSize: 11, padding: "3px 8px", width: "100%" }}
+            >
               {fr ? "Créer" : "Create"}
-            </button>
+            </AsyncButton>
           </div>
         )}
 
@@ -494,9 +517,17 @@ function CommunicationTab({ conversations, clientId, fr }: { conversations: any[
                 placeholder={fr ? "Écrire un message…" : "Write a message…"}
                 style={{ flex: 1, fontSize: 13 }}
               />
-              <button type="button" onClick={handleSendMessage} className="admin-btn admin-btn-primary" style={{ padding: "6px 14px" }}>
+              <AsyncButton
+                type="button"
+                onClick={handleSendMessage}
+                isLoading={sendingMessage}
+                isSuccess={messageSent}
+                loadingLabel=""
+                successLabel=""
+                style={{ padding: "6px 14px", minWidth: 48 }}
+              >
                 <MaterialSymbol name="send" style={{ fontSize: 18 }} />
-              </button>
+              </AsyncButton>
             </div>
           </>
         ) : (
@@ -580,13 +611,20 @@ function BookingTab({ client, fr }: { client: any; fr: boolean }) {
   const [selectedSize, setSelectedSize] = useState("");
   const [selectedDuration, setSelectedDuration] = useState("1");
   const [promoCode, setPromoCode] = useState("");
+  const [creatingBooking, setCreatingBooking] = useState(false);
+  const [bookingCreated, setBookingCreated] = useState(false);
 
-  const handleCreateBooking = () => {
+  const handleCreateBooking = async () => {
+    setCreatingBooking(true);
+    await new Promise((resolve) => setTimeout(resolve, 450));
     window.alert(
       fr
         ? `Fonctionnalité simulée — Booking créé pour ${client.fullName} au centre ${selectedCenter}, taille ${selectedSize}m², durée ${selectedDuration} mois. Promo: ${promoCode || "aucune"}.`
         : `Simulated — Booking created for ${client.fullName} at center ${selectedCenter}, size ${selectedSize}m², duration ${selectedDuration} months. Promo: ${promoCode || "none"}.`
     );
+    setCreatingBooking(false);
+    setBookingCreated(true);
+    setTimeout(() => setBookingCreated(false), 900);
   };
 
   return (
@@ -617,10 +655,20 @@ function BookingTab({ client, fr }: { client: any; fr: boolean }) {
           <label style={{ display: "block", fontSize: 12, fontWeight: 500, marginBottom: 4 }}>{fr ? "Code promo" : "Promo Code"}</label>
           <input type="text" className="admin-input" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="WELCOME10" style={{ width: "100%" }} />
         </div>
-        <button type="button" onClick={handleCreateBooking} className="admin-btn admin-btn-primary" style={{ width: "100%", marginTop: 8 }}>
-          <MaterialSymbol name="add_circle" style={{ fontSize: 18, verticalAlign: "middle", marginRight: 6 }} />
-          {fr ? "Créer la réservation" : "Create Booking"}
-        </button>
+        <AsyncButton
+          type="button"
+          onClick={handleCreateBooking}
+          isLoading={creatingBooking}
+          isSuccess={bookingCreated}
+          loadingLabel={fr ? "Création..." : "Creating..."}
+          successLabel={fr ? "Créer la réservation" : "Create Booking"}
+          style={{ width: "100%", marginTop: 8 }}
+        >
+          <>
+            <MaterialSymbol name="add_circle" style={{ fontSize: 18, verticalAlign: "middle", marginRight: 6 }} />
+            {fr ? "Créer la réservation" : "Create Booking"}
+          </>
+        </AsyncButton>
       </div>
     </div>
   );

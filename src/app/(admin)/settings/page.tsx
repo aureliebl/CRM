@@ -5,6 +5,7 @@ import { getCurrentUser, logout, syncCurrentUser, type User } from "@/lib/mock/a
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/lib/use-locale";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 
 export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
@@ -48,6 +49,8 @@ export default function SettingsPage() {
   );
   const [savingImage, setSavingImage] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
+  const [imageSaved, setImageSaved] = useState(false);
+  const [accountSaved, setAccountSaved] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -109,6 +112,8 @@ export default function SettingsPage() {
       }
       setPreview(updatedUser.profileImage ?? null);
       setSavingImage(false);
+      setImageSaved(true);
+      setTimeout(() => setImageSaved(false), 900);
       setToast(t.save_image ?? "Image de profil enregistrée");
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
@@ -138,6 +143,8 @@ export default function SettingsPage() {
         throw new Error("USER_UPDATE_FAILED");
       }
       setSavingAccount(false);
+      setAccountSaved(true);
+      setTimeout(() => setAccountSaved(false), 900);
       setToast(labels.accountSaved);
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
@@ -207,23 +214,18 @@ export default function SettingsPage() {
                 onChange={(e) => handleFile(e.target.files?.[0])}
               />
               <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button
+                <AsyncButton
                   type="button"
                   onClick={handleSave}
-                  disabled={!preview || savingImage}
-                  style={{
-                    padding: "0.45rem 0.8rem",
-                    borderRadius: "0.6rem",
-                    border: "1px solid var(--border-color)",
-                    background: "var(--button-bg)",
-                    color: "var(--text-primary)",
-                    cursor: "pointer",
-                    fontSize: "0.85rem",
-                    fontWeight: 500,
-                  }}
+                  disabled={!preview}
+                  isLoading={savingImage}
+                  isSuccess={imageSaved}
+                  loadingLabel={t.saving}
+                  successLabel={t.save_image}
+                  minWidth={170}
                 >
-                  {savingImage ? t.saving : t.save_image}
-                </button>
+                  {t.save_image}
+                </AsyncButton>
                 <button
                   type="button"
                   onClick={() => setPreview(user?.profileImage ?? null)}
@@ -352,23 +354,17 @@ export default function SettingsPage() {
               </label>
             </div>
             <div>
-              <button
+              <AsyncButton
                 type="button"
                 onClick={handleSaveAccount}
-                disabled={savingAccount}
-                style={{
-                  padding: "0.45rem 0.8rem",
-                  borderRadius: "0.6rem",
-                  border: "1px solid var(--border-color)",
-                  background: "var(--button-bg)",
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                  fontSize: "0.85rem",
-                  fontWeight: 500,
-                }}
+                isLoading={savingAccount}
+                isSuccess={accountSaved}
+                loadingLabel={t.saving}
+                successLabel={labels.saveAccount}
+                minWidth={230}
               >
-                {savingAccount ? t.saving : labels.saveAccount}
-              </button>
+                {labels.saveAccount}
+              </AsyncButton>
             </div>
             <div>
               <div

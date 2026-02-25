@@ -555,6 +555,23 @@ button {
   filter: brightness(1.05);
 }
 
+.admin-btn-spinner {
+  animation: admin-btn-spin 0.9s linear infinite;
+}
+
+.admin-btn-is-success {
+  border-color: rgba(34, 197, 94, 0.65);
+}
+
+@keyframes admin-btn-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .admin-table-row {
   transition: background-color 0.14s ease;
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getCurrentUser } from "@/lib/mock/auth";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 import type { AccountGroupMembership, IpAllowlistEntry, SecuritySettings, UserGroup } from "@/lib/types";
 
@@ -57,8 +58,16 @@ export default function SecurityPage() {
   const [savingTabAccess, setSavingTabAccess] = useState<string | null>(null);
   const [deletingConnectorId, setDeletingConnectorId] = useState<string | null>(null);
   const [previewingConnectorId, setPreviewingConnectorId] = useState<string | null>(null);
+  const [previewedConnectorId, setPreviewedConnectorId] = useState<string | null>(null);
+  const [deletedConnectorId, setDeletedConnectorId] = useState<string | null>(null);
   const [connectorFeedback, setConnectorFeedback] = useState<string | null>(null);
   const [connectorFeedbackTone, setConnectorFeedbackTone] = useState<"info" | "error">("info");
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupCreated, setGroupCreated] = useState(false);
+  const [addingIp, setAddingIp] = useState(false);
+  const [ipAdded, setIpAdded] = useState(false);
+  const [addingConnector, setAddingConnector] = useState(false);
+  const [connectorAdded, setConnectorAdded] = useState(false);
 
   const labels =
     locale === "fr"
@@ -259,13 +268,20 @@ export default function SecurityPage() {
 
   const createGroup = async () => {
     if (!actor || !groupName.trim()) return;
-    await fetch(`/api/security/groups?userId=${encodeURIComponent(actor.id)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: groupName.trim() }),
-    });
-    setGroupName("");
-    await loadOverview();
+    setCreatingGroup(true);
+    try {
+      await fetch(`/api/security/groups?userId=${encodeURIComponent(actor.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: groupName.trim() }),
+      });
+      setGroupName("");
+      await loadOverview();
+      setGroupCreated(true);
+      setTimeout(() => setGroupCreated(false), 900);
+    } finally {
+      setCreatingGroup(false);
+    }
   };
 
   const setMembership = async (accountId: string, groupId: string) => {
@@ -303,35 +319,49 @@ export default function SecurityPage() {
 
   const addIpEntry = async () => {
     if (!actor || !newIpValue.trim()) return;
-    await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ipOrCidr: newIpValue.trim(),
-        label: newIpLabel.trim() || undefined,
-        isActive: true,
-      }),
-    });
-    setNewIpValue("");
-    setNewIpLabel("");
-    await loadOverview();
+    setAddingIp(true);
+    try {
+      await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipOrCidr: newIpValue.trim(),
+          label: newIpLabel.trim() || undefined,
+          isActive: true,
+        }),
+      });
+      setNewIpValue("");
+      setNewIpLabel("");
+      await loadOverview();
+      setIpAdded(true);
+      setTimeout(() => setIpAdded(false), 900);
+    } finally {
+      setAddingIp(false);
+    }
   };
 
   const addConnector = async () => {
     if (!actor || !connectorName.trim()) return;
     if (connectorProvider === "bigquery" && (!projectId.trim() || !dataset.trim())) return;
-    await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: connectorName.trim(),
-        provider: connectorProvider,
-        projectId: projectId.trim(),
-        dataset: dataset.trim(),
-        serviceAccountJson: serviceAccountJson.trim() || undefined,
-      }),
-    });
-    await loadConnectors();
+    setAddingConnector(true);
+    try {
+      await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: connectorName.trim(),
+          provider: connectorProvider,
+          projectId: projectId.trim(),
+          dataset: dataset.trim(),
+          serviceAccountJson: serviceAccountJson.trim() || undefined,
+        }),
+      });
+      await loadConnectors();
+      setConnectorAdded(true);
+      setTimeout(() => setConnectorAdded(false), 900);
+    } finally {
+      setAddingConnector(false);
+    }
   };
 
   const previewTables = async (connectorId?: string) => {
@@ -370,6 +400,8 @@ export default function SecurityPage() {
           ? `${labels.previewEmpty} (${connectorLabel})`
           : `${labels.previewSuccess} (${connectorLabel})`
       );
+      setPreviewedConnectorId(connectorId);
+      setTimeout(() => setPreviewedConnectorId((current) => (current === connectorId ? null : current)), 900);
     } finally {
       setPreviewingConnectorId(null);
     }
@@ -389,11 +421,14 @@ export default function SecurityPage() {
       await fetch(`/api/connectors/${encodeURIComponent(connectorId)}?userId=${encodeURIComponent(actor.id)}`, {
         method: "DELETE",
       });
+      setDeletedConnectorId(connectorId);
+      await new Promise((resolve) => setTimeout(resolve, 700));
       setConnectorTables([]);
       setConnectorFeedback(null);
       await loadConnectors();
     } finally {
       setDeletingConnectorId(null);
+      setDeletedConnectorId((current) => (current === connectorId ? null : current));
     }
   };
 
@@ -454,20 +489,18 @@ export default function SecurityPage() {
                   color: "var(--text-primary)",
                 }}
               />
-              <button
+              <AsyncButton
                 type="button"
                 onClick={createGroup}
-                style={{
-                  padding: "0.45rem 0.75rem",
-                  borderRadius: "0.45rem",
-                  border: "1px solid var(--border-color)",
-                  background: "var(--button-bg)",
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                }}
+                disabled={!groupName.trim()}
+                isLoading={creatingGroup}
+                isSuccess={groupCreated}
+                loadingLabel={labels.add}
+                successLabel={labels.add}
+                minWidth={110}
               >
                 {labels.add}
-              </button>
+              </AsyncButton>
             </div>
           </section>
 
@@ -653,20 +686,18 @@ export default function SecurityPage() {
                   color: "var(--text-primary)",
                 }}
               />
-              <button
+              <AsyncButton
                 type="button"
                 onClick={addIpEntry}
-                style={{
-                  padding: "0.45rem 0.75rem",
-                  borderRadius: "0.45rem",
-                  border: "1px solid var(--border-color)",
-                  background: "var(--button-bg)",
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                }}
+                disabled={!newIpValue.trim()}
+                isLoading={addingIp}
+                isSuccess={ipAdded}
+                loadingLabel={labels.add}
+                successLabel={labels.add}
+                minWidth={110}
               >
                 {labels.add}
-              </button>
+              </AsyncButton>
             </div>
 
             <TableWithColumnFilters
@@ -778,20 +809,18 @@ export default function SecurityPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.8rem" }}>
-              <button
+              <AsyncButton
                 type="button"
                 onClick={addConnector}
-                style={{
-                  padding: "0.45rem 0.75rem",
-                  borderRadius: "0.45rem",
-                  border: "1px solid var(--border-color)",
-                  background: "var(--button-bg)",
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                }}
+                disabled={!connectorName.trim() || (connectorProvider === "bigquery" && (!projectId.trim() || !dataset.trim()))}
+                isLoading={addingConnector}
+                isSuccess={connectorAdded}
+                loadingLabel={labels.add}
+                successLabel={labels.add}
+                minWidth={120}
               >
                 {labels.add}
-              </button>
+              </AsyncButton>
               {connectorFeedback && (
                 <span
                   style={{
@@ -852,38 +881,28 @@ export default function SecurityPage() {
                     const isPreviewing = previewingConnectorId === row.connectorId;
                     return (
                       <div style={{ display: "inline-flex", gap: "0.35rem", alignItems: "center" }}>
-                        <button
+                        <AsyncButton
                           type="button"
                           onClick={() => previewTables(row.connectorId)}
-                          disabled={isPreviewing}
-                          style={{
-                            padding: "0.3rem 0.55rem",
-                            borderRadius: "0.4rem",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--button-bg)",
-                            color: "var(--text-primary)",
-                            cursor: isPreviewing ? "not-allowed" : "pointer",
-                            opacity: isPreviewing ? 0.7 : 1,
-                          }}
+                          isLoading={isPreviewing}
+                          isSuccess={previewedConnectorId === row.connectorId}
+                          loadingLabel={labels.previewTables}
+                          successLabel={labels.previewTables}
+                          minWidth={145}
                         >
-                          {isPreviewing ? `${labels.previewTables}...` : labels.previewTables}
-                        </button>
-                        <button
+                          {labels.previewTables}
+                        </AsyncButton>
+                        <AsyncButton
                           type="button"
                           onClick={() => removeConnector(row.connectorId, row.name || row.connectorId)}
-                          disabled={isDeleting}
-                          style={{
-                            padding: "0.3rem 0.55rem",
-                            borderRadius: "0.4rem",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--button-bg)",
-                            color: "var(--text-primary)",
-                            cursor: isDeleting ? "not-allowed" : "pointer",
-                            opacity: isDeleting ? 0.7 : 1,
-                          }}
+                          isLoading={isDeleting}
+                          isSuccess={deletedConnectorId === row.connectorId}
+                          loadingLabel={labels.remove}
+                          successLabel={labels.remove}
+                          minWidth={110}
                         >
-                          {isDeleting ? `${labels.remove}...` : labels.remove}
-                        </button>
+                          {labels.remove}
+                        </AsyncButton>
                       </div>
                     );
                   },
