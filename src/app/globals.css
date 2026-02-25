@@ -515,6 +515,54 @@ button {
   margin-bottom: 1.5rem;
 }
 
+.admin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.admin-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-btn-secondary {
+  background: var(--button-bg);
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+.admin-btn-secondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+}
+
+.admin-btn-primary {
+  background: linear-gradient(120deg, rgba(30, 64, 175, 0.9), rgba(79, 70, 229, 0.9));
+  color: #ffffff;
+  border-color: rgba(129, 140, 248, 0.8);
+}
+
+.admin-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.admin-table-row {
+  transition: background-color 0.14s ease;
+}
+
+.admin-table-row:hover {
+  background-color: var(--bg-hover) !important;
+}
+
 .admin-placeholder-card {
   border-radius: 1rem;
   border: 1px dashed var(--border-color);

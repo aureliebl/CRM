@@ -616,6 +616,7 @@ export function TableWithColumnFilters<T extends { id: string }>({
                 paginatedData.map((item, idx) => (
                   <tr
                     key={item.id}
+                    className="admin-table-row"
                     onClick={(event) => handleRowClick(event, item)}
                     style={{
                       borderBottom: "1px solid var(--border-color)",
