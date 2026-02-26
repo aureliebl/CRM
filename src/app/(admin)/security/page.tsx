@@ -55,6 +55,13 @@ export default function SecurityPage() {
   const [serviceAccountJson, setServiceAccountJson] = useState("");
   const [connectorTables, setConnectorTables] = useState<Array<{ table: string; rowCount?: number }>>([]);
   const [tabs, setTabs] = useState<TabAccessLite[]>([]);
+  const [newAccountEmail, setNewAccountEmail] = useState("");
+  const [newAccountFullName, setNewAccountFullName] = useState("");
+  const [newAccountRole, setNewAccountRole] = useState<"admin" | "operator">("operator");
+  const [newAccountPassword, setNewAccountPassword] = useState("");
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [accountCreated, setAccountCreated] = useState(false);
+  const [accountCreateError, setAccountCreateError] = useState<string | null>(null);
   const [savingTabAccess, setSavingTabAccess] = useState<string | null>(null);
   const [deletingConnectorId, setDeletingConnectorId] = useState<string | null>(null);
   const [previewingConnectorId, setPreviewingConnectorId] = useState<string | null>(null);
@@ -98,6 +105,13 @@ export default function SecurityPage() {
           loading: "Chargement...",
           forbidden: "Accès réservé aux administrateurs.",
           operatorsOnly: "Les comptes non-admin sont traités comme opérateurs.",
+          createAccount: "Créer un compte",
+          accountEmail: "Email",
+          accountFullName: "Nom complet",
+          accountRole: "Rôle",
+          accountPassword: "Mot de passe temporaire",
+          accountCreateSuccess: "Compte créé",
+          accountCreateError: "Impossible de créer le compte",
           connectorsTitle: "Connecteurs de données",
           connectorName: "Nom",
           projectId: "Project ID",
@@ -142,6 +156,13 @@ export default function SecurityPage() {
           loading: "Loading...",
           forbidden: "Admin-only access.",
           operatorsOnly: "Non-admin accounts are treated as operators.",
+          createAccount: "Create account",
+          accountEmail: "Email",
+          accountFullName: "Full name",
+          accountRole: "Role",
+          accountPassword: "Temporary password",
+          accountCreateSuccess: "Account created",
+          accountCreateError: "Unable to create account",
           connectorsTitle: "Data connectors",
           connectorName: "Name",
           projectId: "Project ID",
@@ -307,6 +328,40 @@ export default function SecurityPage() {
     await loadOverview();
   };
 
+  const createUserAccount = async () => {
+    if (!actor) return;
+    setCreatingAccount(true);
+    setAccountCreateError(null);
+    try {
+      const res = await fetch(`/api/security/accounts?userId=${encodeURIComponent(actor.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: newAccountEmail.trim(),
+          fullName: newAccountFullName.trim(),
+          role: newAccountRole,
+          password: newAccountPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setAccountCreateError(body.error || labels.accountCreateError);
+        return;
+      }
+
+      setNewAccountEmail("");
+      setNewAccountFullName("");
+      setNewAccountRole("operator");
+      setNewAccountPassword("");
+      setAccountCreated(true);
+      setTimeout(() => setAccountCreated(false), 900);
+      await loadOverview();
+    } finally {
+      setCreatingAccount(false);
+    }
+  };
+
   const setIpEnabled = async (enabled: boolean) => {
     if (!actor) return;
     await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
@@ -469,6 +524,100 @@ export default function SecurityPage() {
         <section className="admin-placeholder-card">{labels.loading}</section>
       ) : (
         <>
+          <section className="admin-placeholder-card" style={{ marginBottom: "1rem" }}>
+            <div className="admin-placeholder-title">{labels.createAccount}</div>
+            <div
+              style={{
+                display: "grid",
+                gap: "0.55rem",
+                marginTop: "0.7rem",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              }}
+            >
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.accountEmail}</span>
+                <input
+                  type="email"
+                  value={newAccountEmail}
+                  onChange={(e) => setNewAccountEmail(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.accountFullName}</span>
+                <input
+                  value={newAccountFullName}
+                  onChange={(e) => setNewAccountFullName(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.accountRole}</span>
+                <select
+                  value={newAccountRole}
+                  onChange={(e) => setNewAccountRole(e.target.value as "admin" | "operator")}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  <option value="operator">operator</option>
+                  <option value="admin">admin</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: "0.2rem" }}>
+                <span>{labels.accountPassword}</span>
+                <input
+                  type="password"
+                  value={newAccountPassword}
+                  onChange={(e) => setNewAccountPassword(e.target.value)}
+                  style={{
+                    padding: "0.45rem 0.65rem",
+                    borderRadius: "0.45rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.8rem" }}>
+              <AsyncButton
+                type="button"
+                onClick={createUserAccount}
+                disabled={!newAccountEmail.trim() || !newAccountFullName.trim() || newAccountPassword.length < 8}
+                isLoading={creatingAccount}
+                isSuccess={accountCreated}
+                loadingLabel={labels.add}
+                successLabel={labels.accountCreateSuccess}
+                minWidth={140}
+              >
+                {labels.createAccount}
+              </AsyncButton>
+              {accountCreateError && (
+                <span style={{ color: "var(--error-text)", fontSize: "0.82rem" }}>
+                  {accountCreateError}
+                </span>
+              )}
+            </div>
+          </section>
+
           <section className="admin-placeholder-card" style={{ marginBottom: "1rem" }}>
             <div className="admin-placeholder-title">{labels.createGroup}</div>
             <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginBottom: "0.75rem" }}>

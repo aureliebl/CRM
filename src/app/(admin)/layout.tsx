@@ -10,7 +10,7 @@ import { BugReportModal } from "@/components/admin/BugReportModal";
 import { AircallButton } from "@/components/admin/AircallButton";
 import { AircallWidget } from "@/components/admin/AircallWidget";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
-import { getCurrentUser, syncCurrentUserFromStorage } from "@/lib/mock/auth";
+import { getCurrentUser, syncCurrentUser, syncCurrentUserFromStorage, type User } from "@/lib/mock/auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useLocale } from "@/lib/use-locale";
@@ -177,7 +177,7 @@ function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollap
                         );
                         if (!confirmed) return;
                         try {
-                          const res = await fetch(`/api/tabs/${navItem.tabId}?userId=${encodeURIComponent(currentUser?.id || "")}`, { method: "DELETE" });
+                          const res = await fetch(`/api/tabs/${navItem.tabId}`, { method: "DELETE" });
                           if (res.ok) {
                             window.dispatchEvent(new Event("tabs:refresh"));
                             // Navigate away if currently viewing the deleted tab
@@ -506,7 +506,39 @@ export default function AdminLayout({
     setMounted(true);
     if (synced) {
       window.dispatchEvent(new Event("user:update"));
+      return;
     }
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) return;
+        const payload = (await res.json()) as {
+          authenticated?: boolean;
+          user?: {
+            id: string;
+            email: string;
+            fullName: string;
+            role: "admin" | "operator";
+          };
+        };
+
+        if (!payload.authenticated || !payload.user) return;
+
+        const userFromSession: User = {
+          id: payload.user.id,
+          email: payload.user.email,
+          fullName: payload.user.fullName,
+          role: payload.user.role,
+          totpEnabled: false,
+        };
+        syncCurrentUser(userFromSession);
+        setUser(userFromSession);
+        window.dispatchEvent(new Event("user:update"));
+      } catch {
+        // ignore
+      }
+    })();
   }, []);
 
   useEffect(() => {

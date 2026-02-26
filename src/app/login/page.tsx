@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, verifyTOTP, getCurrentUser, logout } from "@/lib/mock/auth";
+import { syncCurrentUser } from "@/lib/mock/auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,19 +11,6 @@ export default function LoginPage() {
   const [step, setStep] = useState<"credentials" | "totp">("credentials");
   const [error, setError] = useState("");
   const router = useRouter();
-
-  const establishServerSession = async (userId: string) => {
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || "LOGIN_SESSION_FAILED");
-    }
-  };
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,43 +33,56 @@ export default function LoginPage() {
       // ignore transient check failure for now
     }
 
-    const user = login(email, password);
-    if (!user) {
+    const loginRes = await fetch("/api/auth/password-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!loginRes.ok) {
       setError("Email ou mot de passe incorrect");
       return;
     }
-    if (user.totpEnabled) {
-      setStep("totp");
-    } else {
-      try {
-        await establishServerSession(user.id);
-        router.push("/dashboard");
-      } catch {
-        logout();
-        setError("Erreur de session, veuillez réessayer");
-      }
+
+    const payload = (await loginRes.json()) as {
+      user?: {
+        id: string;
+        email: string;
+        firstName?: string;
+        lastName?: string;
+        fullName: string;
+        role: "admin" | "operator";
+        profileImage?: string;
+        totpEnabled?: boolean;
+        totpSecret?: string;
+      };
+    };
+
+    if (!payload.user) {
+      setError("Erreur de session, veuillez réessayer");
+      return;
     }
+
+    syncCurrentUser({
+      id: payload.user.id,
+      email: payload.user.email,
+      firstName: payload.user.firstName,
+      lastName: payload.user.lastName,
+      fullName: payload.user.fullName,
+      role: payload.user.role,
+      profileImage: payload.user.profileImage,
+      totpEnabled: !!payload.user.totpEnabled,
+      totpSecret: payload.user.totpSecret,
+    });
+    router.push("/dashboard");
   };
 
   const handleSubmitTOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const user = getCurrentUser();
-    if (!user || !user.totpSecret) {
-      setError("Erreur d'authentification");
-      return;
-    }
-    if (verifyTOTP(user.totpSecret, totpCode)) {
-      try {
-        await establishServerSession(user.id);
-        router.push("/dashboard");
-      } catch {
-        logout();
-        setError("Erreur de session, veuillez réessayer");
-      }
-    } else {
-      setError("Code TOTP incorrect");
-    }
+    setStep("credentials");
+    setTotpCode("");
+    setError("La vérification TOTP sera réintroduite côté serveur dans la prochaine étape.");
   };
 
   return (

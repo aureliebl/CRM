@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { hashPassword, verifyPassword } from "@/lib/password-hash";
 
 type SqliteCompat = {
   exec: (sql: string) => void;
@@ -140,6 +141,15 @@ CREATE TABLE IF NOT EXISTS logs (
   timestamp TEXT
 )
 `);
+
+  await pgPool.query(`
+CREATE TABLE IF NOT EXISTS account_credentials (
+  accountId TEXT PRIMARY KEY,
+  passwordHash TEXT NOT NULL,
+  createdAt TEXT,
+  updatedAt TEXT
+)
+`);
 }
 
 async function ensurePostgresReady() {
@@ -174,6 +184,23 @@ export async function getAccountById(id: string): Promise<AccountRow | undefined
   if (!sqliteDb) return undefined;
   const stmt = sqliteDb.prepare("SELECT * FROM accounts WHERE id = ?");
   return stmt.get(id) as AccountRow | undefined;
+}
+
+export async function getAccountByEmail(email: string): Promise<AccountRow | undefined> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT * FROM accounts WHERE LOWER(email) = $1 LIMIT 1", [normalized]);
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return mapPgAccountRow(row);
+  }
+
+  if (!sqliteDb) return undefined;
+  const stmt = sqliteDb.prepare("SELECT * FROM accounts WHERE LOWER(email) = ? LIMIT 1");
+  return stmt.get(normalized) as AccountRow | undefined;
 }
 
 function splitFullName(fullName?: string | null) {
@@ -356,6 +383,41 @@ export async function addLog(accountId: string, type: string, message: string) {
   const stmt = sqliteDb.prepare("INSERT INTO logs (id,accountId,type,message,timestamp) VALUES (?,?,?,?,?)");
   stmt.run(id, accountId, type, message, timestamp);
   return { id, accountId, type, message, timestamp };
+}
+
+export async function setAccountPassword(accountId: string, plainPassword: string): Promise<void> {
+  if (!plainPassword || plainPassword.length < 8) {
+    throw new Error("Password must be at least 8 characters");
+  }
+
+  const passwordHash = hashPassword(plainPassword);
+  const now = new Date().toISOString();
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      "INSERT INTO account_credentials (accountId,passwordHash,createdAt,updatedAt) VALUES ($1,$2,$3,$4) ON CONFLICT (accountId) DO UPDATE SET passwordHash = EXCLUDED.passwordHash, updatedAt = EXCLUDED.updatedAt",
+      [accountId, passwordHash, now, now]
+    );
+    return;
+  }
+}
+
+export async function authenticateAccount(email: string, plainPassword: string): Promise<AccountRow | undefined> {
+  const account = await getAccountByEmail(email);
+  if (!account) return undefined;
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT passwordHash FROM account_credentials WHERE accountId = $1", [account.id]);
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    const passwordHash = (row?.passwordhash as string | undefined) ?? (row?.passwordHash as string | undefined);
+
+    if (!verifyPassword(plainPassword, passwordHash)) return undefined;
+    return account;
+  }
+
+  return undefined;
 }
 
 export async function ensureAccounts(accounts: Partial<AccountRow>[]) {

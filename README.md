@@ -98,6 +98,9 @@ Remarque :
 - Les routes API utilisent cette session pour identifier l'acteur serveur, au lieu de faire confiance aux query params client.
 - Un middleware protège les pages admin et les routes API (hors login/public) et redirige vers `/login` si non authentifié.
 - Le fallback `userId` via query/header est désactivé par défaut et ne doit être activé que temporairement (`ALLOW_LEGACY_ACTOR_FALLBACK=true`) pendant une transition.
+- Le login utilise `email + mot de passe` côté serveur (`/api/auth/password-login`) avec session signée.
+- Une création de compte admin est disponible dans la page Sécurité (email, nom, rôle, mot de passe).
+- Le mode démo peut être conservé temporairement via `DEMO_AUTH=true`, puis coupé progressivement.
 
 ### Après bascule: que faire de `data/accounts.db` ?
 
