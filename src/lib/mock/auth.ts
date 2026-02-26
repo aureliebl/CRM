@@ -31,19 +31,24 @@ function normalizeUserRole(role: string | undefined): User["role"] {
 
 function hydrateCurrentUserFromStorage() {
   if (typeof window === "undefined") return;
-  if (currentUser) return;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
+    if (!raw) {
+      currentUser = null;
+      return;
+    }
     const parsed = JSON.parse(raw) as User & { role?: string };
     if (parsed?.id) {
       currentUser = {
         ...parsed,
         role: normalizeUserRole(parsed.role),
       };
+      return;
     }
+    currentUser = null;
   } catch {
     // ignore malformed storage
+    currentUser = null;
   }
 }
 
@@ -100,6 +105,7 @@ const mockUsers: User[] = [
 ];
 
 export function getCurrentUser(): User | null {
+  hydrateCurrentUserFromStorage();
   return currentUser;
 }
 

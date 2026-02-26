@@ -521,6 +521,18 @@ export default function AdminLayout({
   }, []);
 
   useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== "admin-current-user") return;
+      const synced = syncCurrentUserFromStorage();
+      setUser(synced);
+      window.dispatchEvent(new Event("user:update"));
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
     if (!mounted) return;
     if (!user) {
       router.push("/login");
