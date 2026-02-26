@@ -136,7 +136,7 @@ function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollap
         </div>
         <span>{t.costockage_admin}</span>
       </div>
-      <div>
+      <div className="admin-sidebar-nav-area">
         <div className="admin-nav-section-label">
           {locale === "fr" ? "Navigation" : "Navigation"}
         </div>
