@@ -25,12 +25,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
-  const ownGraphs = await Promise.all(listGraphsByOwner(userId).map(withComputed));
+  const ownGraphs = await Promise.all((await listGraphsByOwner(userId)).map(withComputed));
   if (!includeShared) {
     return NextResponse.json(ownGraphs);
   }
 
-  const sharedGraphs = await Promise.all(listSharedGraphs().filter((graph) => graph.ownerUserId !== userId).map(withComputed));
+  const sharedGraphs = await Promise.all((await listSharedGraphs()).filter((graph) => graph.ownerUserId !== userId).map(withComputed));
 
   return NextResponse.json({ own: ownGraphs, shared: sharedGraphs });
 }
@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (body.importGraphId) {
-    const duplicated = duplicateSharedGraphForUser({
+    const duplicated = await duplicateSharedGraphForUser({
       graphId: String(body.importGraphId),
       ownerUserId: userId,
     });
@@ -62,9 +62,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid config" }, { status: 400 });
   }
 
-  const currentUserGraphs = listGraphsByOwner(userId);
+  const currentUserGraphs = await listGraphsByOwner(userId);
 
-  const created = createGraph({
+  const created = await createGraph({
     ownerUserId: userId,
     title: String(body.title ?? "Graphique"),
     description: body.description ? String(body.description) : undefined,

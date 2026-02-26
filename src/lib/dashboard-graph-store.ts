@@ -1,15 +1,38 @@
 import path from "path";
 import fs from "fs";
 import Database from "better-sqlite3";
+import { Pool } from "pg";
 import type { DashboardGraph, DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
 
-const dataDir = path.resolve(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const dbProvider = process.env.DB_PROVIDER ?? (process.env.DATABASE_URL ? "postgres" : "sqlite");
+const usePostgres = dbProvider === "postgres";
 
-const dbPath = path.join(dataDir, "accounts.db");
-const db = new Database(dbPath);
+const sqliteDb = (() => {
+  if (usePostgres) return null;
+  const dataDir = path.resolve(process.cwd(), "data");
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-db.exec(`
+  const dbPath = path.join(dataDir, "accounts.db");
+  return new Database(dbPath);
+})();
+
+const pgPool =
+  usePostgres && process.env.DATABASE_URL
+    ? new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl:
+          process.env.PGSSL === "true"
+            ? {
+                rejectUnauthorized: false,
+              }
+            : undefined,
+      })
+    : null;
+
+let postgresReady: Promise<void> | null = null;
+
+if (sqliteDb) {
+  sqliteDb.exec(`
 CREATE TABLE IF NOT EXISTS dashboard_graphs (
   id TEXT PRIMARY KEY,
   ownerUserId TEXT NOT NULL,
@@ -30,6 +53,7 @@ ON dashboard_graphs(ownerUserId);
 CREATE INDEX IF NOT EXISTS idx_dashboard_graphs_shared
 ON dashboard_graphs(isShared);
 `);
+}
 
 export type DashboardGraphRow = {
   id: string;
@@ -44,6 +68,56 @@ export type DashboardGraphRow = {
   createdAt: string;
   updatedAt: string;
 };
+
+function mapPgRow(row: Record<string, unknown>): DashboardGraphRow {
+  return {
+    id: String(row.id ?? ""),
+    ownerUserId: String(row.owneruserid ?? row.ownerUserId ?? ""),
+    title: String(row.title ?? ""),
+    description: (row.description as string | null | undefined) ?? null,
+    size: String(row.size ?? "M") as DashboardGraphSize,
+    layoutOrder: Number(row.layoutorder ?? row.layoutOrder ?? 0),
+    isShared: Number(row.isshared ?? row.isShared ?? 0),
+    sharedFromGraphId:
+      (row.sharedfromgraphid as string | null | undefined) ??
+      (row.sharedFromGraphId as string | null | undefined) ??
+      null,
+    config: String(row.config ?? "{}"),
+    createdAt: String(row.createdat ?? row.createdAt ?? ""),
+    updatedAt: String(row.updatedat ?? row.updatedAt ?? ""),
+  };
+}
+
+async function ensurePostgresSchema() {
+  if (!pgPool) return;
+
+  await pgPool.query(`
+CREATE TABLE IF NOT EXISTS dashboard_graphs (
+  id TEXT PRIMARY KEY,
+  ownerUserId TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  size TEXT NOT NULL DEFAULT 'M',
+  layoutOrder INTEGER NOT NULL DEFAULT 0,
+  isShared INTEGER NOT NULL DEFAULT 0,
+  sharedFromGraphId TEXT,
+  config TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT NOT NULL
+)
+`);
+
+  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_dashboard_graphs_owner ON dashboard_graphs(ownerUserId)");
+  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_dashboard_graphs_shared ON dashboard_graphs(isShared)");
+}
+
+async function ensurePostgresReady() {
+  if (!usePostgres || !pgPool) return;
+  if (!postgresReady) {
+    postgresReady = ensurePostgresSchema();
+  }
+  await postgresReady;
+}
 
 function parseConfig(config: string): DashboardGraphConfig {
   try {
@@ -112,27 +186,52 @@ function toDomain(row: DashboardGraphRow): DashboardGraph {
   };
 }
 
-export function listGraphsByOwner(ownerUserId: string): DashboardGraph[] {
-  const stmt = db.prepare(
+export async function listGraphsByOwner(ownerUserId: string): Promise<DashboardGraph[]> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query(
+      "SELECT * FROM dashboard_graphs WHERE ownerUserId = $1 ORDER BY layoutOrder ASC, createdAt ASC",
+      [ownerUserId]
+    );
+    return result.rows.map((row) => toDomain(mapPgRow(row as Record<string, unknown>)));
+  }
+
+  if (!sqliteDb) return [];
+  const stmt = sqliteDb.prepare(
     "SELECT * FROM dashboard_graphs WHERE ownerUserId = ? ORDER BY layoutOrder ASC, createdAt ASC"
   );
   return (stmt.all(ownerUserId) as DashboardGraphRow[]).map(toDomain);
 }
 
-export function listSharedGraphs(): DashboardGraph[] {
-  const stmt = db.prepare(
+export async function listSharedGraphs(): Promise<DashboardGraph[]> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT * FROM dashboard_graphs WHERE isShared = 1 ORDER BY updatedAt DESC");
+    return result.rows.map((row) => toDomain(mapPgRow(row as Record<string, unknown>)));
+  }
+
+  if (!sqliteDb) return [];
+  const stmt = sqliteDb.prepare(
     "SELECT * FROM dashboard_graphs WHERE isShared = 1 ORDER BY updatedAt DESC"
   );
   return (stmt.all() as DashboardGraphRow[]).map(toDomain);
 }
 
-export function getGraphById(id: string): DashboardGraph | undefined {
-  const stmt = db.prepare("SELECT * FROM dashboard_graphs WHERE id = ?");
+export async function getGraphById(id: string): Promise<DashboardGraph | undefined> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT * FROM dashboard_graphs WHERE id = $1", [id]);
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? toDomain(mapPgRow(row)) : undefined;
+  }
+
+  if (!sqliteDb) return undefined;
+  const stmt = sqliteDb.prepare("SELECT * FROM dashboard_graphs WHERE id = ?");
   const row = stmt.get(id) as DashboardGraphRow | undefined;
   return row ? toDomain(row) : undefined;
 }
 
-export function createGraph(input: {
+export async function createGraph(input: {
   ownerUserId: string;
   title: string;
   description?: string;
@@ -141,10 +240,42 @@ export function createGraph(input: {
   isShared?: boolean;
   sharedFromGraphId?: string | null;
   config: DashboardGraphConfig;
-}): DashboardGraph {
+}): Promise<DashboardGraph> {
   const id = `g_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const now = new Date().toISOString();
-  const stmt = db.prepare(`
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      `
+      INSERT INTO dashboard_graphs (
+        id, ownerUserId, title, description, size, layoutOrder,
+        isShared, sharedFromGraphId, config, createdAt, updatedAt
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `,
+      [
+        id,
+        input.ownerUserId,
+        input.title,
+        input.description ?? null,
+        input.size ?? "M",
+        input.layoutOrder ?? 0,
+        input.isShared ? 1 : 0,
+        input.sharedFromGraphId ?? null,
+        JSON.stringify(input.config),
+        now,
+        now,
+      ]
+    );
+
+    return (await getGraphById(id))!;
+  }
+
+  if (!sqliteDb) {
+    throw new Error("Graph store is not initialized");
+  }
+
+  const stmt = sqliteDb.prepare(`
     INSERT INTO dashboard_graphs (
       id, ownerUserId, title, description, size, layoutOrder,
       isShared, sharedFromGraphId, config, createdAt, updatedAt
@@ -165,10 +296,10 @@ export function createGraph(input: {
     now
   );
 
-  return getGraphById(id)!;
+  return (await getGraphById(id))!;
 }
 
-export function updateGraph(
+export async function updateGraph(
   id: string,
   patch: Partial<{
     ownerUserId: string;
@@ -179,8 +310,8 @@ export function updateGraph(
     isShared: boolean;
     config: DashboardGraphConfig;
   }>
-): DashboardGraph | undefined {
-  const existing = getGraphById(id);
+): Promise<DashboardGraph | undefined> {
+  const existing = await getGraphById(id);
   if (!existing) return undefined;
 
   const cleanPatch = Object.fromEntries(
@@ -194,7 +325,34 @@ export function updateGraph(
     updatedAt: new Date().toISOString(),
   };
 
-  const stmt = db.prepare(`
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      `
+      UPDATE dashboard_graphs
+      SET ownerUserId = $1, title = $2, description = $3, size = $4, layoutOrder = $5,
+          isShared = $6, config = $7, updatedAt = $8
+      WHERE id = $9
+      `,
+      [
+        updated.ownerUserId,
+        updated.title,
+        updated.description ?? null,
+        updated.size,
+        updated.layoutOrder,
+        updated.isShared ? 1 : 0,
+        JSON.stringify(updated.config),
+        updated.updatedAt,
+        id,
+      ]
+    );
+
+    return getGraphById(id);
+  }
+
+  if (!sqliteDb) return undefined;
+
+  const stmt = sqliteDb.prepare(`
     UPDATE dashboard_graphs
     SET ownerUserId = ?, title = ?, description = ?, size = ?, layoutOrder = ?,
         isShared = ?, config = ?, updatedAt = ?
@@ -216,16 +374,23 @@ export function updateGraph(
   return getGraphById(id);
 }
 
-export function deleteGraph(id: string): void {
-  const stmt = db.prepare("DELETE FROM dashboard_graphs WHERE id = ?");
+export async function deleteGraph(id: string): Promise<void> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query("DELETE FROM dashboard_graphs WHERE id = $1", [id]);
+    return;
+  }
+
+  if (!sqliteDb) return;
+  const stmt = sqliteDb.prepare("DELETE FROM dashboard_graphs WHERE id = ?");
   stmt.run(id);
 }
 
-export function duplicateSharedGraphForUser(input: {
+export async function duplicateSharedGraphForUser(input: {
   graphId: string;
   ownerUserId: string;
-}): DashboardGraph | undefined {
-  const source = getGraphById(input.graphId);
+}): Promise<DashboardGraph | undefined> {
+  const source = await getGraphById(input.graphId);
   if (!source || !source.isShared) return undefined;
 
   return createGraph({

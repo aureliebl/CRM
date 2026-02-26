@@ -20,7 +20,7 @@ async function withComputed(graph: any) {
 
 export async function GET(_: NextRequest, { params }: Params) {
   const { id } = await params;
-  const graph = getGraphById(id);
+  const graph = await getGraphById(id);
 
   if (!graph) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -32,7 +32,7 @@ export async function GET(_: NextRequest, { params }: Params) {
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { id } = await params;
   const body = await req.json();
-  const graph = getGraphById(id);
+  const graph = await getGraphById(id);
 
   if (!graph) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const updated = updateGraph(id, {
+  const updated = await updateGraph(id, {
     title: body.title ? String(body.title) : undefined,
     description: typeof body.description === "string" ? body.description : undefined,
     size: body.size as DashboardGraphSize,
@@ -61,7 +61,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   const { id } = await params;
-  const graph = getGraphById(id);
+  const graph = await getGraphById(id);
 
   if (!graph) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -72,6 +72,6 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  deleteGraph(id);
+  await deleteGraph(id);
   return NextResponse.json({ ok: true });
 }

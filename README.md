@@ -34,7 +34,7 @@ Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
 
 ### Base de données (migration progressive vers PostgreSQL)
 
-L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 4), tout en gardant BigQuery inchangé pour les connecteurs/runtimes analytiques.
+L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 5), tout en gardant BigQuery inchangé pour les connecteurs/runtimes analytiques.
 
 1. Copier la config d'environnement :
    ```bash
@@ -58,12 +58,14 @@ L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 4), tou
    - `data/migrations/002_postgres_tabs.sql`
    - `data/migrations/003_postgres_security.sql`
    - `data/migrations/004_postgres_accounts.sql`
+   - `data/migrations/005_postgres_dashboard_graphs.sql`
 
 Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)
 - phase 3 migre sécurité/IAM (`user_groups`, `account_group_memberships`, `security_settings`, `ip_allowlist_entries`)
 - phase 4 migre les comptes opérateurs (`accounts`, `logs`)
+- phase 5 migre la bibliothèque dashboard (`dashboard_graphs`)
 - le flux BigQuery reste identique côté application
 
 3. Se connecter :

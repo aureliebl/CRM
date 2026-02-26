@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const graphs = await Promise.all(
-    listSharedGraphs().map(async (graph) => ({
+    (await listSharedGraphs()).map(async (graph) => ({
       ...graph,
       computedData: await computeGraphData(graph.config),
     }))
