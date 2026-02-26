@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "db:backfill:postgres": "node scripts/backfill-sqlite-to-postgres.mjs"
+    "db:backfill:postgres": "node scripts/backfill-sqlite-to-postgres.mjs",
+    "db:verify:postgres": "node scripts/verify-backfill-counts.mjs"
   },
   "dependencies": {
     "@google-cloud/bigquery": "^8.1.1",

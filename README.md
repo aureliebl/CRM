@@ -69,6 +69,12 @@ L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 5), tou
    SQLITE_PATH=./data/accounts.db DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
    ```
 
+6. Vérifier les volumes migrés (comparaison des counts SQLite vs PostgreSQL) :
+   ```bash
+   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:postgres
+   ```
+   Le script retourne un code non nul si un écart est détecté.
+
 Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)
