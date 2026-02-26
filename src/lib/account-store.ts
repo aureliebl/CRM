@@ -1,14 +1,36 @@
 import path from "path";
 import fs from "fs";
 import Database from "better-sqlite3";
+import { Pool } from "pg";
 
-const dataDir = path.resolve(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-const dbPath = path.join(dataDir, "accounts.db");
-const db = new Database(dbPath);
+const dbProvider = process.env.DB_PROVIDER ?? (process.env.DATABASE_URL ? "postgres" : "sqlite");
+const usePostgres = dbProvider === "postgres";
 
-// Initialize tables
-db.exec(`
+const sqliteDb = (() => {
+  if (usePostgres) return null;
+  const dataDir = path.resolve(process.cwd(), "data");
+  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+  const dbPath = path.join(dataDir, "accounts.db");
+  return new Database(dbPath);
+})();
+
+const pgPool =
+  usePostgres && process.env.DATABASE_URL
+    ? new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl:
+          process.env.PGSSL === "true"
+            ? {
+                rejectUnauthorized: false,
+              }
+            : undefined,
+      })
+    : null;
+
+let postgresReady: Promise<void> | null = null;
+
+if (sqliteDb) {
+  sqliteDb.exec(`
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   email TEXT,
@@ -33,6 +55,7 @@ CREATE TABLE IF NOT EXISTS logs (
   timestamp TEXT
 );
 `);
+}
 
 export type AccountRow = {
   id: string;
@@ -57,13 +80,88 @@ function normalizeRole(role?: string | null): string {
   return "operator";
 }
 
-export function getAllAccounts(): AccountRow[] {
-  const stmt = db.prepare("SELECT * FROM accounts ORDER BY fullName ASC");
+function mapPgAccountRow(row: Record<string, unknown>): AccountRow {
+  return {
+    id: String(row.id ?? ""),
+    email: String(row.email ?? ""),
+    firstName: (row.firstname as string | null | undefined) ?? (row.firstName as string | null | undefined) ?? null,
+    lastName: (row.lastname as string | null | undefined) ?? (row.lastName as string | null | undefined) ?? null,
+    fullName: String((row.fullname ?? row.fullName ?? "") as string),
+    role: normalizeRole((row.role as string | null | undefined) ?? null),
+    profileImage:
+      (row.profileimage as string | null | undefined) ?? (row.profileImage as string | null | undefined) ?? null,
+    locale: ((row.locale as string | null | undefined) ?? "fr") || "fr",
+    totpEnabled: Number((row.totpenabled ?? row.totpEnabled ?? 0) as number),
+    totpSecret: (row.totpsecret as string | null | undefined) ?? (row.totpSecret as string | null | undefined) ?? null,
+    extras: (row.extras as string | null | undefined) ?? null,
+    createdAt: (row.createdat as string | null | undefined) ?? (row.createdAt as string | null | undefined) ?? null,
+    updatedAt: (row.updatedat as string | null | undefined) ?? (row.updatedAt as string | null | undefined) ?? null,
+  };
+}
+
+async function ensurePostgresSchema() {
+  if (!pgPool) return;
+
+  await pgPool.query(`
+CREATE TABLE IF NOT EXISTS accounts (
+  id TEXT PRIMARY KEY,
+  email TEXT,
+  firstName TEXT,
+  lastName TEXT,
+  fullName TEXT,
+  role TEXT,
+  profileImage TEXT,
+  locale TEXT DEFAULT 'fr',
+  totpEnabled INTEGER DEFAULT 0,
+  totpSecret TEXT,
+  extras TEXT,
+  createdAt TEXT,
+  updatedAt TEXT
+)
+`);
+
+  await pgPool.query(`
+CREATE TABLE IF NOT EXISTS logs (
+  id TEXT PRIMARY KEY,
+  accountId TEXT,
+  type TEXT,
+  message TEXT,
+  timestamp TEXT
+)
+`);
+}
+
+async function ensurePostgresReady() {
+  if (!usePostgres || !pgPool) return;
+  if (!postgresReady) {
+    postgresReady = ensurePostgresSchema();
+  }
+  await postgresReady;
+}
+
+export async function getAllAccounts(): Promise<AccountRow[]> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT * FROM accounts ORDER BY fullName ASC");
+    return result.rows.map((row) => mapPgAccountRow(row as Record<string, unknown>));
+  }
+
+  if (!sqliteDb) return [];
+  const stmt = sqliteDb.prepare("SELECT * FROM accounts ORDER BY fullName ASC");
   return stmt.all() as AccountRow[];
 }
 
-export function getAccountById(id: string): AccountRow | undefined {
-  const stmt = db.prepare("SELECT * FROM accounts WHERE id = ?");
+export async function getAccountById(id: string): Promise<AccountRow | undefined> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT * FROM accounts WHERE id = $1", [id]);
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return mapPgAccountRow(row);
+  }
+
+  if (!sqliteDb) return undefined;
+  const stmt = sqliteDb.prepare("SELECT * FROM accounts WHERE id = ?");
   return stmt.get(id) as AccountRow | undefined;
 }
 
@@ -84,7 +182,7 @@ function buildFullName(firstName?: string | null, lastName?: string | null, fall
   return merged || fallback || null;
 }
 
-export function createAccount(row: Partial<AccountRow>) {
+export async function createAccount(row: Partial<AccountRow>) {
   const now = new Date().toISOString();
   const id = row.id ?? `u_${Date.now()}`;
   const split = splitFullName(row.fullName);
@@ -92,7 +190,34 @@ export function createAccount(row: Partial<AccountRow>) {
   const lastName = row.lastName ?? split.lastName;
   const fullName = buildFullName(firstName, lastName, row.fullName);
 
-  const stmt = db.prepare(`INSERT INTO accounts (id,email,firstName,lastName,fullName,role,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+      [
+        id,
+        row.email ?? null,
+        firstName,
+        lastName,
+        fullName,
+        normalizeRole(row.role),
+        row.profileImage ?? null,
+        row.locale ?? "fr",
+        row.totpEnabled ? 1 : 0,
+        row.totpSecret ?? null,
+        row.extras ?? null,
+        now,
+        now,
+      ]
+    );
+    return getAccountById(id);
+  }
+
+  if (!sqliteDb) return undefined;
+
+  const stmt = sqliteDb.prepare(
+    "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+  );
   stmt.run(
     id,
     row.email ?? null,
@@ -101,7 +226,7 @@ export function createAccount(row: Partial<AccountRow>) {
     fullName,
     normalizeRole(row.role),
     row.profileImage ?? null,
-    row.locale ?? 'fr',
+    row.locale ?? "fr",
     row.totpEnabled ? 1 : 0,
     row.totpSecret ?? null,
     row.extras ?? null,
@@ -111,8 +236,8 @@ export function createAccount(row: Partial<AccountRow>) {
   return getAccountById(id);
 }
 
-export function updateAccount(id: string, patch: Partial<AccountRow>) {
-  const existing = getAccountById(id);
+export async function updateAccount(id: string, patch: Partial<AccountRow>) {
+  const existing = await getAccountById(id);
   if (!existing) return undefined;
 
   const patchSplit = splitFullName(patch.fullName);
@@ -143,8 +268,32 @@ export function updateAccount(id: string, patch: Partial<AccountRow>) {
     role: normalizeRole(patch.role ?? existing.role),
     updatedAt: new Date().toISOString(),
   };
-  const stmt = db.prepare(
-    `UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?`
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      "UPDATE accounts SET email = $1, firstName = $2, lastName = $3, fullName = $4, role = $5, profileImage = $6, locale = $7, totpEnabled = $8, totpSecret = $9, extras = $10, updatedAt = $11 WHERE id = $12",
+      [
+        updated.email ?? null,
+        updated.firstName ?? null,
+        updated.lastName ?? null,
+        updated.fullName ?? null,
+        normalizeRole(updated.role) ?? null,
+        updated.profileImage ?? null,
+        updated.locale ?? "fr",
+        updated.totpEnabled ?? 0,
+        updated.totpSecret ?? null,
+        updated.extras ?? null,
+        updated.updatedAt,
+        id,
+      ]
+    );
+    return getAccountById(id);
+  }
+
+  if (!sqliteDb) return undefined;
+
+  const stmt = sqliteDb.prepare(
+    "UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?"
   );
   stmt.run(
     updated.email ?? null,
@@ -153,7 +302,7 @@ export function updateAccount(id: string, patch: Partial<AccountRow>) {
     updated.fullName ?? null,
     normalizeRole(updated.role) ?? null,
     updated.profileImage ?? null,
-    updated.locale ?? 'fr',
+    updated.locale ?? "fr",
     updated.totpEnabled ?? 0,
     updated.totpSecret ?? null,
     updated.extras ?? null,
@@ -163,80 +312,107 @@ export function updateAccount(id: string, patch: Partial<AccountRow>) {
   return getAccountById(id);
 }
 
-export function deleteAccount(id: string) {
-  const stmt = db.prepare("DELETE FROM accounts WHERE id = ?");
+export async function deleteAccount(id: string) {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query("DELETE FROM accounts WHERE id = $1", [id]);
+    return;
+  }
+
+  if (!sqliteDb) return;
+  const stmt = sqliteDb.prepare("DELETE FROM accounts WHERE id = ?");
   stmt.run(id);
 }
 
-export function addLog(accountId: string, type: string, message: string) {
+export async function addLog(accountId: string, type: string, message: string) {
   const id = `log_${Date.now()}`;
   const timestamp = new Date().toISOString();
-  const stmt = db.prepare("INSERT INTO logs (id,accountId,type,message,timestamp) VALUES (?,?,?,?,?)");
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query("INSERT INTO logs (id,accountId,type,message,timestamp) VALUES ($1,$2,$3,$4,$5)", [
+      id,
+      accountId,
+      type,
+      message,
+      timestamp,
+    ]);
+    return { id, accountId, type, message, timestamp };
+  }
+
+  if (!sqliteDb) return { id, accountId, type, message, timestamp };
+
+  const stmt = sqliteDb.prepare("INSERT INTO logs (id,accountId,type,message,timestamp) VALUES (?,?,?,?,?)");
   stmt.run(id, accountId, type, message, timestamp);
   return { id, accountId, type, message, timestamp };
 }
 
-export function ensureAccounts(accounts: Partial<AccountRow>[]) {
+export async function ensureAccounts(accounts: Partial<AccountRow>[]) {
   for (const a of accounts) {
     if (!a.id) continue;
-    const existing = getAccountById(a.id as string);
+    const existing = await getAccountById(a.id as string);
     if (!existing) {
-      createAccount(a);
+      await createAccount(a);
     }
   }
 }
 
-// If a server-side seed file exists, import and ensure those accounts are present.
-try {
-  // require here to keep it server-only and avoid ESM issues in client bundles
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const seed = require("./server-seed");
-  if (seed && Array.isArray(seed.initialAccounts)) {
-    ensureAccounts(seed.initialAccounts);
+async function ensureSeedAccounts() {
+  try {
+    // require here to keep it server-only and avoid ESM issues in client bundles
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const seed = require("./server-seed");
+    if (seed && Array.isArray(seed.initialAccounts)) {
+      await ensureAccounts(seed.initialAccounts);
+    }
+  } catch {
+    // ignore when used in environments where server-seed isn't available
   }
-} catch (err) {
-  // ignore when used in environments where server-seed isn't available
 }
 
 // Migration: ensure `locale` column exists for older DBs
-try {
-  const info = db.prepare("PRAGMA table_info(accounts)").all();
-  const hasFirstName = info.some((c: any) => c.name === "firstName");
-  const hasLastName = info.some((c: any) => c.name === "lastName");
-  const hasLocale = info.some((c: any) => c.name === "locale");
+if (sqliteDb) {
+  try {
+    const info = sqliteDb.prepare("PRAGMA table_info(accounts)").all() as Array<{ name?: string }>;
+    const hasFirstName = info.some((columnInfo) => columnInfo.name === "firstName");
+    const hasLastName = info.some((columnInfo) => columnInfo.name === "lastName");
+    const hasLocale = info.some((columnInfo) => columnInfo.name === "locale");
 
-  if (!hasFirstName) {
-    db.prepare("ALTER TABLE accounts ADD COLUMN firstName TEXT").run();
-  }
-  if (!hasLastName) {
-    db.prepare("ALTER TABLE accounts ADD COLUMN lastName TEXT").run();
-  }
-  if (!hasLocale) {
-    db.prepare("ALTER TABLE accounts ADD COLUMN locale TEXT DEFAULT 'fr'").run();
-  }
+    if (!hasFirstName) {
+      sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN firstName TEXT").run();
+    }
+    if (!hasLastName) {
+      sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN lastName TEXT").run();
+    }
+    if (!hasLocale) {
+      sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN locale TEXT DEFAULT 'fr'").run();
+    }
 
-  const rows = db
-    .prepare("SELECT id, fullName, firstName, lastName, role FROM accounts")
-    .all() as Array<{
-      id: string;
-      fullName?: string | null;
-      firstName?: string | null;
-      lastName?: string | null;
-      role?: string | null;
-    }>;
+    const rows = sqliteDb
+      .prepare("SELECT id, fullName, firstName, lastName, role FROM accounts")
+      .all() as Array<{
+        id: string;
+        fullName?: string | null;
+        firstName?: string | null;
+        lastName?: string | null;
+        role?: string | null;
+      }>;
 
-  const migrateStmt = db.prepare(
-    "UPDATE accounts SET firstName = ?, lastName = ?, fullName = ?, role = ? WHERE id = ?"
-  );
+    const migrateStmt = sqliteDb.prepare(
+      "UPDATE accounts SET firstName = ?, lastName = ?, fullName = ?, role = ? WHERE id = ?"
+    );
 
-  for (const row of rows) {
-    const split = splitFullName(row.fullName);
-    const firstName = row.firstName ?? split.firstName;
-    const lastName = row.lastName ?? split.lastName;
-    const fullName = buildFullName(firstName, lastName, row.fullName);
-    const role = normalizeRole(row.role);
-    migrateStmt.run(firstName ?? null, lastName ?? null, fullName ?? null, role, row.id);
+    for (const row of rows) {
+      const split = splitFullName(row.fullName);
+      const firstName = row.firstName ?? split.firstName;
+      const lastName = row.lastName ?? split.lastName;
+      const fullName = buildFullName(firstName, lastName, row.fullName);
+      const role = normalizeRole(row.role);
+      migrateStmt.run(firstName ?? null, lastName ?? null, fullName ?? null, role, row.id);
+    }
+  } catch {
+    // ignore migration errors
   }
-} catch (e) {
-  // ignore migration errors
 }
+
+void ensureSeedAccounts();

@@ -6,7 +6,7 @@ import type { DataConnectorProvider } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -5,7 +5,7 @@ import { isActorAdmin } from "@/lib/server-permissions";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -16,9 +16,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
 
-  const existing = getAccountById(id);
+  const existing = await getAccountById(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const updated = updateAccount(id, { role: body.role });
+  const updated = await updateAccount(id, { role: body.role });
   return NextResponse.json(updated);
 }

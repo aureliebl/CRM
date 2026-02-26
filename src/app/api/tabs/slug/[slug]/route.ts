@@ -15,7 +15,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const tab = await getTabBySlug(slug);
   if (!tab) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (isActorAdmin(req)) {
+  if (await isActorAdmin(req)) {
     return NextResponse.json({ ...tab, groupIds: await getGroupIdsForTab(tab.id) });
   }
 

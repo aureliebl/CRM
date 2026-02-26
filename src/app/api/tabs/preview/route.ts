@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * Used during tab creation to preview data before saving.
  */
 export async function POST(req: Request) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

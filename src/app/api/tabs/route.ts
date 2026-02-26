@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const adminMode = isActorAdmin(req);
+  const adminMode = await isActorAdmin(req);
   if (adminMode) {
     const allTabs = await getAllTabs();
     const tabs = await Promise.all(allTabs.map(async (tab) => ({
@@ -33,7 +33,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

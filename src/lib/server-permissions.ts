@@ -11,11 +11,11 @@ export function getActorIdFromRequest(req: Request): string | null {
   return null;
 }
 
-export function isActorAdmin(req: Request): boolean {
+export async function isActorAdmin(req: Request): Promise<boolean> {
   const actorId = getActorIdFromRequest(req);
   if (!actorId) return false;
 
-  const actor = getAccountById(actorId);
+  const actor = await getAccountById(actorId);
   if (!actor) return false;
 
   return actor.role === "admin";

@@ -11,12 +11,12 @@ import { isActorAdmin } from "@/lib/server-permissions";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.json({
-    accounts: getAllAccounts(),
+    accounts: await getAllAccounts(),
     groups: await getUserGroups(),
     memberships: await getAccountGroupMemberships(),
     settings: await getSecuritySettings(),

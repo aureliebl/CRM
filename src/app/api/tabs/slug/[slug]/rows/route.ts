@@ -16,7 +16,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   const tab = await getTabBySlug(slug);
   if (!tab) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!isActorAdmin(req)) {
+  if (!(await isActorAdmin(req))) {
     const groupId = await getGroupIdForAccount(actorId);
     if (!groupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const allowed = (await getTabsForGroup(groupId)).some((item) => item.id === tab.id);
