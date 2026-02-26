@@ -60,6 +60,15 @@ L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 5), tou
    - `data/migrations/004_postgres_accounts.sql`
    - `data/migrations/005_postgres_dashboard_graphs.sql`
 
+5. Backfill des données SQLite existantes vers PostgreSQL :
+   ```bash
+   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
+   ```
+   Optionnel (si votre fichier SQLite est ailleurs) :
+   ```bash
+   SQLITE_PATH=./data/accounts.db DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
+   ```
+
 Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)
@@ -67,6 +76,7 @@ Remarque :
 - phase 4 migre les comptes opérateurs (`accounts`, `logs`)
 - phase 5 migre la bibliothèque dashboard (`dashboard_graphs`)
 - le flux BigQuery reste identique côté application
+- le script de backfill est idempotent (UPSERT), donc relançable sans doublons
 
 3. Se connecter :
    - L'application redirige automatiquement vers `/login`
