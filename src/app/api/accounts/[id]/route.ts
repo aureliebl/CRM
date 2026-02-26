@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAccountById, updateAccount, deleteAccount } from "@/lib/account-store";
+import { deleteAccount, getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const a = await getAccountById(id);
   if (!a) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(a);
+  return NextResponse.json(toSafeAccount(a));
 }
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -47,7 +47,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   const updated = await updateAccount(id, patch);
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json(updated);
+  return NextResponse.json(toSafeAccount(updated));
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {

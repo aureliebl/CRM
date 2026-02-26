@@ -85,6 +85,13 @@ export type AccountRow = {
   updatedAt?: string | null;
 };
 
+export type SafeAccountRow = Omit<AccountRow, "totpSecret" | "extras">;
+
+export function toSafeAccount(row: AccountRow): SafeAccountRow {
+  const { totpSecret: _totpSecret, extras: _extras, ...safe } = row;
+  return safe;
+}
+
 function normalizeRole(role?: string | null): string {
   if (!role) return "operator";
   if (role === "admin" || role === "operator") return role;
@@ -353,6 +360,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
 export async function deleteAccount(id: string) {
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
+    await pgPool.query("DELETE FROM account_credentials WHERE accountId = $1", [id]);
     await pgPool.query("DELETE FROM accounts WHERE id = $1", [id]);
     return;
   }

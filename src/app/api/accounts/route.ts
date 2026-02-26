@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAllAccounts, createAccount } from "@/lib/account-store";
+import { createAccount, getAllAccounts, toSafeAccount } from "@/lib/account-store";
 import { isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   }
 
   const accounts = await getAllAccounts();
-  return NextResponse.json(accounts);
+  return NextResponse.json(accounts.map(toSafeAccount));
 }
 
 export async function POST(req: Request) {
@@ -25,5 +25,6 @@ export async function POST(req: Request) {
   }
 
   const created = await createAccount(body);
-  return NextResponse.json(created, { status: 201 });
+  if (!created) return NextResponse.json({ error: "Create account failed" }, { status: 500 });
+  return NextResponse.json(toSafeAccount(created), { status: 201 });
 }

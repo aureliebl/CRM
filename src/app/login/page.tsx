@@ -54,7 +54,6 @@ export default function LoginPage() {
         role: "admin" | "operator";
         profileImage?: string;
         totpEnabled?: boolean;
-        totpSecret?: string;
       };
     };
 
@@ -72,7 +71,7 @@ export default function LoginPage() {
       role: payload.user.role,
       profileImage: payload.user.profileImage,
       totpEnabled: !!payload.user.totpEnabled,
-      totpSecret: payload.user.totpSecret,
+      totpSecret: undefined,
     });
     router.push("/dashboard");
   };

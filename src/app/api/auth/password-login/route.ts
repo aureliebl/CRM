@@ -35,7 +35,6 @@ export async function POST(req: Request) {
       role: account.role,
       profileImage: account.profileImage,
       totpEnabled: Boolean(account.totpEnabled),
-      totpSecret: account.totpSecret,
     },
   });
 

@@ -112,6 +112,9 @@ export default function SecurityPage() {
           accountPassword: "Mot de passe temporaire",
           accountCreateSuccess: "Compte créé",
           accountCreateError: "Impossible de créer le compte",
+          resetPassword: "Réinitialiser mot de passe",
+          resetPasswordPrompt: "Nouveau mot de passe temporaire (min 8 caractères)",
+          resetPasswordError: "Impossible de réinitialiser le mot de passe",
           connectorsTitle: "Connecteurs de données",
           connectorName: "Nom",
           projectId: "Project ID",
@@ -163,6 +166,9 @@ export default function SecurityPage() {
           accountPassword: "Temporary password",
           accountCreateSuccess: "Account created",
           accountCreateError: "Unable to create account",
+          resetPassword: "Reset password",
+          resetPasswordPrompt: "Temporary new password (min 8 characters)",
+          resetPasswordError: "Unable to reset password",
           connectorsTitle: "Data connectors",
           connectorName: "Name",
           projectId: "Project ID",
@@ -326,6 +332,29 @@ export default function SecurityPage() {
       }
     );
     await loadOverview();
+  };
+
+  const resetPasswordForAccount = async (accountId: string) => {
+    if (!actor) return;
+    const password = window.prompt(labels.resetPasswordPrompt, "");
+    if (!password) return;
+
+    const res = await fetch(
+      `/api/security/accounts/${encodeURIComponent(accountId)}/password?userId=${encodeURIComponent(actor.id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      }
+    );
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setAccountCreateError(body.error || labels.resetPasswordError);
+      return;
+    }
+
+    setAccountCreateError(null);
   };
 
   const createUserAccount = async () => {
@@ -727,6 +756,31 @@ export default function SecurityPage() {
                             </option>
                           ))}
                         </select>
+                      );
+                    },
+                  },
+                  {
+                    key: "actions",
+                    label: labels.actions,
+                    filterType: "none",
+                    render: (row) => {
+                      if (!row.accountId) return "-";
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => resetPasswordForAccount(row.accountId)}
+                          style={{
+                            padding: "0.35rem 0.55rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--button-bg)",
+                            color: "var(--text-primary)",
+                            cursor: "pointer",
+                            fontSize: "0.78rem",
+                          }}
+                        >
+                          {labels.resetPassword}
+                        </button>
                       );
                     },
                   },

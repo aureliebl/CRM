@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAllAccounts } from "@/lib/account-store";
+import { getAllAccounts, toSafeAccount } from "@/lib/account-store";
 import {
   getAccountGroupMemberships,
   getIpAllowlistEntries,
@@ -16,7 +16,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json({
-    accounts: await getAllAccounts(),
+    accounts: (await getAllAccounts()).map(toSafeAccount),
     groups: await getUserGroups(),
     memberships: await getAccountGroupMemberships(),
     settings: await getSecuritySettings(),
