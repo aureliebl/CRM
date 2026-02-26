@@ -90,6 +90,19 @@ Remarque :
 - le flux BigQuery reste identique côté application
 - le script de backfill est idempotent (UPSERT), donc relançable sans doublons
 
+### Après bascule: que faire de `data/accounts.db` ?
+
+- Le runtime applicatif n'utilise plus SQLite : `data/accounts.db` n'est plus lu par l'app en production.
+- Le fichier peut être conservé temporairement comme sauvegarde/rollback local.
+- Une fois la bascule validée (smoke tests + vérifications), vous pouvez l'archiver ou le supprimer.
+- Recommandation: garder une copie datée hors repo, puis supprimer le fichier local de travail.
+
+Exemple d'archivage local :
+```bash
+mkdir -p data/archive
+cp data/accounts.db data/archive/accounts-$(date +%Y%m%d-%H%M%S).db
+```
+
 3. Se connecter :
    - L'application redirige automatiquement vers `/login`
    - **Comptes de test** :
