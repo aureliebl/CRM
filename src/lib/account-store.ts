@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   lastName TEXT,
   fullName TEXT,
   role TEXT,
+  isActive INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -76,6 +77,7 @@ export type AccountRow = {
   lastName?: string | null;
   fullName: string;
   role: string;
+  isActive: number;
   profileImage?: string | null;
   locale?: string | null;
   totpEnabled: number;
@@ -107,6 +109,7 @@ function mapPgAccountRow(row: Record<string, unknown>): AccountRow {
     lastName: (row.lastname as string | null | undefined) ?? (row.lastName as string | null | undefined) ?? null,
     fullName: String((row.fullname ?? row.fullName ?? "") as string),
     role: normalizeRole((row.role as string | null | undefined) ?? null),
+    isActive: Number((row.isactive ?? row.isActive ?? 1) as number),
     profileImage:
       (row.profileimage as string | null | undefined) ?? (row.profileImage as string | null | undefined) ?? null,
     locale: ((row.locale as string | null | undefined) ?? "fr") || "fr",
@@ -129,6 +132,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   lastName TEXT,
   fullName TEXT,
   role TEXT,
+  isActive INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -138,6 +142,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   updatedAt TEXT
 )
 `);
+
+  await pgPool.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1");
 
   await pgPool.query(`
 CREATE TABLE IF NOT EXISTS logs (
@@ -238,7 +244,7 @@ export async function createAccount(row: Partial<AccountRow>) {
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+      "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
       [
         id,
         row.email ?? null,
@@ -246,6 +252,7 @@ export async function createAccount(row: Partial<AccountRow>) {
         lastName,
         fullName,
         normalizeRole(row.role),
+        row.isActive ?? 1,
         row.profileImage ?? null,
         row.locale ?? "fr",
         row.totpEnabled ? 1 : 0,
@@ -261,7 +268,7 @@ export async function createAccount(row: Partial<AccountRow>) {
   if (!sqliteDb) return undefined;
 
   const stmt = sqliteDb.prepare(
-    "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
   );
   stmt.run(
     id,
@@ -270,6 +277,7 @@ export async function createAccount(row: Partial<AccountRow>) {
     lastName,
     fullName,
     normalizeRole(row.role),
+    row.isActive ?? 1,
     row.profileImage ?? null,
     row.locale ?? "fr",
     row.totpEnabled ? 1 : 0,
@@ -311,18 +319,20 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
     lastName: nextLastName,
     fullName: nextFullName,
     role: normalizeRole(patch.role ?? existing.role),
+    isActive: patch.isActive ?? existing.isActive,
     updatedAt: new Date().toISOString(),
   };
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "UPDATE accounts SET email = $1, firstName = $2, lastName = $3, fullName = $4, role = $5, profileImage = $6, locale = $7, totpEnabled = $8, totpSecret = $9, extras = $10, updatedAt = $11 WHERE id = $12",
+      "UPDATE accounts SET email = $1, firstName = $2, lastName = $3, fullName = $4, role = $5, isActive = $6, profileImage = $7, locale = $8, totpEnabled = $9, totpSecret = $10, extras = $11, updatedAt = $12 WHERE id = $13",
       [
         updated.email ?? null,
         updated.firstName ?? null,
         updated.lastName ?? null,
         updated.fullName ?? null,
         normalizeRole(updated.role) ?? null,
+        updated.isActive ?? 1,
         updated.profileImage ?? null,
         updated.locale ?? "fr",
         updated.totpEnabled ?? 0,
@@ -338,7 +348,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
   if (!sqliteDb) return undefined;
 
   const stmt = sqliteDb.prepare(
-    "UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?"
+    "UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, isActive = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?"
   );
   stmt.run(
     updated.email ?? null,
@@ -346,6 +356,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
     updated.lastName ?? null,
     updated.fullName ?? null,
     normalizeRole(updated.role) ?? null,
+    updated.isActive ?? 1,
     updated.profileImage ?? null,
     updated.locale ?? "fr",
     updated.totpEnabled ?? 0,
@@ -414,6 +425,7 @@ export async function setAccountPassword(accountId: string, plainPassword: strin
 export async function authenticateAccount(email: string, plainPassword: string): Promise<AccountRow | undefined> {
   const account = await getAccountByEmail(email);
   if (!account) return undefined;
+  if (!account.isActive) return undefined;
 
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
@@ -458,6 +470,7 @@ if (sqliteDb) {
     const hasFirstName = info.some((columnInfo) => columnInfo.name === "firstName");
     const hasLastName = info.some((columnInfo) => columnInfo.name === "lastName");
     const hasLocale = info.some((columnInfo) => columnInfo.name === "locale");
+    const hasIsActive = info.some((columnInfo) => columnInfo.name === "isActive");
 
     if (!hasFirstName) {
       sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN firstName TEXT").run();
@@ -467,6 +480,9 @@ if (sqliteDb) {
     }
     if (!hasLocale) {
       sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN locale TEXT DEFAULT 'fr'").run();
+    }
+    if (!hasIsActive) {
+      sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN isActive INTEGER DEFAULT 1").run();
     }
 
     const rows = sqliteDb

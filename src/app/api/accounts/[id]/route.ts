@@ -37,6 +37,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   if (!adminMode) {
     delete patch.id;
     delete patch.role;
+    delete patch.isActive;
     delete patch.totpEnabled;
     delete patch.totpSecret;
     delete patch.extras;

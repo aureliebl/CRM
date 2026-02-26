@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createAccount, getAccountByEmail, setAccountPassword } from "@/lib/account-store";
+import { createAccount, getAccountByEmail, setAccountPassword, toSafeAccount } from "@/lib/account-store";
 import { getDefaultGroupId, setAccountGroupMembership } from "@/lib/security-store";
 import { isActorAdmin } from "@/lib/server-permissions";
 
@@ -50,5 +50,5 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json(created, { status: 201 });
+  return NextResponse.json(toSafeAccount(created), { status: 201 });
 }

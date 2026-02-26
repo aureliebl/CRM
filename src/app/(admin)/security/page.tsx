@@ -12,6 +12,7 @@ type AccountLite = {
   email: string;
   fullName: string;
   role: string;
+  isActive?: number;
 };
 
 interface SecurityOverview {
@@ -115,6 +116,10 @@ export default function SecurityPage() {
           resetPassword: "Réinitialiser mot de passe",
           resetPasswordPrompt: "Nouveau mot de passe temporaire (min 8 caractères)",
           resetPasswordError: "Impossible de réinitialiser le mot de passe",
+          accountStatus: "Statut",
+          activateAccount: "Activer",
+          deactivateAccount: "Désactiver",
+          activationError: "Impossible de modifier le statut du compte",
           connectorsTitle: "Connecteurs de données",
           connectorName: "Nom",
           projectId: "Project ID",
@@ -169,6 +174,10 @@ export default function SecurityPage() {
           resetPassword: "Reset password",
           resetPasswordPrompt: "Temporary new password (min 8 characters)",
           resetPasswordError: "Unable to reset password",
+          accountStatus: "Status",
+          activateAccount: "Activate",
+          deactivateAccount: "Deactivate",
+          activationError: "Unable to change account status",
           connectorsTitle: "Data connectors",
           connectorName: "Name",
           projectId: "Project ID",
@@ -355,6 +364,28 @@ export default function SecurityPage() {
     }
 
     setAccountCreateError(null);
+  };
+
+  const setAccountActive = async (accountId: string, isActive: boolean) => {
+    if (!actor) return;
+
+    const res = await fetch(
+      `/api/security/accounts/${encodeURIComponent(accountId)}/activation?userId=${encodeURIComponent(actor.id)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isActive }),
+      }
+    );
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      setAccountCreateError(body.error || labels.activationError);
+      return;
+    }
+
+    setAccountCreateError(null);
+    await loadOverview();
   };
 
   const createUserAccount = async () => {
@@ -693,6 +724,7 @@ export default function SecurityPage() {
                   accountId: account.id,
                   account: account.fullName,
                   role: account.role,
+                  isActive: account.isActive === 1 ? labels.yes : labels.no,
                   group: groupNameById.get(membershipMap.get(account.id) || "") || labels.noGroup,
                 }))}
                 columns={[
@@ -727,6 +759,15 @@ export default function SecurityPage() {
                         </select>
                       );
                     },
+                  },
+                  {
+                    key: "isActive",
+                    label: labels.accountStatus,
+                    filterType: "select",
+                    selectOptions: [
+                      { value: labels.yes, label: labels.yes },
+                      { value: labels.no, label: labels.no },
+                    ],
                   },
                   {
                     key: "group",
@@ -765,22 +806,40 @@ export default function SecurityPage() {
                     filterType: "none",
                     render: (row) => {
                       if (!row.accountId) return "-";
+                      const isActive = row.isActive === labels.yes;
                       return (
-                        <button
-                          type="button"
-                          onClick={() => resetPasswordForAccount(row.accountId)}
-                          style={{
-                            padding: "0.35rem 0.55rem",
-                            borderRadius: "0.45rem",
-                            border: "1px solid var(--border-color)",
-                            background: "var(--button-bg)",
-                            color: "var(--text-primary)",
-                            cursor: "pointer",
-                            fontSize: "0.78rem",
-                          }}
-                        >
-                          {labels.resetPassword}
-                        </button>
+                        <div style={{ display: "inline-flex", gap: "0.35rem", alignItems: "center" }}>
+                          <button
+                            type="button"
+                            onClick={() => resetPasswordForAccount(row.accountId)}
+                            style={{
+                              padding: "0.35rem 0.55rem",
+                              borderRadius: "0.45rem",
+                              border: "1px solid var(--border-color)",
+                              background: "var(--button-bg)",
+                              color: "var(--text-primary)",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            {labels.resetPassword}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAccountActive(row.accountId, !isActive)}
+                            style={{
+                              padding: "0.35rem 0.55rem",
+                              borderRadius: "0.45rem",
+                              border: "1px solid var(--border-color)",
+                              background: "var(--button-bg)",
+                              color: "var(--text-primary)",
+                              cursor: "pointer",
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            {isActive ? labels.deactivateAccount : labels.activateAccount}
+                          </button>
+                        </div>
                       );
                     },
                   },

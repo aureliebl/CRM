@@ -23,6 +23,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
 
+  if (!account.isActive) {
+    return NextResponse.json({ error: "Account is disabled" }, { status: 403 });
+  }
+
   const token = createSessionToken({ userId: account.id, role: account.role });
   const response = NextResponse.json({
     ok: true,
@@ -33,6 +37,7 @@ export async function POST(req: Request) {
       lastName: account.lastName,
       fullName: account.fullName,
       role: account.role,
+      isActive: !!account.isActive,
       profileImage: account.profileImage,
       totpEnabled: Boolean(account.totpEnabled),
     },

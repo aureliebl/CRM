@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   lastName TEXT,
   fullName TEXT,
   role TEXT,
+  isActive INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -16,6 +17,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   createdAt TEXT,
   updatedAt TEXT
 );
+
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1;
 
 CREATE TABLE IF NOT EXISTS logs (
   id TEXT PRIMARY KEY,

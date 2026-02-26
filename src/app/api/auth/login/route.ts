@@ -17,6 +17,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
 
+  if (!account.isActive) {
+    return NextResponse.json({ error: "Account is disabled" }, { status: 403 });
+  }
+
   const token = createSessionToken({ userId: account.id, role: account.role });
   const response = NextResponse.json({
     ok: true,
