@@ -138,7 +138,7 @@ export async function updateCurrentUser(update: Partial<User>): Promise<User | n
   try {
     if (typeof window !== "undefined") {
       const payload = { ...currentUser, ...update };
-      const res = await fetch(`/api/accounts/${currentUser.id}`, {
+      const res = await fetch(`/api/accounts/${currentUser.id}?userId=${encodeURIComponent(currentUser.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -14,7 +14,7 @@ export function useLocale() {
       try {
         const user = getCurrentUser();
         if (!user) return;
-        const res = await fetch(`/api/accounts/${user.id}`, {
+        const res = await fetch(`/api/accounts/${user.id}?userId=${encodeURIComponent(user.id)}`, {
           cache: "no-store",
         });
         if (!res.ok) return;
@@ -61,7 +61,7 @@ export function useLocale() {
     try {
       const user = getCurrentUser();
       if (!user) return;
-      await fetch(`/api/accounts/${user.id}`, {
+      await fetch(`/api/accounts/${user.id}?userId=${encodeURIComponent(user.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ locale: next }),

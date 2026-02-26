@@ -58,7 +58,7 @@ export default function SettingsPage() {
     const current = getCurrentUser();
     if (!current) return null;
 
-    const res = await fetch(`/api/accounts/${current.id}`, {
+    const res = await fetch(`/api/accounts/${current.id}?userId=${encodeURIComponent(current.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),

@@ -6,6 +6,7 @@ import {
   listSharedGraphs,
 } from "@/lib/dashboard-graph-store";
 import { computeGraphData } from "@/lib/dashboard-graph-data";
+import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import type { DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,35 +19,47 @@ async function withComputed(graph: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get("userId") ?? "";
-  const includeShared = req.nextUrl.searchParams.get("includeShared") === "1";
-
-  if (!userId) {
-    return NextResponse.json({ error: "userId is required" }, { status: 400 });
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const ownGraphs = await Promise.all((await listGraphsByOwner(userId)).map(withComputed));
+  const requestedUserId = req.nextUrl.searchParams.get("userId") ?? actorId;
+  const includeShared = req.nextUrl.searchParams.get("includeShared") === "1";
+
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && requestedUserId !== actorId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const ownGraphs = await Promise.all((await listGraphsByOwner(requestedUserId)).map(withComputed));
   if (!includeShared) {
     return NextResponse.json(ownGraphs);
   }
 
-  const sharedGraphs = await Promise.all((await listSharedGraphs()).filter((graph) => graph.ownerUserId !== userId).map(withComputed));
+  const sharedGraphs = await Promise.all((await listSharedGraphs()).filter((graph) => graph.ownerUserId !== requestedUserId).map(withComputed));
 
   return NextResponse.json({ own: ownGraphs, shared: sharedGraphs });
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const userId = String(body.userId ?? "").trim();
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  if (!userId) {
-    return NextResponse.json({ error: "userId is required" }, { status: 400 });
+  const body = await req.json();
+  const targetOwnerId = String(body.userId ?? actorId).trim() || actorId;
+  const adminMode = await isActorAdmin(req);
+
+  if (!adminMode && targetOwnerId !== actorId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   if (body.importGraphId) {
     const duplicated = await duplicateSharedGraphForUser({
       graphId: String(body.importGraphId),
-      ownerUserId: userId,
+      ownerUserId: targetOwnerId,
     });
 
     if (!duplicated) {
@@ -62,10 +75,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid config" }, { status: 400 });
   }
 
-  const currentUserGraphs = await listGraphsByOwner(userId);
+  const currentUserGraphs = await listGraphsByOwner(targetOwnerId);
 
   const created = await createGraph({
-    ownerUserId: userId,
+    ownerUserId: targetOwnerId,
     title: String(body.title ?? "Graphique"),
     description: body.description ? String(body.description) : undefined,
     size: (body.size as DashboardGraphSize) ?? "M",

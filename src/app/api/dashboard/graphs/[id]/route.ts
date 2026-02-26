@@ -5,6 +5,7 @@ import {
   getGraphById,
   updateGraph,
 } from "@/lib/dashboard-graph-store";
+import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import type { DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,12 @@ async function withComputed(graph: any) {
   };
 }
 
-export async function GET(_: NextRequest, { params }: Params) {
+export async function GET(req: NextRequest, { params }: Params) {
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const graph = await getGraphById(id);
 
@@ -26,10 +32,20 @@ export async function GET(_: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && graph.ownerUserId !== actorId) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   return NextResponse.json(await withComputed(graph));
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await req.json();
   const graph = await getGraphById(id);
@@ -38,8 +54,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const requesterUserId = String(body.userId ?? "").trim();
-  if (!requesterUserId || requesterUserId !== graph.ownerUserId) {
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && actorId !== graph.ownerUserId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -60,6 +76,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id } = await params;
   const graph = await getGraphById(id);
 
@@ -67,8 +88,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const requesterUserId = req.nextUrl.searchParams.get("userId") ?? "";
-  if (!requesterUserId || requesterUserId !== graph.ownerUserId) {
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && actorId !== graph.ownerUserId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

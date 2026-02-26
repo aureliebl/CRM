@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server";
-import { getAccountById, updateAccount, deleteAccount, createAccount } from "@/lib/account-store";
+import { getAccountById, updateAccount, deleteAccount } from "@/lib/account-store";
+import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const resolved = await params;
   const { id } = resolved;
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && actorId !== id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const a = await getAccountById(id);
   if (!a) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(a);
@@ -14,19 +23,46 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const resolved = await params;
   const { id } = resolved;
-  const body = await req.json();
-  let updated = await updateAccount(id, body);
-  if (!updated) {
-    // If account doesn't exist yet, create it using provided id
-    updated = await createAccount({ id, ...body });
-    return NextResponse.json(updated, { status: 201 });
+  const actorId = getActorIdFromRequest(req);
+  if (!actorId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const adminMode = await isActorAdmin(req);
+  if (!adminMode && actorId !== id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const body = await req.json();
+  const patch = { ...(body ?? {}) };
+
+  if (!adminMode) {
+    delete patch.id;
+    delete patch.role;
+    delete patch.totpEnabled;
+    delete patch.totpSecret;
+    delete patch.extras;
+    delete patch.createdAt;
+    delete patch.updatedAt;
+  }
+
+  const updated = await updateAccount(id, patch);
+  if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   return NextResponse.json(updated);
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  if (!(await isActorAdmin(req))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const resolved = await params;
   const { id } = resolved;
+
+  const actorId = getActorIdFromRequest(req);
+  if (actorId && actorId === id) {
+    return NextResponse.json({ error: "Cannot delete current actor" }, { status: 400 });
+  }
+
   await deleteAccount(id);
   return NextResponse.json({ ok: true });
 }
