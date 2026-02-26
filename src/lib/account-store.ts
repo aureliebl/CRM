@@ -1,7 +1,13 @@
-import path from "path";
-import fs from "fs";
-import Database from "better-sqlite3";
 import { Pool } from "pg";
+
+type SqliteCompat = {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => {
+    get: (...args: unknown[]) => unknown;
+    all: (...args: unknown[]) => unknown[];
+    run: (...args: unknown[]) => unknown;
+  };
+};
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -10,13 +16,17 @@ if (!databaseUrl) {
 
 const usePostgres = true;
 
-const sqliteDb = (() => {
-  if (true) return null;
-  const dataDir = path.resolve(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  const dbPath = path.join(dataDir, "accounts.db");
-  return new Database(dbPath);
-})();
+let sqliteDb: SqliteCompat | null =
+  process.env.ENABLE_SQLITE_LEGACY === "true"
+    ? {
+        exec: () => {
+          throw new Error("SQLite legacy mode is disabled");
+        },
+        prepare: () => {
+          throw new Error("SQLite legacy mode is disabled");
+        },
+      }
+    : null;
 
 const pgPool = new Pool({
   connectionString: databaseUrl,

@@ -1,9 +1,15 @@
-import path from "path";
-import fs from "fs";
-import Database from "better-sqlite3";
 import { Pool } from "pg";
 import { decryptText, encryptText } from "@/lib/crypto";
 import type { DataConnector, DataConnectorProvider } from "@/lib/types";
+
+type SqliteCompat = {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => {
+    get: (...args: unknown[]) => unknown;
+    all: (...args: unknown[]) => unknown[];
+    run: (...args: unknown[]) => unknown;
+  };
+};
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -11,7 +17,7 @@ if (!databaseUrl) {
 }
 
 const usePostgres = true;
-const sqliteDb: Database | null = null;
+const sqliteDb: SqliteCompat | null = null;
 const pgPool = new Pool({
   connectionString: databaseUrl,
   ssl:
