@@ -137,7 +137,7 @@ export function HeaderAircall() {
 
           {matchedClientId && (
             <div style={{ marginBottom: "0.5rem" }}>
-              <Link href={`/clients/${matchedClientId}`} style={{ color: "var(--text-primary)" }}>
+              <Link href={`/crm/${matchedClientId}`} style={{ color: "var(--text-primary)" }}>
                 {labels.clientProfile}
               </Link>
             </div>

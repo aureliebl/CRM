@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { getClients } from "@/lib/mock/clients";
 import type { Client } from "@/lib/types";
@@ -8,6 +8,7 @@ import type { Client } from "@/lib/types";
 export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: string; placeholder?: string; maxWidth?: string | number }) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const router = useRouter();
   const clients = getClients();
   const isMac = useMemo(() => {
@@ -30,8 +31,19 @@ export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: str
       .slice(0, 5);
   }, [query, clients]);
 
+  useEffect(() => {
+    if (!isOpen || filtered.length === 0) {
+      setActiveIndex(-1);
+      return;
+    }
+
+    if (activeIndex >= filtered.length) {
+      setActiveIndex(filtered.length - 1);
+    }
+  }, [filtered, isOpen, activeIndex]);
+
   const handleSelect = (client: Client) => {
-    router.push(`/clients/${client.id}`);
+    router.push(`/crm/${client.id}`);
     setQuery("");
     setIsOpen(false);
   };
@@ -50,6 +62,27 @@ export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: str
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onKeyDown={(e) => {
+          if (!filtered.length) return;
+
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : 0));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setIsOpen(true);
+            setActiveIndex((prev) => (prev > 0 ? prev - 1 : filtered.length - 1));
+          } else if (e.key === "Enter") {
+            if (activeIndex >= 0 && activeIndex < filtered.length) {
+              e.preventDefault();
+              handleSelect(filtered[activeIndex]);
+            }
+          } else if (e.key === "Escape") {
+            setIsOpen(false);
+            setActiveIndex(-1);
+          }
+        }}
         style={{
           width: "100%",
           padding: "0.5rem 0.75rem",
@@ -106,29 +139,29 @@ export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: str
               key={client.id}
               type="button"
               onClick={() => handleSelect(client)}
+              onMouseEnter={() => {
+                const index = filtered.findIndex((c) => c.id === client.id);
+                setActiveIndex(index);
+              }}
+              onMouseLeave={() => setActiveIndex(-1)}
               style={{
                 width: "100%",
                 padding: "0.75rem 1rem",
                 textAlign: "left",
                 border: "none",
-                background: "transparent",
+                background: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "var(--surface-secondary)" : "transparent",
                 color: "var(--text-primary)",
                 cursor: "pointer",
                 fontSize: "0.85rem",
                 borderBottom: "1px solid var(--border-color)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
+                boxShadow: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "inset 3px 0 0 var(--accent-primary)" : "none",
               }}
             >
-              <div style={{ fontWeight: 500 }}>{client.fullName}</div>
+              <div style={{ fontWeight: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? 600 : 500 }}>{client.fullName}</div>
               <div
                 style={{
                   fontSize: "0.75rem",
-                  color: "var(--text-secondary)",
+                  color: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "var(--text-primary)" : "var(--text-secondary)",
                   marginTop: "0.15rem",
                 }}
               >
