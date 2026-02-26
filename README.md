@@ -75,6 +75,18 @@ L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 5), tou
    ```
    Le script retourne un code non nul si un écart est détecté.
 
+7. Vérifier le contenu exact sur les tables critiques :
+   ```bash
+   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
+   ```
+   Ce script compare les lignes (pas seulement les counts) sur `data_connectors`, `app_tabs`,
+   `app_tab_group_visibility`, `accounts` et `dashboard_graphs`.
+   Par défaut il valide toutes les lignes SQLite présentes dans PostgreSQL (mode backfill-safe).
+   Pour forcer une égalité stricte (aucune ligne en plus côté PostgreSQL) :
+   ```bash
+   VERIFY_STRICT=true DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
+   ```
+
 Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)
