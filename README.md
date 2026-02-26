@@ -32,59 +32,53 @@ Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
    npm run dev
    ```
 
-### Base de données (migration progressive vers PostgreSQL)
+### Base de données (runtime PostgreSQL)
 
-L'app supporte maintenant un mode PostgreSQL **progressif** (phases 1 à 5), tout en gardant BigQuery inchangé pour les connecteurs/runtimes analytiques.
+Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery inchangé pour les connecteurs/runtimes analytiques.
 
 1. Copier la config d'environnement :
    ```bash
    cp .env.example .env.local
    ```
 
-2. Pour rester en SQLite (comportement actuel) :
+2. Configurer PostgreSQL :
    ```env
-   DB_PROVIDER=sqlite
-   ```
-
-3. Pour activer PostgreSQL (phase 1) :
-   ```env
-   DB_PROVIDER=postgres
    DATABASE_URL=postgres://user:password@host:5432/database
    PGSSL=false
    ```
 
-4. Appliquer les migrations SQL sur PostgreSQL :
+3. Appliquer les migrations SQL sur PostgreSQL :
    - `data/migrations/001_postgres_connectors.sql`
    - `data/migrations/002_postgres_tabs.sql`
    - `data/migrations/003_postgres_security.sql`
    - `data/migrations/004_postgres_accounts.sql`
    - `data/migrations/005_postgres_dashboard_graphs.sql`
 
-5. Backfill des données SQLite existantes vers PostgreSQL :
+4. Backfill des données SQLite historiques vers PostgreSQL :
    ```bash
-   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
+   DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
    ```
    Optionnel (si votre fichier SQLite est ailleurs) :
    ```bash
-   SQLITE_PATH=./data/accounts.db DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
+   SQLITE_PATH=./data/accounts.db DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
    ```
 
-6. Vérifier les volumes migrés (comparaison des counts SQLite vs PostgreSQL) :
+5. Vérifier les volumes migrés (comparaison des counts SQLite vs PostgreSQL) :
    ```bash
-   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:postgres
+   DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:postgres
    ```
    Le script retourne un code non nul si un écart est détecté.
 
-7. Vérifier le contenu exact sur les tables critiques :
+6. Vérifier le contenu exact sur les tables critiques :
    ```bash
-   DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
+   DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
    ```
    Ce script compare les lignes (pas seulement les counts) sur `data_connectors`, `app_tabs`,
    `app_tab_group_visibility`, `accounts` et `dashboard_graphs`.
    Par défaut il valide toutes les lignes SQLite présentes dans PostgreSQL (mode backfill-safe).
    Pour forcer une égalité stricte (aucune ligne en plus côté PostgreSQL) :
    ```bash
-   VERIFY_STRICT=true DB_PROVIDER=postgres DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
+   VERIFY_STRICT=true DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
    ```
 
 Remarque :

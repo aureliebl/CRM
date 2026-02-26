@@ -4,11 +4,15 @@ import Database from "better-sqlite3";
 import { Pool } from "pg";
 import type { DashboardGraph, DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
 
-const dbProvider = process.env.DB_PROVIDER ?? (process.env.DATABASE_URL ? "postgres" : "sqlite");
-const usePostgres = dbProvider === "postgres";
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required (runtime is PostgreSQL-only)");
+}
+
+const usePostgres = true;
 
 const sqliteDb = (() => {
-  if (usePostgres) return null;
+  if (true) return null;
   const dataDir = path.resolve(process.cwd(), "data");
   if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
@@ -16,18 +20,15 @@ const sqliteDb = (() => {
   return new Database(dbPath);
 })();
 
-const pgPool =
-  usePostgres && process.env.DATABASE_URL
-    ? new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl:
-          process.env.PGSSL === "true"
-            ? {
-                rejectUnauthorized: false,
-              }
-            : undefined,
-      })
-    : null;
+const pgPool = new Pool({
+  connectionString: databaseUrl,
+  ssl:
+    process.env.PGSSL === "true"
+      ? {
+          rejectUnauthorized: false,
+        }
+      : undefined,
+});
 
 let postgresReady: Promise<void> | null = null;
 

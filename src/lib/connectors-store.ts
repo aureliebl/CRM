@@ -5,29 +5,22 @@ import { Pool } from "pg";
 import { decryptText, encryptText } from "@/lib/crypto";
 import type { DataConnector, DataConnectorProvider } from "@/lib/types";
 
-const dbProvider = process.env.DB_PROVIDER ?? (process.env.DATABASE_URL ? "postgres" : "sqlite");
-const usePostgres = dbProvider === "postgres";
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error("DATABASE_URL is required (runtime is PostgreSQL-only)");
+}
 
-const sqliteDb = (() => {
-  if (usePostgres) return null;
-
-  const dataDir = path.resolve(process.cwd(), "data");
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  const dbPath = path.join(dataDir, "accounts.db");
-  return new Database(dbPath);
-})();
-const pgPool =
-  usePostgres && process.env.DATABASE_URL
-    ? new Pool({
-        connectionString: process.env.DATABASE_URL,
-        ssl:
-          process.env.PGSSL === "true"
-            ? {
-                rejectUnauthorized: false,
-              }
-            : undefined,
-      })
-    : null;
+const usePostgres = true;
+const sqliteDb: Database | null = null;
+const pgPool = new Pool({
+  connectionString: databaseUrl,
+  ssl:
+    process.env.PGSSL === "true"
+      ? {
+          rejectUnauthorized: false,
+        }
+      : undefined,
+});
 
 let postgresReady: Promise<void> | null = null;
 
