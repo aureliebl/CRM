@@ -1,12 +1,18 @@
 import { getAccountById } from "@/lib/account-store";
+import { getSessionFromRequest } from "@/lib/server-session";
 
 export function getActorIdFromRequest(req: Request): string | null {
-  const url = new URL(req.url);
-  const fromQuery = url.searchParams.get("userId");
-  if (fromQuery) return fromQuery;
+  const session = getSessionFromRequest(req);
+  if (session?.userId) return session.userId;
 
-  const fromHeader = req.headers.get("x-user-id");
-  if (fromHeader) return fromHeader;
+  if (process.env.ALLOW_LEGACY_ACTOR_FALLBACK === "true") {
+    const url = new URL(req.url);
+    const fromQuery = url.searchParams.get("userId");
+    if (fromQuery) return fromQuery;
+
+    const fromHeader = req.headers.get("x-user-id");
+    if (fromHeader) return fromHeader;
+  }
 
   return null;
 }

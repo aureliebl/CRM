@@ -123,7 +123,12 @@ export default function SettingsPage() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // ignore network issues on logout
+    }
     logout();
     router.push("/login");
   };

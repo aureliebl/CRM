@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { login, verifyTOTP, getCurrentUser } from "@/lib/mock/auth";
+import { login, verifyTOTP, getCurrentUser, logout } from "@/lib/mock/auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -11,6 +11,19 @@ export default function LoginPage() {
   const [step, setStep] = useState<"credentials" | "totp">("credentials");
   const [error, setError] = useState("");
   const router = useRouter();
+
+  const establishServerSession = async (userId: string) => {
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || "LOGIN_SESSION_FAILED");
+    }
+  };
 
   const handleSubmitCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,11 +54,17 @@ export default function LoginPage() {
     if (user.totpEnabled) {
       setStep("totp");
     } else {
-      router.push("/dashboard");
+      try {
+        await establishServerSession(user.id);
+        router.push("/dashboard");
+      } catch {
+        logout();
+        setError("Erreur de session, veuillez réessayer");
+      }
     }
   };
 
-  const handleSubmitTOTP = (e: React.FormEvent) => {
+  const handleSubmitTOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     const user = getCurrentUser();
@@ -54,7 +73,13 @@ export default function LoginPage() {
       return;
     }
     if (verifyTOTP(user.totpSecret, totpCode)) {
-      router.push("/dashboard");
+      try {
+        await establishServerSession(user.id);
+        router.push("/dashboard");
+      } catch {
+        logout();
+        setError("Erreur de session, veuillez réessayer");
+      }
     } else {
       setError("Code TOTP incorrect");
     }

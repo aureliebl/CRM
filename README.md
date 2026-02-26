@@ -45,6 +45,8 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    ```env
    DATABASE_URL=postgres://user:password@host:5432/database
    PGSSL=false
+   APP_SESSION_SECRET=change-me-with-a-long-random-secret
+   ALLOW_LEGACY_ACTOR_FALLBACK=false
    ```
 
 3. Appliquer les migrations SQL sur PostgreSQL :
@@ -89,6 +91,13 @@ Remarque :
 - phase 5 migre la bibliothèque dashboard (`dashboard_graphs`)
 - le flux BigQuery reste identique côté application
 - le script de backfill est idempotent (UPSERT), donc relançable sans doublons
+
+### Auth serveur (session signée + middleware)
+
+- L'app utilise désormais une session serveur signée en cookie HTTP-only (`costockage_session`).
+- Les routes API utilisent cette session pour identifier l'acteur serveur, au lieu de faire confiance aux query params client.
+- Un middleware protège les pages admin et les routes API (hors login/public) et redirige vers `/login` si non authentifié.
+- Le fallback `userId` via query/header est désactivé par défaut et ne doit être activé que temporairement (`ALLOW_LEGACY_ACTOR_FALLBACK=true`) pendant une transition.
 
 ### Après bascule: que faire de `data/accounts.db` ?
 
