@@ -15,8 +15,8 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json({
-    settings: getSecuritySettings(),
-    entries: getIpAllowlistEntries(),
+    settings: await getSecuritySettings(),
+    entries: await getIpAllowlistEntries(),
   });
 }
 
@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "ipOrCidr is required" }, { status: 400 });
   }
 
-  const created = addIpAllowlistEntry({
+  const created = await addIpAllowlistEntry({
     ipOrCidr: body.ipOrCidr,
     label: body.label,
     isActive: body.isActive !== false,
@@ -45,7 +45,7 @@ export async function PATCH(req: Request) {
   }
 
   const body = await req.json();
-  const updatedSettings = updateSecuritySettings({
+  const updatedSettings = await updateSecuritySettings({
     ipAllowlistEnabled: !!body.ipAllowlistEnabled,
   });
 

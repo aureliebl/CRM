@@ -17,9 +17,9 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     accounts: getAllAccounts(),
-    groups: getUserGroups(),
-    memberships: getAccountGroupMemberships(),
-    settings: getSecuritySettings(),
-    ipAllowlist: getIpAllowlistEntries(),
+    groups: await getUserGroups(),
+    memberships: await getAccountGroupMemberships(),
+    settings: await getSecuritySettings(),
+    ipAllowlist: await getIpAllowlistEntries(),
   });
 }

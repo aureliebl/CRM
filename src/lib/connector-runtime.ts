@@ -72,7 +72,7 @@ async function getBigQueryClient(config: { projectId?: string; serviceAccountJso
 }
 
 export async function listConnectorTables(preferredConnectorId?: string) {
-  const connector = getActiveConnector(preferredConnectorId);
+  const connector = await getActiveConnector(preferredConnectorId);
   if (!connector) {
     return {
       connector: null,
@@ -88,7 +88,7 @@ export async function listConnectorTables(preferredConnectorId?: string) {
     };
   }
 
-  const config = (getConnectorConfig(connector.id) ?? {}) as {
+  const config = ((await getConnectorConfig(connector.id)) ?? {}) as {
     projectId?: string;
     dataset?: string;
     serviceAccountJson?: string;
@@ -148,7 +148,7 @@ export async function readConnectorRows(input: {
   table: string;
   limit?: number;
 }): Promise<{ connector: DataConnector | null; rows: GenericRow[] }> {
-  const connector = getActiveConnector(input.preferredConnectorId);
+  const connector = await getActiveConnector(input.preferredConnectorId);
   if (!connector) return { connector: null, rows: [] };
 
   const limit = Math.max(1, Math.min(input.limit ?? 200, 500));
@@ -160,7 +160,7 @@ export async function readConnectorRows(input: {
     };
   }
 
-  const config = (getConnectorConfig(connector.id) ?? {}) as {
+  const config = ((await getConnectorConfig(connector.id)) ?? {}) as {
     projectId?: string;
     dataset?: string;
     serviceAccountJson?: string;
@@ -189,7 +189,7 @@ export async function getConnectorTableSchema(input: {
   preferredConnectorId?: string;
   table: string;
 }): Promise<{ connector: DataConnector | null; columns: ConnectorColumnSchema[] }> {
-  const connector = getActiveConnector(input.preferredConnectorId);
+  const connector = await getActiveConnector(input.preferredConnectorId);
   if (!connector) return { connector: null, columns: [] };
 
   if (connector.provider === "mock") {
@@ -199,7 +199,7 @@ export async function getConnectorTableSchema(input: {
     };
   }
 
-  const config = (getConnectorConfig(connector.id) ?? {}) as {
+  const config = ((await getConnectorConfig(connector.id)) ?? {}) as {
     projectId?: string;
     dataset?: string;
     serviceAccountJson?: string;

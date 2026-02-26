@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(getAccountGroupMemberships());
+  return NextResponse.json(await getAccountGroupMemberships());
 }
 
 export async function PUT(req: Request) {
@@ -22,6 +22,6 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "accountId and groupId are required" }, { status: 400 });
   }
 
-  const membership = setAccountGroupMembership(body.accountId, body.groupId);
+  const membership = await setAccountGroupMembership(body.accountId, body.groupId);
   return NextResponse.json(membership);
 }

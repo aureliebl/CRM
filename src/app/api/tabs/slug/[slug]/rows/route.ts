@@ -13,13 +13,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   }
 
   const { slug } = await params;
-  const tab = getTabBySlug(slug);
+  const tab = await getTabBySlug(slug);
   if (!tab) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (!isActorAdmin(req)) {
-    const groupId = getGroupIdForAccount(actorId);
+    const groupId = await getGroupIdForAccount(actorId);
     if (!groupId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    const allowed = getTabsForGroup(groupId).some((item) => item.id === tab.id);
+    const allowed = (await getTabsForGroup(groupId)).some((item) => item.id === tab.id);
     if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

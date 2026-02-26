@@ -10,8 +10,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const connectors = getConnectors().map((connector) => {
-    const config = getConnectorConfig(connector.id) as
+  const allConnectors = await getConnectors();
+  const connectors = await Promise.all(allConnectors.map(async (connector) => {
+    const config = (await getConnectorConfig(connector.id)) as
       | { projectId?: string; dataset?: string; serviceAccountJson?: string }
       | null;
 
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
         hasServiceAccount: !!config?.serviceAccountJson,
       },
     };
-  });
+  }));
   return NextResponse.json(connectors);
 }
 
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
 
   const provider = body.provider as DataConnectorProvider;
 
-  const created = createConnector({
+  const created = await createConnector({
     name: body.name,
     provider,
     config:

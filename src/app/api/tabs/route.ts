@@ -13,20 +13,22 @@ export async function GET(req: Request) {
 
   const adminMode = isActorAdmin(req);
   if (adminMode) {
-    const tabs = getAllTabs().map((tab) => ({
+    const allTabs = await getAllTabs();
+    const tabs = await Promise.all(allTabs.map(async (tab) => ({
       ...tab,
-      groupIds: getGroupIdsForTab(tab.id),
-    }));
+      groupIds: await getGroupIdsForTab(tab.id),
+    })));
     return NextResponse.json(tabs);
   }
 
-  const groupId = getGroupIdForAccount(actorId);
+  const groupId = await getGroupIdForAccount(actorId);
   if (!groupId) return NextResponse.json([]);
 
-  const tabs = getTabsForGroup(groupId).map((tab) => ({
+  const groupTabs = await getTabsForGroup(groupId);
+  const tabs = await Promise.all(groupTabs.map(async (tab) => ({
     ...tab,
-    groupIds: getGroupIdsForTab(tab.id),
-  }));
+    groupIds: await getGroupIdsForTab(tab.id),
+  })));
   return NextResponse.json(tabs);
 }
 
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "slug and title are required" }, { status: 400 });
   }
 
-  const created = createTab({
+  const created = await createTab({
     slug: body.slug,
     title: body.title,
     subtitle: body.subtitle,

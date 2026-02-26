@@ -9,7 +9,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(getUserGroups());
+  return NextResponse.json(await getUserGroups());
 }
 
 export async function POST(req: Request) {
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const created = createUserGroup({
+  const created = await createUserGroup({
     name: body.name,
     description: body.description,
     isDefault: !!body.isDefault,

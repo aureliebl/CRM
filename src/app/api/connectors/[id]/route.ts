@@ -10,10 +10,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { id } = await params;
-  const connector = getConnectors().find((item) => item.id === id);
+  const connector = (await getConnectors()).find((item) => item.id === id);
   if (!connector) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const config = getConnectorConfig(id) as
+  const config = (await getConnectorConfig(id)) as
     | { projectId?: string; dataset?: string; serviceAccountJson?: string }
     | null;
 
@@ -35,7 +35,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const { id } = await params;
   const body = await req.json();
 
-  const updated = updateConnector(id, {
+  const updated = await updateConnector(id, {
     name: body.name,
     enabled: body.enabled,
     config:
@@ -58,6 +58,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
 
   const { id } = await params;
-  deleteConnector(id);
+  await deleteConnector(id);
   return NextResponse.json({ ok: true });
 }

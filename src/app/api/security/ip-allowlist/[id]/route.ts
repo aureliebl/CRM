@@ -11,7 +11,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const body = await req.json();
-  const updated = updateIpAllowlistEntry(id, body);
+  const updated = await updateIpAllowlistEntry(id, body);
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(updated);
 }
@@ -22,6 +22,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
 
   const { id } = await params;
-  deleteIpAllowlistEntry(id);
+  await deleteIpAllowlistEntry(id);
   return NextResponse.json({ ok: true });
 }

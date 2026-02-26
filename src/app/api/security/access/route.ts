@@ -5,8 +5,8 @@ import { isIpInCidr, normalizeClientIp } from "@/lib/ip-utils";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const settings = getSecuritySettings();
-  const entries = getIpAllowlistEntries().filter((entry) => entry.isActive);
+  const settings = await getSecuritySettings();
+  const entries = (await getIpAllowlistEntries()).filter((entry) => entry.isActive);
 
   const rawIp = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip");
   const clientIp = normalizeClientIp(rawIp) ?? "127.0.0.1";

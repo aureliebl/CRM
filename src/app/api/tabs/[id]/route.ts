@@ -10,9 +10,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { id } = await params;
-  const tab = getTabById(id);
+  const tab = await getTabById(id);
   if (!tab) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ...tab, groupIds: getGroupIdsForTab(id) });
+  return NextResponse.json({ ...tab, groupIds: await getGroupIdsForTab(id) });
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { id } = await params;
   const body = await req.json();
-  const updated = updateTab(id, {
+  const updated = await updateTab(id, {
     slug: body.slug,
     title: body.title,
     subtitle: body.subtitle,
@@ -42,6 +42,6 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
 
   const { id } = await params;
-  deleteTab(id);
+  await deleteTab(id);
   return NextResponse.json({ ok: true });
 }
