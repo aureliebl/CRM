@@ -31,6 +31,15 @@ export default function SettingsPage() {
           lastName: "Nom",
           saveAccount: "Enregistrer les informations",
           accountSaved: "Informations du compte enregistrées",
+          passwordTitle: "Mot de passe",
+          currentPassword: "Mot de passe actuel",
+          newPassword: "Nouveau mot de passe",
+          confirmPassword: "Confirmer le nouveau mot de passe",
+          savePassword: "Changer le mot de passe",
+          passwordSaved: "Mot de passe modifié",
+          passwordSaveError: "Erreur lors de la modification du mot de passe",
+          passwordMismatch: "Les mots de passe ne correspondent pas",
+          passwordMinLength: "Le mot de passe doit contenir au moins 8 caractères",
           imageSaveError: "Erreur lors de l'enregistrement de l'image",
           accountSaveError: "Erreur lors de l'enregistrement du compte",
           connectedAs: "Connecté en tant que",
@@ -40,6 +49,15 @@ export default function SettingsPage() {
           lastName: "Last name",
           saveAccount: "Save account details",
           accountSaved: "Account information saved",
+          passwordTitle: "Password",
+          currentPassword: "Current password",
+          newPassword: "New password",
+          confirmPassword: "Confirm new password",
+          savePassword: "Change password",
+          passwordSaved: "Password changed",
+          passwordSaveError: "Failed to change password",
+          passwordMismatch: "Passwords do not match",
+          passwordMinLength: "Password must be at least 8 characters",
           imageSaveError: "Failed to save profile image",
           accountSaveError: "Failed to save account information",
           connectedAs: "Connected as",
@@ -61,8 +79,13 @@ export default function SettingsPage() {
   );
   const [savingImage, setSavingImage] = useState(false);
   const [savingAccount, setSavingAccount] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
   const [imageSaved, setImageSaved] = useState(false);
   const [accountSaved, setAccountSaved] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -211,6 +234,54 @@ export default function SettingsPage() {
       console.error(err);
       setSavingAccount(false);
       setErrorMessage(labels.accountSaveError);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) return;
+
+    if (newPassword !== confirmPassword) {
+      setErrorMessage(labels.passwordMismatch);
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setErrorMessage(labels.passwordMinLength);
+      return;
+    }
+
+    setSavingPassword(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+          confirmPassword,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "PASSWORD_CHANGE_FAILED");
+      }
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordSaved(true);
+      setTimeout(() => setPasswordSaved(false), 900);
+      setToast(labels.passwordSaved);
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      console.error(err);
+      setErrorMessage(
+        err instanceof Error && err.message ? err.message : labels.passwordSaveError
+      );
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -498,6 +569,83 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
+      </section>
+
+      <section className="admin-placeholder-card" style={{ marginTop: "1rem" }}>
+        <div className="admin-placeholder-title">{labels.passwordTitle}</div>
+        <div
+          style={{
+            marginTop: "1rem",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "0.75rem",
+          }}
+        >
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+            {labels.currentPassword}
+            <input
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+              style={{
+                background: "var(--input-bg)",
+                border: "1px solid var(--border-color)",
+                color: "var(--text-primary)",
+                padding: "0.45rem",
+                borderRadius: "0.4rem",
+                fontSize: "0.85rem",
+              }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+            {labels.newPassword}
+            <input
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              style={{
+                background: "var(--input-bg)",
+                border: "1px solid var(--border-color)",
+                color: "var(--text-primary)",
+                padding: "0.45rem",
+                borderRadius: "0.4rem",
+                fontSize: "0.85rem",
+              }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: "0.35rem", fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+            {labels.confirmPassword}
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              style={{
+                background: "var(--input-bg)",
+                border: "1px solid var(--border-color)",
+                color: "var(--text-primary)",
+                padding: "0.45rem",
+                borderRadius: "0.4rem",
+                fontSize: "0.85rem",
+              }}
+            />
+          </label>
+        </div>
+        <div style={{ marginTop: "0.75rem" }}>
+          <AsyncButton
+            type="button"
+            onClick={handleChangePassword}
+            isLoading={savingPassword}
+            isSuccess={passwordSaved}
+            loadingLabel={t.saving}
+            successLabel={labels.savePassword}
+            minWidth={220}
+          >
+            {labels.savePassword}
+          </AsyncButton>
+        </div>
       </section>
     </div>
   );
