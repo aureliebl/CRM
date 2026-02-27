@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { addLog } from "@/lib/account-store";
 import { isActorAdmin, getActorIdFromRequest } from "@/lib/server-permissions";
 import { createTab, getAllTabs, getGroupIdsForTab, getTabsForGroup } from "@/lib/tabs-store";
 import { getGroupIdForAccount } from "@/lib/security-store";
@@ -56,6 +57,10 @@ export async function POST(req: Request) {
     config: body.config,
     groupIds: Array.isArray(body.groupIds) ? body.groupIds : [],
   });
+
+  if (created) {
+    await addLog(actorId, "tab.created", `Tab ${created.id} created by ${actorId}`);
+  }
 
   return NextResponse.json(created, { status: 201 });
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { deleteAccount, getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
+import { addLog, deleteAccount, getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,14 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const body = await req.json();
+  const existing = await getAccountById(id);
+  if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const expectedUpdatedAt = getExpectedUpdatedAt(req, body);
+  if (isStaleWrite(expectedUpdatedAt, existing.updatedAt ?? null)) {
+    return NextResponse.json({ error: "Conflict: resource has been modified", code: "CONFLICT" }, { status: 409 });
+  }
+
   const patch = { ...(body ?? {}) };
 
   if (!adminMode) {
@@ -47,6 +56,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   const updated = await updateAccount(id, patch);
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  await addLog(actorId, "account.updated", `Account ${id} updated by ${actorId}`);
 
   return NextResponse.json(toSafeAccount(updated));
 }
@@ -65,5 +76,8 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
 
   await deleteAccount(id);
+  if (actorId) {
+    await addLog(actorId, "account.deleted", `Account ${id} deleted by ${actorId}`);
+  }
   return NextResponse.json({ ok: true });
 }

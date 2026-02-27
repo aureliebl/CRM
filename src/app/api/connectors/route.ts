@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { addLog } from "@/lib/account-store";
 import { createConnector, getConnectors, getConnectorConfig } from "@/lib/connectors-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import type { DataConnectorProvider } from "@/lib/types";
@@ -58,6 +59,10 @@ export async function POST(req: Request) {
           },
     createdBy: actorId,
   });
+
+  if (created) {
+    await addLog(actorId, "connector.created", `Connector ${created.id} created by ${actorId}`);
+  }
 
   return NextResponse.json(created, { status: 201 });
 }

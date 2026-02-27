@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { addLog } from "@/lib/account-store";
 import {
   createGraph,
   duplicateSharedGraphForUser,
@@ -66,6 +67,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Shared graph not found" }, { status: 404 });
     }
 
+    await addLog(actorId, "dashboard_graph.imported", `Graph ${duplicated.id} imported by ${actorId}`);
+
     return NextResponse.json(await withComputed(duplicated), { status: 201 });
   }
 
@@ -88,6 +91,8 @@ export async function POST(req: NextRequest) {
     isShared: !!body.isShared,
     config,
   });
+
+  await addLog(actorId, "dashboard_graph.created", `Graph ${created.id} created by ${actorId}`);
 
   return NextResponse.json(await withComputed(created), { status: 201 });
 }

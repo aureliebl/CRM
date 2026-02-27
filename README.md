@@ -59,6 +59,11 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    - `data/migrations/006_postgres_auth_rate_limits.sql`
    - `data/migrations/007_postgres_session_version.sql`
 
+   Pour la migration 007 uniquement, vous pouvez aussi utiliser :
+   ```bash
+   DATABASE_URL=postgres://user:password@host:5432/database npm run db:migrate:007
+   ```
+
 4. Backfill des données SQLite historiques vers PostgreSQL :
    ```bash
    DATABASE_URL=postgres://user:password@host:5432/database npm run db:backfill:postgres
@@ -110,6 +115,8 @@ Remarque :
 - Les endpoints de login/reset sont protégés par un rate limiting serveur (retours `429` + header `Retry-After`).
 - Les resets de mot de passe invalident toutes les sessions existantes du compte visé.
 - Un endpoint de logout global est disponible (`POST /api/auth/logout-all`).
+- Les mises à jour critiques (accounts/connectors/tabs/dashboard graphs) supportent un contrôle de concurrence optimiste (si `expectedUpdatedAt` est fourni) avec retour `409 Conflict` en cas d'écrasement.
+- Les admins peuvent consulter les logs d'activité via `GET /api/security/logs` (et dans l'écran Sécurité, rafraîchi automatiquement).
 - Le mode démo peut être conservé temporairement via `DEMO_AUTH=true`, puis coupé progressivement.
 
 Variables SMTP optionnelles :

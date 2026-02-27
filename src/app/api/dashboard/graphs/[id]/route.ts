@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { addLog } from "@/lib/account-store";
 import { computeGraphData } from "@/lib/dashboard-graph-data";
 import {
   deleteGraph,
@@ -6,6 +7,7 @@ import {
   updateGraph,
 } from "@/lib/dashboard-graph-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
 import type { DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +61,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const expectedUpdatedAt = getExpectedUpdatedAt(req, body);
+  if (isStaleWrite(expectedUpdatedAt, graph.updatedAt ?? null)) {
+    return NextResponse.json({ error: "Conflict: resource has been modified", code: "CONFLICT" }, { status: 409 });
+  }
+
   const updated = await updateGraph(id, {
     title: body.title ? String(body.title) : undefined,
     description: typeof body.description === "string" ? body.description : undefined,
@@ -71,6 +78,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!updated) {
     return NextResponse.json({ error: "Update failed" }, { status: 400 });
   }
+
+  await addLog(actorId, "dashboard_graph.updated", `Graph ${id} updated by ${actorId}`);
 
   return NextResponse.json(await withComputed(updated));
 }
@@ -94,5 +103,6 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   await deleteGraph(id);
+  await addLog(actorId, "dashboard_graph.deleted", `Graph ${id} deleted by ${actorId}`);
   return NextResponse.json({ ok: true });
 }

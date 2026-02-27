@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getCurrentUser } from "@/lib/mock/auth";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
@@ -50,6 +49,13 @@ type ConnectorLite = {
   };
 };
 
+type SessionActor = {
+  id: string;
+  role: string;
+  email?: string;
+  fullName?: string;
+};
+
 export default function SecurityPage() {
   const { locale } = useLocale();
   const [overview, setOverview] = useState<SecurityOverview | null>(null);
@@ -86,6 +92,8 @@ export default function SecurityPage() {
   const [ipAdded, setIpAdded] = useState(false);
   const [addingConnector, setAddingConnector] = useState(false);
   const [connectorAdded, setConnectorAdded] = useState(false);
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
 
   const labels =
     locale === "fr"
@@ -220,13 +228,31 @@ export default function SecurityPage() {
           activeConnector: "Active connector",
         };
 
-  const actor = getCurrentUser();
+  useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
 
   const loadOverview = async () => {
     if (!actor) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/security/overview?userId=${encodeURIComponent(actor.id)}`, {
+      const res = await fetch(`/api/security/overview`, {
         cache: "no-store",
       });
       if (!res.ok) {
@@ -242,11 +268,22 @@ export default function SecurityPage() {
 
   useEffect(() => {
     loadOverview();
-  }, []);
+  }, [actor?.id]);
+
+  useEffect(() => {
+    if (!actor || actor.role !== "admin") return;
+    const interval = window.setInterval(() => {
+      loadOverview();
+    }, 15000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [actor?.id, actor?.role]);
 
   const loadTabs = async () => {
     if (!actor) return;
-    const res = await fetch(`/api/tabs?userId=${encodeURIComponent(actor.id)}`, {
+    const res = await fetch(`/api/tabs`, {
       cache: "no-store",
     });
     if (!res.ok) {
@@ -275,7 +312,7 @@ export default function SecurityPage() {
 
   const loadConnectors = async () => {
     if (!actor) return;
-    const res = await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+    const res = await fetch(`/api/connectors`, {
       cache: "no-store",
     });
     if (!res.ok) {
@@ -317,6 +354,10 @@ export default function SecurityPage() {
     return ids;
   }, [overview, membershipMap]);
 
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">{labels.loading}</section>;
+  }
+
   if (actor?.role !== "admin") {
     return (
       <div>
@@ -330,7 +371,7 @@ export default function SecurityPage() {
     if (!actor || !groupName.trim()) return;
     setCreatingGroup(true);
     try {
-      await fetch(`/api/security/groups?userId=${encodeURIComponent(actor.id)}`, {
+      await fetch(`/api/security/groups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: groupName.trim() }),
@@ -346,7 +387,7 @@ export default function SecurityPage() {
 
   const setMembership = async (accountId: string, groupId: string) => {
     if (!actor || !groupId) return;
-    await fetch(`/api/security/memberships?userId=${encodeURIComponent(actor.id)}`, {
+    await fetch(`/api/security/memberships`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ accountId, groupId }),
@@ -357,7 +398,7 @@ export default function SecurityPage() {
   const setRole = async (accountId: string, role: "admin" | "operator") => {
     if (!actor) return;
     await fetch(
-      `/api/security/accounts/${encodeURIComponent(accountId)}/role?userId=${encodeURIComponent(actor.id)}`,
+      `/api/security/accounts/${encodeURIComponent(accountId)}/role`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -373,7 +414,7 @@ export default function SecurityPage() {
     setAccountActionInfo(null);
 
     const res = await fetch(
-      `/api/security/accounts/${encodeURIComponent(accountId)}/password-reset?userId=${encodeURIComponent(actor.id)}`,
+      `/api/security/accounts/${encodeURIComponent(accountId)}/password-reset`,
       {
         method: "POST",
       }
@@ -400,7 +441,7 @@ export default function SecurityPage() {
     if (!actor) return;
 
     const res = await fetch(
-      `/api/security/accounts/${encodeURIComponent(accountId)}/activation?userId=${encodeURIComponent(actor.id)}`,
+      `/api/security/accounts/${encodeURIComponent(accountId)}/activation`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -423,7 +464,7 @@ export default function SecurityPage() {
     setCreatingAccount(true);
     setAccountCreateError(null);
     try {
-      const res = await fetch(`/api/security/accounts?userId=${encodeURIComponent(actor.id)}`, {
+      const res = await fetch(`/api/security/accounts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -454,7 +495,7 @@ export default function SecurityPage() {
 
   const setIpEnabled = async (enabled: boolean) => {
     if (!actor) return;
-    await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
+    await fetch(`/api/security/ip-allowlist`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ipAllowlistEnabled: enabled }),
@@ -466,7 +507,7 @@ export default function SecurityPage() {
     if (!actor || !newIpValue.trim()) return;
     setAddingIp(true);
     try {
-      await fetch(`/api/security/ip-allowlist?userId=${encodeURIComponent(actor.id)}`, {
+      await fetch(`/api/security/ip-allowlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -490,7 +531,7 @@ export default function SecurityPage() {
     if (connectorProvider === "bigquery" && (!projectId.trim() || !dataset.trim())) return;
     setAddingConnector(true);
     try {
-      await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+      await fetch(`/api/connectors`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -514,12 +555,10 @@ export default function SecurityPage() {
     if (!connectorId) return;
     setPreviewingConnectorId(connectorId);
     setConnectorFeedback(null);
-    const query = connectorId ? `&connectorId=${encodeURIComponent(connectorId)}` : "";
     try {
-      const res = await fetch(
-        `/api/connectors/tables?userId=${encodeURIComponent(actor.id)}${query}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/connectors/tables?connectorId=${encodeURIComponent(connectorId)}`, {
+        cache: "no-store",
+      });
       const data = (await res.json()) as {
         connector?: { name?: string; provider?: string } | null;
         tables?: Array<{ table: string; rowCount?: number }>;
@@ -563,7 +602,7 @@ export default function SecurityPage() {
 
     setDeletingConnectorId(connectorId);
     try {
-      await fetch(`/api/connectors/${encodeURIComponent(connectorId)}?userId=${encodeURIComponent(actor.id)}`, {
+      await fetch(`/api/connectors/${encodeURIComponent(connectorId)}`, {
         method: "DELETE",
       });
       setDeletedConnectorId(connectorId);
@@ -592,7 +631,7 @@ export default function SecurityPage() {
       current.map((tab) => (tab.id === tabId ? { ...tab, groupIds: nextGroupIds } : tab))
     );
 
-    const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}?userId=${encodeURIComponent(actor.id)}`, {
+    const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ groupIds: nextGroupIds }),
