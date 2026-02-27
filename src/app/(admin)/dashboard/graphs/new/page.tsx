@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/mock/auth";
 import { useLocale } from "@/lib/use-locale";
 import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
 import { AsyncButton } from "@/components/admin/AsyncButton";
@@ -39,6 +38,11 @@ function sectionTitleStyle() {
   return { margin: 0, fontSize: "0.92rem", fontWeight: 600 } as const;
 }
 
+type SessionActor = {
+  id: string;
+  role: string;
+};
+
 export default function NewDashboardGraphPage() {
   const { locale } = useLocale();
   const router = useRouter();
@@ -47,6 +51,8 @@ export default function NewDashboardGraphPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<PresetId>("custom");
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
 
   const labels =
     locale === "fr"
@@ -219,10 +225,29 @@ export default function NewDashboardGraphPage() {
   const [externalFields, setExternalFields] = useState<DashboardGraphFieldOption[]>([]);
 
   useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
+
+  useEffect(() => {
+    if (!actor) return;
     if (form.source !== "external") return;
-    const user = getCurrentUser();
-    if (!user) return;
-    fetch(`/api/connectors?userId=${encodeURIComponent(user.id)}`, { cache: "no-store" })
+    fetch(`/api/connectors`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: any[]) => {
         setConnectors(data.map((c: any) => ({ id: c.id, label: c.label || c.id })));
@@ -231,16 +256,12 @@ export default function NewDashboardGraphPage() {
         }
       })
       .catch(() => {});
-  }, [form.source]);
+  }, [form.source, actor]);
 
   useEffect(() => {
+    if (!actor) return;
     if (form.source !== "external" || !form.connectorId) return;
-    const user = getCurrentUser();
-    if (!user) return;
-    fetch(
-      `/api/connectors/tables?userId=${encodeURIComponent(user.id)}&connectorId=${encodeURIComponent(form.connectorId)}`,
-      { cache: "no-store" }
-    )
+    fetch(`/api/connectors/tables?connectorId=${encodeURIComponent(form.connectorId)}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: any) => {
         const raw = Array.isArray(data) ? data : data.tables ?? [];
@@ -251,17 +272,16 @@ export default function NewDashboardGraphPage() {
         }
       })
       .catch(() => {});
-  }, [form.source, form.connectorId]);
+  }, [form.source, form.connectorId, actor]);
 
   useEffect(() => {
+    if (!actor) return;
     if (form.source !== "external" || !form.connectorId || !form.externalTable) {
       setExternalFields([]);
       return;
     }
-    const user = getCurrentUser();
-    if (!user) return;
     fetch(
-      `/api/connectors/schema?userId=${encodeURIComponent(user.id)}&connectorId=${encodeURIComponent(form.connectorId)}&table=${encodeURIComponent(form.externalTable)}`,
+      `/api/connectors/schema?connectorId=${encodeURIComponent(form.connectorId)}&table=${encodeURIComponent(form.externalTable)}`,
       { cache: "no-store" }
     )
       .then((r) => r.json())
@@ -277,7 +297,7 @@ export default function NewDashboardGraphPage() {
         );
       })
       .catch(() => {});
-  }, [form.source, form.connectorId, form.externalTable]);
+  }, [form.source, form.connectorId, form.externalTable, actor]);
 
   const presets = useMemo(
     () => [
@@ -564,14 +584,12 @@ export default function NewDashboardGraphPage() {
   }, [previewConfig, form.title, form.description, form.size, form.isShared, locale]);
 
   const onSave = async () => {
-    const user = getCurrentUser();
-    if (!user) return;
+    if (!actor) return;
 
     setSaving(true);
     setError("");
     try {
       const payload = {
-        userId: user.id,
         title: form.title.trim() || (locale === "fr" ? "Nouveau graphique" : "New graph"),
         description: form.description.trim(),
         size: form.size,
@@ -607,6 +625,18 @@ export default function NewDashboardGraphPage() {
         {item.label}
       </option>
     ));
+
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
+  if (actor?.role !== "admin") {
+    return (
+      <section className="admin-placeholder-card">
+        Only admins can create dashboard graphs.
+      </section>
+    );
+  }
 
   return (
     <div>

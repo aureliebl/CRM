@@ -7,7 +7,6 @@ import { getDashboardStats } from "@/lib/mock/bookings-and-dashboard";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useLocale } from "@/lib/use-locale";
-import { getCurrentUser } from "@/lib/mock/auth";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import {
   DashboardGraphCard,
@@ -15,11 +14,18 @@ import {
 } from "@/components/admin/DashboardGraphCard";
 import type { DashboardGraphSize } from "@/lib/types";
 
+type SessionActor = {
+  id: string;
+  role: string;
+};
+
 export default function DashboardPage() {
   const { locale } = useLocale();
   const router = useRouter();
   const [graphs, setGraphs] = useState<DashboardGraphWithData[]>([]);
   const [loadingGraphs, setLoadingGraphs] = useState(false);
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const stats = getDashboardStats();
   const formatLocale = locale === "fr" ? "fr-FR" : "en-US";
   const labels =
@@ -77,13 +83,32 @@ export default function DashboardPage() {
           noGraph: "No custom graphs yet.",
         };
 
+  useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
+
   const loadGraphs = async () => {
-    const user = getCurrentUser();
-    if (!user) return;
+    if (!actor) return;
 
     setLoadingGraphs(true);
     try {
-      const res = await fetch(`/api/dashboard/graphs?userId=${encodeURIComponent(user.id)}`, {
+      const res = await fetch(`/api/dashboard/graphs`, {
         cache: "no-store",
       });
       if (!res.ok) return;
@@ -95,17 +120,17 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    if (!authResolved || !actor) return;
     loadGraphs();
-  }, []);
+  }, [authResolved, actor]);
 
   const updateGraph = async (graphId: string, patch: Record<string, unknown>) => {
-    const user = getCurrentUser();
-    if (!user) return;
+    if (!actor) return;
 
     const res = await fetch(`/api/dashboard/graphs/${graphId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...patch, userId: user.id }),
+      body: JSON.stringify({ ...patch }),
     });
 
     if (res.ok) {
@@ -114,15 +139,11 @@ export default function DashboardPage() {
   };
 
   const deleteGraph = async (graphId: string) => {
-    const user = getCurrentUser();
-    if (!user) return;
+    if (!actor) return;
 
-    const res = await fetch(
-      `/api/dashboard/graphs/${graphId}?userId=${encodeURIComponent(user.id)}`,
-      {
-        method: "DELETE",
-      }
-    );
+    const res = await fetch(`/api/dashboard/graphs/${graphId}`, {
+      method: "DELETE",
+    });
 
     if (res.ok) {
       await loadGraphs();
@@ -163,6 +184,10 @@ export default function DashboardPage() {
         ? labels.trendDown
         : labels.trendStable,
   }));
+
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
 
   return (
     <div>

@@ -7,7 +7,6 @@ import { ColumnConfigModal } from "@/components/admin/ColumnConfigModal";
 import { AsyncButton } from "@/components/admin/AsyncButton";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import { useLocale } from "@/lib/use-locale";
-import { getCurrentUser } from "@/lib/mock/auth";
 import type { DynamicTabConfig, DynamicTabColumnConfig, DynamicTabFieldFormat, DynamicTabSource, DynamicTabMultiJoinEntry, DynamicTabComputedColumn, UserGroup } from "@/lib/types";
 
 const SOURCE_OPTIONS: Array<{ value: DynamicTabSource; label: string }> = [
@@ -29,9 +28,15 @@ function inferFormat(type: string): DynamicTabFieldFormat {
 
 type PreviewRow = Record<string, string | number | boolean | null | undefined> & { id: string };
 
+type SessionActor = {
+  id: string;
+  role: string;
+};
+
 export default function NewTabPage() {
   const { locale } = useLocale();
-  const user = getCurrentUser();
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
 
   // ── Basic fields ─────────────────────────────────────────────
   const [title, setTitle] = useState("");
@@ -74,6 +79,26 @@ export default function NewTabPage() {
 
   // ── Primary schema ───────────────────────────────────────────
   const [primarySchema, setPrimarySchema] = useState<Array<{ name: string; type: string }>>([]);
+
+  useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
 
   const labels = locale === "fr"
     ? {
@@ -138,27 +163,27 @@ export default function NewTabPage() {
   /* ═══ Effects ═══ */
 
   useEffect(() => {
-    if (!user) return;
+    if (!actor) return;
     (async () => {
       try {
-        const res = await fetch(`/api/security/groups?userId=${encodeURIComponent(user.id)}`, { cache: "no-store" });
+        const res = await fetch(`/api/security/groups`, { cache: "no-store" });
         if (res.ok) setGroups(await res.json());
       } catch { /* ignore */ }
     })();
-  }, [user?.id]);
+  }, [actor?.id]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!actor) return;
     (async () => {
       try {
-        const res = await fetch(`/api/connectors?userId=${encodeURIComponent(user.id)}`, { cache: "no-store" });
+        const res = await fetch(`/api/connectors`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           setConnectors(data.filter((c: { enabled: boolean }) => c.enabled));
         }
       } catch { setConnectors([]); }
     })();
-  }, [user?.id]);
+  }, [actor?.id]);
 
   useEffect(() => {
     if (source !== "external" || selectedConnectorId || connectors.length === 0) return;
@@ -166,20 +191,17 @@ export default function NewTabPage() {
   }, [source, selectedConnectorId, connectors]);
 
   const loadTablesForConnector = useCallback(async (connectorId: string) => {
-    if (!user || !connectorId) { setAvailableTables([]); return; }
+    if (!actor || !connectorId) { setAvailableTables([]); return; }
     setLoadingTables(true);
     try {
-      const res = await fetch(
-        `/api/connectors/tables?userId=${encodeURIComponent(user.id)}&connectorId=${encodeURIComponent(connectorId)}`,
-        { cache: "no-store" },
-      );
+      const res = await fetch(`/api/connectors/tables?connectorId=${encodeURIComponent(connectorId)}`, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setAvailableTables(data.tables ?? []);
         setJoinAvailableTables(data.tables ?? []);
       } else { setAvailableTables([]); }
     } finally { setLoadingTables(false); }
-  }, [user]);
+  }, [actor]);
 
   useEffect(() => {
     if (source !== "external" || !selectedConnectorId) return;
@@ -194,10 +216,7 @@ export default function NewTabPage() {
     }
     (async () => {
       try {
-        const res = await fetch(
-          `/api/connectors/schema?userId=${encodeURIComponent(user!.id)}&connectorId=${encodeURIComponent(selectedConnectorId)}&table=${encodeURIComponent(externalTable)}`,
-          { cache: "no-store" },
-        );
+        const res = await fetch(`/api/connectors/schema?connectorId=${encodeURIComponent(selectedConnectorId)}&table=${encodeURIComponent(externalTable)}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           const schema: Array<{ name: string; type: string }> = data.columns ?? [];
@@ -209,7 +228,7 @@ export default function NewTabPage() {
         }
       } catch { /* ignore */ }
     })();
-  }, [source, selectedConnectorId, externalTable, user?.id]);
+  }, [source, selectedConnectorId, externalTable]);
 
   // Built-in source columns
   useEffect(() => {
@@ -251,10 +270,7 @@ export default function NewTabPage() {
   const loadJoinSchema = useCallback(async (table: string): Promise<Array<{ name: string; type: string }>> => {
     if (source === "external" && selectedConnectorId) {
       try {
-        const res = await fetch(
-          `/api/connectors/schema?userId=${encodeURIComponent(user!.id)}&connectorId=${encodeURIComponent(selectedConnectorId)}&table=${encodeURIComponent(table)}`,
-          { cache: "no-store" },
-        );
+        const res = await fetch(`/api/connectors/schema?connectorId=${encodeURIComponent(selectedConnectorId)}&table=${encodeURIComponent(table)}`, { cache: "no-store" });
         if (res.ok) {
           const data = await res.json();
           return data.columns ?? [];
@@ -268,7 +284,7 @@ export default function NewTabPage() {
       bookings: ["id", "clientId", "centerId", "status", "createdAt", "amount", "channel"],
     };
     return (builtinFields[table] ?? []).map((n) => ({ name: n, type: "STRING" }));
-  }, [source, selectedConnectorId, user?.id]);
+  }, [source, selectedConnectorId]);
 
   /* ═══ Build config ═══ */
 
@@ -302,11 +318,11 @@ export default function NewTabPage() {
   /* ═══ Preview ═══ */
 
   const loadPreview = useCallback(async () => {
-    if (!user) return;
+    if (!actor) return;
     setLoadingPreview(true); setPreviewError(null);
     try {
       const config = buildConfig();
-      const res = await fetch(`/api/tabs/preview?userId=${encodeURIComponent(user.id)}`, {
+      const res = await fetch(`/api/tabs/preview`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config }),
       });
@@ -319,7 +335,7 @@ export default function NewTabPage() {
       setPreviewLoaded(true);
       setTimeout(() => setPreviewLoaded(false), 900);
     } catch (e) { setPreviewError(String(e)); } finally { setLoadingPreview(false); }
-  }, [user, buildConfig, labels.error]);
+  }, [actor, buildConfig, labels.error]);
 
   const normalizedSlug = useMemo(
     () => slug.trim().toLowerCase().replace(/[^a-z0-9-\s]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-"),
@@ -329,14 +345,14 @@ export default function NewTabPage() {
   /* ═══ Create ═══ */
 
   const handleCreate = async () => {
-    if (!user || !title.trim() || !normalizedSlug) return;
+    if (!actor || !title.trim() || !normalizedSlug) return;
     if (source === "external" && (!selectedConnectorId || !externalTable.trim())) {
       setMessage(labels.externalRequired); return;
     }
     const config = buildConfig();
     setSaving(true); setMessage(null);
     try {
-      const res = await fetch(`/api/tabs?userId=${encodeURIComponent(user.id)}`, {
+      const res = await fetch(`/api/tabs`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ slug: normalizedSlug, title: title.trim(), subtitle: subtitle.trim() || undefined, icon: icon.trim() || undefined, config, groupIds: selectedGroupIds }),
       });
@@ -403,7 +419,11 @@ export default function NewTabPage() {
 
   /* ═══ Guard ═══ */
 
-  if (user?.role !== "admin") {
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
+  if (actor?.role !== "admin") {
     return <div><h1 className="admin-page-title">{labels.title}</h1><p className="admin-page-description">{labels.forbidden}</p></div>;
   }
 

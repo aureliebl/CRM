@@ -3,8 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TableWithColumnFilters, type ColumnDefinition } from "@/components/admin/TableWithColumnFilters";
-import { getCurrentUser } from "@/lib/mock/auth";
 import type { DynamicTab, DynamicTabColumnConfig } from "@/lib/types";
+
+type SessionActor = {
+  id: string;
+  role: string;
+};
 
 type RuntimeRow = Record<string, string | number | boolean | null | undefined> & {
   id: string;
@@ -16,18 +20,39 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
   const [rows, setRows] = useState<RuntimeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
 
   useEffect(() => {
     const run = async () => {
       const { tabSlug } = await params;
-      const actor = getCurrentUser();
-      if (!actor) return;
+      if (!authResolved || !actor) return;
 
       setLoading(true);
       setError(null);
       try {
-        const tabRes = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}?userId=${encodeURIComponent(actor.id)}`, {
+        const tabRes = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}`, {
           cache: "no-store",
         });
 
@@ -41,7 +66,7 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
         const tabData = (await tabRes.json()) as DynamicTab;
         setTab(tabData);
 
-        const rowsRes = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}/rows?userId=${encodeURIComponent(actor.id)}`, {
+        const rowsRes = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}/rows`, {
           cache: "no-store",
         });
 
@@ -58,7 +83,7 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
     };
 
     run();
-  }, [params]);
+  }, [params, authResolved, actor]);
 
   const columns = useMemo<ColumnDefinition<RuntimeRow>[]>(() => {
     if (!tab) return [];
@@ -197,10 +222,8 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
                 if (actionType === "db-update") {
                   const newValue = window.prompt(action.promptLabel ?? `Nouvelle valeur pour ${action.targetField ?? "?"}:`);
                   if (newValue === null) return;
-                  const actor = getCurrentUser();
-                  if (!actor) return;
                   try {
-                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions?userId=${encodeURIComponent(actor.id)}`, {
+                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ actionId: action.id, rowId: String(idValue), newValue }),
@@ -212,10 +235,8 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
                 }
 
                 if (actionType === "db-delete") {
-                  const actor = getCurrentUser();
-                  if (!actor) return;
                   try {
-                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions?userId=${encodeURIComponent(actor.id)}`, {
+                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ actionId: action.id, rowId: String(idValue) }),
@@ -227,10 +248,8 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
                 }
 
                 if (actionType === "api-call") {
-                  const actor = getCurrentUser();
-                  if (!actor) return;
                   try {
-                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions?userId=${encodeURIComponent(actor.id)}`, {
+                    const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tab.slug)}/actions`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ actionId: action.id, rowId: String(idValue) }),
@@ -288,6 +307,14 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
     ];
   }, [router, tab]);
 
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
+  if (!actor) {
+    return <section className="admin-placeholder-card">Not authenticated.</section>;
+  }
+
   if (loading) {
     return <section className="admin-placeholder-card">Loading...</section>;
   }
@@ -300,7 +327,7 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap" }}>
         <h1 className="admin-page-title" style={{ margin: 0 }}>{tab.title}</h1>
-        {getCurrentUser()?.role === "admin" && (
+        {actor?.role === "admin" && (
           <button
             type="button"
             onClick={() => router.push(`/tabs/${tab.slug}/edit`)}
