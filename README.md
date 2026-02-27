@@ -122,6 +122,21 @@ Remarque :
 Variables SMTP optionnelles :
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 
+Exemple Brevo (SMTP relay) :
+```env
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=<BREVO_SMTP_LOGIN>
+SMTP_PASS=<BREVO_SMTP_KEY>
+SMTP_FROM=no-reply@votre-domaine.tld
+APP_NAME=Costockage
+```
+
+Note : ne jamais commiter `SMTP_PASS` (garder la clé uniquement dans `.env.local` / secrets de déploiement).
+
+Le changement de mot de passe authentifié est disponible dans `/settings` et via `POST /api/auth/change-password`.
+
 ### Après bascule: que faire de `data/accounts.db` ?
 
 - Le runtime applicatif n'utilise plus SQLite : `data/accounts.db` n'est plus lu par l'app en production.
