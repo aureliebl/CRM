@@ -21,7 +21,16 @@ interface SecurityOverview {
   memberships: AccountGroupMembership[];
   settings: SecuritySettings;
   ipAllowlist: IpAllowlistEntry[];
+  logs?: AuditLogLite[];
 }
+
+type AuditLogLite = {
+  id: string;
+  accountId: string;
+  type: string;
+  message: string;
+  timestamp: string;
+};
 
 type TabAccessLite = {
   id: string;
@@ -63,6 +72,7 @@ export default function SecurityPage() {
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [accountCreated, setAccountCreated] = useState(false);
   const [accountCreateError, setAccountCreateError] = useState<string | null>(null);
+  const [accountActionInfo, setAccountActionInfo] = useState<string | null>(null);
   const [savingTabAccess, setSavingTabAccess] = useState<string | null>(null);
   const [deletingConnectorId, setDeletingConnectorId] = useState<string | null>(null);
   const [previewingConnectorId, setPreviewingConnectorId] = useState<string | null>(null);
@@ -114,12 +124,19 @@ export default function SecurityPage() {
           accountCreateSuccess: "Compte créé",
           accountCreateError: "Impossible de créer le compte",
           resetPassword: "Réinitialiser mot de passe",
-          resetPasswordPrompt: "Nouveau mot de passe temporaire (min 8 caractères)",
+          sendResetEmail: "Envoyer email reset",
+          resetEmailSent: "Email de réinitialisation envoyé",
+          resetEmailFallback: "SMTP non configuré. Lien de reset:",
           resetPasswordError: "Impossible de réinitialiser le mot de passe",
           accountStatus: "Statut",
           activateAccount: "Activer",
           deactivateAccount: "Désactiver",
           activationError: "Impossible de modifier le statut du compte",
+          auditTrail: "Journal d'audit",
+          eventType: "Type",
+          eventMessage: "Message",
+          eventTime: "Horodatage",
+          noLogs: "Aucun événement",
           connectorsTitle: "Connecteurs de données",
           connectorName: "Nom",
           projectId: "Project ID",
@@ -172,12 +189,19 @@ export default function SecurityPage() {
           accountCreateSuccess: "Account created",
           accountCreateError: "Unable to create account",
           resetPassword: "Reset password",
-          resetPasswordPrompt: "Temporary new password (min 8 characters)",
+          sendResetEmail: "Send reset email",
+          resetEmailSent: "Password reset email sent",
+          resetEmailFallback: "SMTP not configured. Reset link:",
           resetPasswordError: "Unable to reset password",
           accountStatus: "Status",
           activateAccount: "Activate",
           deactivateAccount: "Deactivate",
           activationError: "Unable to change account status",
+          auditTrail: "Audit trail",
+          eventType: "Type",
+          eventMessage: "Message",
+          eventTime: "Timestamp",
+          noLogs: "No events",
           connectorsTitle: "Data connectors",
           connectorName: "Name",
           projectId: "Project ID",
@@ -345,15 +369,13 @@ export default function SecurityPage() {
 
   const resetPasswordForAccount = async (accountId: string) => {
     if (!actor) return;
-    const password = window.prompt(labels.resetPasswordPrompt, "");
-    if (!password) return;
+    setAccountCreateError(null);
+    setAccountActionInfo(null);
 
     const res = await fetch(
-      `/api/security/accounts/${encodeURIComponent(accountId)}/password?userId=${encodeURIComponent(actor.id)}`,
+      `/api/security/accounts/${encodeURIComponent(accountId)}/password-reset?userId=${encodeURIComponent(actor.id)}`,
       {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        method: "POST",
       }
     );
 
@@ -363,7 +385,15 @@ export default function SecurityPage() {
       return;
     }
 
+    const body = (await res.json().catch(() => ({}))) as { mode?: "smtp" | "log"; resetUrl?: string };
+    if (body.mode === "log" && body.resetUrl) {
+      setAccountActionInfo(`${labels.resetEmailFallback} ${body.resetUrl}`);
+    } else {
+      setAccountActionInfo(labels.resetEmailSent);
+    }
+
     setAccountCreateError(null);
+    await loadOverview();
   };
 
   const setAccountActive = async (accountId: string, isActive: boolean) => {
@@ -675,6 +705,11 @@ export default function SecurityPage() {
                   {accountCreateError}
                 </span>
               )}
+              {accountActionInfo && (
+                <span style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>
+                  {accountActionInfo}
+                </span>
+              )}
             </div>
           </section>
 
@@ -822,7 +857,7 @@ export default function SecurityPage() {
                               fontSize: "0.78rem",
                             }}
                           >
-                            {labels.resetPassword}
+                            {labels.sendResetEmail}
                           </button>
                           <button
                             type="button"
@@ -845,6 +880,33 @@ export default function SecurityPage() {
                   },
                 ]}
               />
+            </div>
+
+            <div style={{ marginTop: "1rem" }}>
+              <div className="admin-placeholder-title">{labels.auditTrail}</div>
+              {(overview.logs ?? []).length === 0 ? (
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.55rem" }}>
+                  {labels.noLogs}
+                </div>
+              ) : (
+                <div style={{ marginTop: "0.6rem" }}>
+                  <TableWithColumnFilters
+                    title={labels.auditTrail}
+                    stickyFilters={false}
+                    data={(overview.logs ?? []).map((entry) => ({
+                      id: entry.id,
+                      type: entry.type,
+                      message: entry.message,
+                      timestamp: entry.timestamp,
+                    }))}
+                    columns={[
+                      { key: "type", label: labels.eventType, filterType: "text" },
+                      { key: "message", label: labels.eventMessage, filterType: "text" },
+                      { key: "timestamp", label: labels.eventTime, filterType: "text" },
+                    ]}
+                  />
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: "1rem" }}>

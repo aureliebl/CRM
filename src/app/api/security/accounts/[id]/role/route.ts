@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getAccountById, updateAccount } from "@/lib/account-store";
-import { isActorAdmin } from "@/lib/server-permissions";
+import { addLog, getAccountById, updateAccount } from "@/lib/account-store";
+import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +8,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const actorId = getActorIdFromRequest(req);
 
   const { id } = await params;
   const body = await req.json();
@@ -20,5 +22,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const updated = await updateAccount(id, { role: body.role });
+  if (updated) {
+    await addLog(updated.id, "account.role_changed", `Role changed to ${updated.role} by ${actorId ?? "system"}`);
+  }
   return NextResponse.json(updated);
 }

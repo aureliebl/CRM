@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { createHash, randomBytes } from "crypto";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
 
 type SqliteCompat = {
@@ -67,6 +68,16 @@ CREATE TABLE IF NOT EXISTS logs (
   message TEXT,
   timestamp TEXT
 );
+
+CREATE TABLE IF NOT EXISTS account_password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  accountId TEXT NOT NULL,
+  tokenHash TEXT NOT NULL,
+  expiresAt TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  createdBy TEXT,
+  usedAt TEXT
+);
 `);
 }
 
@@ -88,6 +99,14 @@ export type AccountRow = {
 };
 
 export type SafeAccountRow = Omit<AccountRow, "totpSecret" | "extras">;
+
+export type AuditLogRow = {
+  id: string;
+  accountId: string;
+  type: string;
+  message: string;
+  timestamp: string;
+};
 
 export function toSafeAccount(row: AccountRow): SafeAccountRow {
   const { totpSecret: _totpSecret, extras: _extras, ...safe } = row;
@@ -163,6 +182,20 @@ CREATE TABLE IF NOT EXISTS account_credentials (
   updatedAt TEXT
 )
 `);
+
+  await pgPool.query(`
+CREATE TABLE IF NOT EXISTS account_password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  accountId TEXT NOT NULL,
+  tokenHash TEXT NOT NULL,
+  expiresAt TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  createdBy TEXT,
+  usedAt TEXT
+)
+`);
+
+  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON account_password_reset_tokens(tokenHash)");
 }
 
 async function ensurePostgresReady() {
@@ -371,6 +404,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
 export async function deleteAccount(id: string) {
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
+    await pgPool.query("DELETE FROM account_password_reset_tokens WHERE accountId = $1", [id]);
     await pgPool.query("DELETE FROM account_credentials WHERE accountId = $1", [id]);
     await pgPool.query("DELETE FROM accounts WHERE id = $1", [id]);
     return;
@@ -382,7 +416,7 @@ export async function deleteAccount(id: string) {
 }
 
 export async function addLog(accountId: string, type: string, message: string) {
-  const id = `log_${Date.now()}`;
+  const id = `log_${Date.now()}_${randomBytes(4).toString("hex")}`;
   const timestamp = new Date().toISOString();
 
   if (usePostgres && pgPool) {
@@ -402,6 +436,100 @@ export async function addLog(accountId: string, type: string, message: string) {
   const stmt = sqliteDb.prepare("INSERT INTO logs (id,accountId,type,message,timestamp) VALUES (?,?,?,?,?)");
   stmt.run(id, accountId, type, message, timestamp);
   return { id, accountId, type, message, timestamp };
+}
+
+export async function getRecentLogs(limit = 50): Promise<AuditLogRow[]> {
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query("SELECT id, accountId, type, message, timestamp FROM logs ORDER BY timestamp DESC LIMIT $1", [
+      safeLimit,
+    ]);
+    return result.rows.map((row) => ({
+      id: String(row.id ?? ""),
+      accountId: String(row.accountid ?? row.accountId ?? ""),
+      type: String(row.type ?? ""),
+      message: String(row.message ?? ""),
+      timestamp: String(row.timestamp ?? ""),
+    }));
+  }
+
+  if (!sqliteDb) return [];
+  const stmt = sqliteDb.prepare("SELECT id, accountId, type, message, timestamp FROM logs ORDER BY timestamp DESC LIMIT ?");
+  return stmt.all(safeLimit) as AuditLogRow[];
+}
+
+function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export async function createPasswordResetToken(
+  accountId: string,
+  options?: { expiresInMinutes?: number; createdBy?: string | null }
+): Promise<{ token: string; expiresAt: string }> {
+  const expiresInMinutes = Math.max(5, Math.min(24 * 60, options?.expiresInMinutes ?? 60));
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashResetToken(token);
+  const now = new Date();
+  const createdAt = now.toISOString();
+  const expiresAt = new Date(now.getTime() + expiresInMinutes * 60 * 1000).toISOString();
+  const id = `prt_${Date.now()}_${randomBytes(4).toString("hex")}`;
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query(
+      "INSERT INTO account_password_reset_tokens (id,accountId,tokenHash,expiresAt,createdAt,createdBy,usedAt) VALUES ($1,$2,$3,$4,$5,$6,NULL)",
+      [id, accountId, tokenHash, expiresAt, createdAt, options?.createdBy ?? null]
+    );
+    return { token, expiresAt };
+  }
+
+  if (!sqliteDb) {
+    return { token, expiresAt };
+  }
+
+  const stmt = sqliteDb.prepare(
+    "INSERT INTO account_password_reset_tokens (id,accountId,tokenHash,expiresAt,createdAt,createdBy,usedAt) VALUES (?,?,?,?,?,?,NULL)"
+  );
+  stmt.run(id, accountId, tokenHash, expiresAt, createdAt, options?.createdBy ?? null);
+  return { token, expiresAt };
+}
+
+export async function consumePasswordResetToken(token: string): Promise<{ accountId: string } | null> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) return null;
+
+  const tokenHash = hashResetToken(normalizedToken);
+  const now = new Date().toISOString();
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const result = await pgPool.query(
+      "SELECT id, accountId FROM account_password_reset_tokens WHERE tokenHash = $1 AND usedAt IS NULL AND expiresAt > $2 ORDER BY createdAt DESC LIMIT 1",
+      [tokenHash, now]
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+
+    const resetId = String(row.id ?? "");
+    const accountId = String(row.accountid ?? row.accountId ?? "");
+    if (!resetId || !accountId) return null;
+
+    await pgPool.query("UPDATE account_password_reset_tokens SET usedAt = $1 WHERE id = $2", [now, resetId]);
+    return { accountId };
+  }
+
+  if (!sqliteDb) return null;
+  const row = sqliteDb
+    .prepare(
+      "SELECT id, accountId FROM account_password_reset_tokens WHERE tokenHash = ? AND usedAt IS NULL AND expiresAt > ? ORDER BY createdAt DESC LIMIT 1"
+    )
+    .get(tokenHash, now) as { id: string; accountId: string } | undefined;
+
+  if (!row?.id || !row.accountId) return null;
+  sqliteDb.prepare("UPDATE account_password_reset_tokens SET usedAt = ? WHERE id = ?").run(now, row.id);
+  return { accountId: row.accountId };
 }
 
 export async function setAccountPassword(accountId: string, plainPassword: string): Promise<void> {

@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS logs (
   timestamp TEXT
 );
 
+CREATE TABLE IF NOT EXISTS account_password_reset_tokens (
+  id TEXT PRIMARY KEY,
+  accountId TEXT NOT NULL,
+  tokenHash TEXT NOT NULL,
+  expiresAt TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  createdBy TEXT,
+  usedAt TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_accounts_role
 ON accounts(role);
 
@@ -36,3 +46,6 @@ ON accounts(fullName);
 
 CREATE INDEX IF NOT EXISTS idx_logs_account
 ON logs(accountId);
+
+CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash
+ON account_password_reset_tokens(tokenHash);

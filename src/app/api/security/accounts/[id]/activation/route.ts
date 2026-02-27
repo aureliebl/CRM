@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
+import { addLog, getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +31,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!updated) {
     return NextResponse.json({ error: "Update failed" }, { status: 400 });
   }
+
+  await addLog(
+    updated.id,
+    "account.activation_changed",
+    `Account ${nextIsActive ? "activated" : "deactivated"} by ${actorId ?? "system"}`
+  );
 
   return NextResponse.json(toSafeAccount(updated));
 }

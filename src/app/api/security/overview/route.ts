@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAllAccounts, toSafeAccount } from "@/lib/account-store";
+import { getAllAccounts, getRecentLogs, toSafeAccount } from "@/lib/account-store";
 import {
   getAccountGroupMemberships,
   getIpAllowlistEntries,
@@ -21,5 +21,6 @@ export async function GET(req: Request) {
     memberships: await getAccountGroupMemberships(),
     settings: await getSecuritySettings(),
     ipAllowlist: await getIpAllowlistEntries(),
+    logs: await getRecentLogs(40),
   });
 }

@@ -47,6 +47,7 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    PGSSL=false
    APP_SESSION_SECRET=change-me-with-a-long-random-secret
    ALLOW_LEGACY_ACTOR_FALLBACK=false
+   PASSWORD_RESET_URL_BASE=http://localhost:3000/resetlogin
    ```
 
 3. Appliquer les migrations SQL sur PostgreSQL :
@@ -55,6 +56,7 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    - `data/migrations/003_postgres_security.sql`
    - `data/migrations/004_postgres_accounts.sql`
    - `data/migrations/005_postgres_dashboard_graphs.sql`
+   - `data/migrations/006_postgres_auth_rate_limits.sql`
 
 4. Backfill des données SQLite historiques vers PostgreSQL :
    ```bash
@@ -87,8 +89,9 @@ Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)
 - phase 3 migre sécurité/IAM (`user_groups`, `account_group_memberships`, `security_settings`, `ip_allowlist_entries`)
-- phase 4 migre les comptes opérateurs (`accounts`, `logs`)
+- phase 4 migre les comptes opérateurs (`accounts`, `logs`, `account_password_reset_tokens`)
 - phase 5 migre la bibliothèque dashboard (`dashboard_graphs`)
+- phase 6 ajoute le throttling auth (`auth_rate_limits`)
 - le flux BigQuery reste identique côté application
 - le script de backfill est idempotent (UPSERT), donc relançable sans doublons
 
@@ -100,7 +103,13 @@ Remarque :
 - Le fallback `userId` via query/header est désactivé par défaut et ne doit être activé que temporairement (`ALLOW_LEGACY_ACTOR_FALLBACK=true`) pendant une transition.
 - Le login utilise `email + mot de passe` côté serveur (`/api/auth/password-login`) avec session signée.
 - Une création de compte admin est disponible dans la page Sécurité (email, nom, rôle, mot de passe).
+- La page Sécurité permet aussi l'envoi d'un email de reset de mot de passe (lien vers `/resetlogin`).
+- Si SMTP n'est pas configuré, le lien de reset est loggé côté serveur (mode dev fallback).
+- Les endpoints de login/reset sont protégés par un rate limiting serveur (retours `429` + header `Retry-After`).
 - Le mode démo peut être conservé temporairement via `DEMO_AUTH=true`, puis coupé progressivement.
+
+Variables SMTP optionnelles :
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 
 ### Après bascule: que faire de `data/accounts.db` ?
 
@@ -134,6 +143,7 @@ cp data/accounts.db data/archive/accounts-$(date +%Y%m%d-%H%M%S).db
 - `/bookings` - Tableau des bookings
 - `/live-users` - Utilisateurs en ligne (mock)
 - `/settings` - Paramètres (thème, compte, déconnexion)
+- `/resetlogin` - Réinitialisation de mot de passe via token email
 
 ### Test de l'intégration Aircall (mock)
 

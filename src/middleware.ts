@@ -56,9 +56,11 @@ export async function middleware(req: NextRequest) {
 
   const isPublicPath =
     pathname === "/login" ||
+    pathname === "/resetlogin" ||
     pathname === "/api/security/access" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/password-login" ||
+    pathname === "/api/auth/reset-password" ||
     pathname === "/api/auth/logout";
 
   if (isPublicPath) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAccountById, setAccountPassword } from "@/lib/account-store";
+import { addLog, getAccountById, setAccountPassword } from "@/lib/account-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
@@ -29,5 +29,6 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   await setAccountPassword(id, password);
+  await addLog(id, "account.password_reset_admin", `Password reset by ${actorId ?? "system"}`);
   return NextResponse.json({ ok: true });
 }

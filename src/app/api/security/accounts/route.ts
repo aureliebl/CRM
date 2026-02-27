@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createAccount, getAccountByEmail, setAccountPassword, toSafeAccount } from "@/lib/account-store";
+import { addLog, createAccount, getAccountByEmail, setAccountPassword, toSafeAccount } from "@/lib/account-store";
 import { getDefaultGroupId, setAccountGroupMembership } from "@/lib/security-store";
-import { isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,8 @@ export async function POST(req: Request) {
   if (!(await isActorAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const actorId = getActorIdFromRequest(req);
 
   const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
@@ -42,6 +44,8 @@ export async function POST(req: Request) {
   }
 
   await setAccountPassword(created.id, password);
+
+  await addLog(created.id, "account.created", `Account created by ${actorId ?? "system"}`);
 
   if (role === "operator") {
     const defaultGroupId = await getDefaultGroupId();
