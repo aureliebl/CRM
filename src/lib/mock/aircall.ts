@@ -12,6 +12,8 @@ export interface AircallCall {
   startedAt: string;
   endedAt?: string;
   userId?: string;
+  isMuted: boolean;
+  isOnHold: boolean;
 }
 
 let activeCall: AircallCall | null = null;
@@ -30,6 +32,8 @@ export function startCall(phoneNumber: string, userId: string): AircallCall {
     status: "ringing",
     startedAt: new Date().toISOString(),
     userId,
+    isMuted: false,
+    isOnHold: false,
   };
   activeCall = call;
   notifyListeners(call);
@@ -54,6 +58,8 @@ export function receiveCall(phoneNumber: string): AircallCall | null {
     to: "+33123456789",
     status: "ringing",
     startedAt: new Date().toISOString(),
+    isMuted: false,
+    isOnHold: false,
   };
   activeCall = call;
   notifyListeners(call);
@@ -63,6 +69,7 @@ export function receiveCall(phoneNumber: string): AircallCall | null {
 export function answerCall(callId: string) {
   if (activeCall && activeCall.id === callId) {
     activeCall.status = "answered";
+    activeCall.isOnHold = false;
     notifyListeners(activeCall);
   }
 }
@@ -77,6 +84,26 @@ export function endCall(callId: string) {
     return ended;
   }
   return null;
+}
+
+export function toggleMute(callId: string): AircallCall | null {
+  if (!activeCall || activeCall.id !== callId || activeCall.status !== "answered") {
+    return null;
+  }
+
+  activeCall.isMuted = !activeCall.isMuted;
+  notifyListeners(activeCall);
+  return activeCall;
+}
+
+export function toggleHold(callId: string): AircallCall | null {
+  if (!activeCall || activeCall.id !== callId || activeCall.status !== "answered") {
+    return null;
+  }
+
+  activeCall.isOnHold = !activeCall.isOnHold;
+  notifyListeners(activeCall);
+  return activeCall;
 }
 
 export function subscribeToCalls(
