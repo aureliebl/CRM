@@ -68,8 +68,11 @@ export function receiveCall(phoneNumber: string): AircallCall | null {
 
 export function answerCall(callId: string) {
   if (activeCall && activeCall.id === callId) {
-    activeCall.status = "answered";
-    activeCall.isOnHold = false;
+    activeCall = {
+      ...activeCall,
+      status: "answered",
+      isOnHold: false,
+    };
     notifyListeners(activeCall);
   }
 }
@@ -91,7 +94,10 @@ export function toggleMute(callId: string): AircallCall | null {
     return null;
   }
 
-  activeCall.isMuted = !activeCall.isMuted;
+  activeCall = {
+    ...activeCall,
+    isMuted: !activeCall.isMuted,
+  };
   notifyListeners(activeCall);
   return activeCall;
 }
@@ -101,7 +107,10 @@ export function toggleHold(callId: string): AircallCall | null {
     return null;
   }
 
-  activeCall.isOnHold = !activeCall.isOnHold;
+  activeCall = {
+    ...activeCall,
+    isOnHold: !activeCall.isOnHold,
+  };
   notifyListeners(activeCall);
   return activeCall;
 }
