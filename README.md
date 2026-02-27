@@ -13,7 +13,7 @@ Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
 
 ### Nouvelles fonctionnalités
 
-- **Authentification** : Système de connexion avec authentification à deux facteurs (2FA/TOTP)
+- **Authentification** : Système de connexion sécurisé avec session serveur
 - **Intégration Aircall** : Widget d'appels téléphoniques avec ouverture automatique de la fiche client lors d'appels entrants
 - **Recherche clients** : Barre de recherche dans la topbar pour trouver rapidement un client
 - **Report de bugs** : Bouton pour signaler des problèmes directement depuis l'interface
@@ -155,11 +155,11 @@ cp data/accounts.db data/archive/accounts-$(date +%Y%m%d-%H%M%S).db
    - **Comptes de test** :
      - `paul.sales@costockage.fr` / `demo123` (Sales)
      - `camille.support@costockage.fr` / `demo123` (Support)
-   - **Code TOTP de test** : `123456` (pour tous les comptes avec 2FA activé)
+   - En cas d'oubli du mot de passe, utilisez "Mot de passe oublié ?" sur `/login`.
 
 ### Pages disponibles
 
-- `/login` - Page de connexion avec 2FA
+- `/login` - Page de connexion + demande de reset de mot de passe
 - `/dashboard` - Dashboard principal avec KPIs
 - `/clients` - Liste des clients
 - `/clients/[id]` - Fiche client détaillée avec bouton d'appel

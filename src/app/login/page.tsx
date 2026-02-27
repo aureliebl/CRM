@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { syncCurrentUser } from "@/lib/mock/auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [totpCode, setTotpCode] = useState("");
-  const [step, setStep] = useState<"credentials" | "totp">("credentials");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetMode, setResetMode] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
 
@@ -53,7 +53,6 @@ export default function LoginPage() {
         fullName: string;
         role: "admin" | "operator";
         profileImage?: string;
-        totpEnabled?: boolean;
       };
     };
 
@@ -61,27 +60,27 @@ export default function LoginPage() {
       setError("Erreur de session, veuillez réessayer");
       return;
     }
-
-    syncCurrentUser({
-      id: payload.user.id,
-      email: payload.user.email,
-      firstName: payload.user.firstName,
-      lastName: payload.user.lastName,
-      fullName: payload.user.fullName,
-      role: payload.user.role,
-      profileImage: payload.user.profileImage,
-      totpEnabled: !!payload.user.totpEnabled,
-      totpSecret: undefined,
-    });
     router.push("/dashboard");
   };
 
-  const handleSubmitTOTP = async (e: React.FormEvent) => {
+  const handleRequestReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    setStep("credentials");
-    setTotpCode("");
-    setError("La vérification TOTP sera réintroduite côté serveur dans la prochaine étape.");
+    setResetMessage("");
+
+    const res = await fetch("/api/auth/request-password-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: resetEmail }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body.error || "Impossible d'envoyer la demande de réinitialisation");
+      return;
+    }
+
+    setResetMessage("Si cet email existe, un lien de réinitialisation vient d'être envoyé.");
   };
 
   return (
@@ -124,10 +123,10 @@ export default function LoginPage() {
             marginBottom: "2rem",
           }}
         >
-          Connexion sécurisée avec authentification à deux facteurs
+          Connexion sécurisée
         </p>
 
-        {step === "credentials" ? (
+        {!resetMode ? (
           <form onSubmit={handleSubmitCredentials}>
             <div style={{ marginBottom: "1rem" }}>
               <label
@@ -216,21 +215,31 @@ export default function LoginPage() {
             >
               Se connecter
             </button>
-            <p
+            <button
+              type="button"
+              onClick={() => {
+                setResetMode(true);
+                setResetEmail(email);
+                setError("");
+                setResetMessage("");
+              }}
               style={{
-                fontSize: "0.75rem",
+                width: "100%",
+                padding: "0.5rem",
+                marginTop: "0.5rem",
+                borderRadius: "999px",
+                border: "1px solid var(--border-color, rgba(148,163,184,0.4))",
+                background: "transparent",
                 color: "var(--text-secondary, #9ca3af)",
-                marginTop: "1rem",
-                textAlign: "center",
+                cursor: "pointer",
+                fontSize: "0.85rem",
               }}
             >
-              Comptes de test : admin@costockage.fr / theo.admin@costockage.fr / paul.sales@costockage.fr / camille.support@costockage.fr
-              <br />
-              Mot de passe : demo123
-            </p>
+              Mot de passe oublié ?
+            </button>
           </form>
         ) : (
-          <form onSubmit={handleSubmitTOTP}>
+          <form onSubmit={handleRequestReset}>
             <div style={{ marginBottom: "1rem" }}>
               <label
                 style={{
@@ -240,15 +249,14 @@ export default function LoginPage() {
                   marginBottom: "0.35rem",
                 }}
               >
-                Code d&apos;authentification (TOTP)
+                Email
               </label>
               <input
-                type="text"
-                value={totpCode}
-                onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                type="email"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
                 required
-                maxLength={6}
-                placeholder="123456"
+                placeholder="you@company.com"
                 style={{
                   width: "100%",
                   padding: "0.5rem 0.75rem",
@@ -256,25 +264,27 @@ export default function LoginPage() {
                   border: "1px solid var(--border-color, rgba(148,163,184,0.4))",
                   background: "var(--input-bg, rgba(15,23,42,0.9))",
                   color: "var(--text-primary, #e5e7eb)",
-                  fontSize: "1.2rem",
-                  textAlign: "center",
-                  letterSpacing: "0.2em",
+                  fontSize: "0.85rem",
                   outline: "none",
                 }}
               />
-              <p
+            </div>
+
+            {resetMessage && (
+              <div
                 style={{
-                  fontSize: "0.75rem",
-                  color: "var(--text-secondary, #9ca3af)",
-                  marginTop: "0.5rem",
-                  textAlign: "center",
+                  padding: "0.75rem",
+                  borderRadius: "0.5rem",
+                  background: "rgba(16,185,129,0.12)",
+                  color: "#10b981",
+                  fontSize: "0.85rem",
+                  marginBottom: "1rem",
                 }}
               >
-                Utilisez votre application d&apos;authentification (Google Authenticator, etc.)
-                <br />
-                Code de test : 123456
-              </p>
-            </div>
+                {resetMessage}
+              </div>
+            )}
+
             {error && (
               <div
                 style={{
@@ -304,14 +314,14 @@ export default function LoginPage() {
                 fontWeight: 500,
               }}
             >
-              Vérifier le code
+              Envoyer le lien de réinitialisation
             </button>
             <button
               type="button"
               onClick={() => {
-                setStep("credentials");
-                setTotpCode("");
+                setResetMode(false);
                 setError("");
+                setResetMessage("");
               }}
               style={{
                 width: "100%",

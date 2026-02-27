@@ -60,6 +60,7 @@ export async function middleware(req: NextRequest) {
     pathname === "/api/security/access" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/password-login" ||
+    pathname === "/api/auth/request-password-reset" ||
     pathname === "/api/auth/reset-password" ||
     pathname === "/api/auth/logout-all" ||
     pathname === "/api/auth/logout";
