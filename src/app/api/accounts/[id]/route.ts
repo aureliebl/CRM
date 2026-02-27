@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const resolved = await params;
   const { id } = resolved;
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const adminMode = await isActorAdmin(req);
@@ -23,7 +23,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const resolved = await params;
   const { id } = resolved;
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const adminMode = await isActorAdmin(req);
@@ -59,7 +59,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const resolved = await params;
   const { id } = resolved;
 
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (actorId && actorId === id) {
     return NextResponse.json({ error: "Cannot delete current actor" }, { status: 400 });
   }

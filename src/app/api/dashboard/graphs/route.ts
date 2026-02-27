@@ -19,7 +19,7 @@ async function withComputed(graph: any) {
 }
 
 export async function GET(req: NextRequest) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

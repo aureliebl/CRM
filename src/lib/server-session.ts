@@ -6,6 +6,7 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 type SessionPayload = {
   userId: string;
   role: string;
+  sessionVersion: number;
   iat: number;
   exp: number;
 };
@@ -51,11 +52,15 @@ function parseCookieHeader(header: string | null): Record<string, string> {
   return result;
 }
 
-export function createSessionToken(input: { userId: string; role: string }, maxAgeSeconds = SESSION_MAX_AGE_SECONDS): string {
+export function createSessionToken(
+  input: { userId: string; role: string; sessionVersion?: number },
+  maxAgeSeconds = SESSION_MAX_AGE_SECONDS
+): string {
   const now = Math.floor(Date.now() / 1000);
   const payload: SessionPayload = {
     userId: input.userId,
     role: input.role,
+    sessionVersion: input.sessionVersion ?? 1,
     iat: now,
     exp: now + maxAgeSeconds,
   };
@@ -81,6 +86,7 @@ export function verifySessionToken(token: string | null | undefined): SessionPay
     const payloadRaw = fromBase64Url(payloadB64).toString("utf8");
     const payload = JSON.parse(payloadRaw) as SessionPayload;
     if (!payload?.userId || !payload.exp) return null;
+    if (!Number.isFinite(payload.sessionVersion) || payload.sessionVersion < 1) return null;
     if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
     return payload;
   } catch {

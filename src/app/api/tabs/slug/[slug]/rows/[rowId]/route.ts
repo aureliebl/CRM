@@ -15,7 +15,7 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ slug: string; rowId: string }> }
 ) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

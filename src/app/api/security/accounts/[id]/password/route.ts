@@ -9,7 +9,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   const { id } = await params;
 
   if (actorId && actorId === id) {

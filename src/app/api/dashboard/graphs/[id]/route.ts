@@ -20,7 +20,7 @@ async function withComputed(graph: any) {
 }
 
 export async function GET(req: NextRequest, { params }: Params) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -76,7 +76,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

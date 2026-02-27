@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   fullName TEXT,
   role TEXT,
   isActive INTEGER DEFAULT 1,
+  sessionVersion INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -89,6 +90,7 @@ export type AccountRow = {
   fullName: string;
   role: string;
   isActive: number;
+  sessionVersion: number;
   profileImage?: string | null;
   locale?: string | null;
   totpEnabled: number;
@@ -129,6 +131,7 @@ function mapPgAccountRow(row: Record<string, unknown>): AccountRow {
     fullName: String((row.fullname ?? row.fullName ?? "") as string),
     role: normalizeRole((row.role as string | null | undefined) ?? null),
     isActive: Number((row.isactive ?? row.isActive ?? 1) as number),
+    sessionVersion: Number((row.sessionversion ?? row.sessionVersion ?? 1) as number),
     profileImage:
       (row.profileimage as string | null | undefined) ?? (row.profileImage as string | null | undefined) ?? null,
     locale: ((row.locale as string | null | undefined) ?? "fr") || "fr",
@@ -152,6 +155,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   fullName TEXT,
   role TEXT,
   isActive INTEGER DEFAULT 1,
+  sessionVersion INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -163,6 +167,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 `);
 
   await pgPool.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1");
+  await pgPool.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sessionVersion INTEGER DEFAULT 1");
 
   await pgPool.query(`
 CREATE TABLE IF NOT EXISTS logs (
@@ -277,7 +282,7 @@ export async function createAccount(row: Partial<AccountRow>) {
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+      "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,sessionVersion,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
       [
         id,
         row.email ?? null,
@@ -286,6 +291,7 @@ export async function createAccount(row: Partial<AccountRow>) {
         fullName,
         normalizeRole(row.role),
         row.isActive ?? 1,
+        row.sessionVersion ?? 1,
         row.profileImage ?? null,
         row.locale ?? "fr",
         row.totpEnabled ? 1 : 0,
@@ -301,7 +307,7 @@ export async function createAccount(row: Partial<AccountRow>) {
   if (!sqliteDb) return undefined;
 
   const stmt = sqliteDb.prepare(
-    "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO accounts (id,email,firstName,lastName,fullName,role,isActive,sessionVersion,profileImage,locale,totpEnabled,totpSecret,extras,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
   );
   stmt.run(
     id,
@@ -311,6 +317,7 @@ export async function createAccount(row: Partial<AccountRow>) {
     fullName,
     normalizeRole(row.role),
     row.isActive ?? 1,
+    row.sessionVersion ?? 1,
     row.profileImage ?? null,
     row.locale ?? "fr",
     row.totpEnabled ? 1 : 0,
@@ -353,12 +360,13 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
     fullName: nextFullName,
     role: normalizeRole(patch.role ?? existing.role),
     isActive: patch.isActive ?? existing.isActive,
+    sessionVersion: patch.sessionVersion ?? existing.sessionVersion,
     updatedAt: new Date().toISOString(),
   };
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "UPDATE accounts SET email = $1, firstName = $2, lastName = $3, fullName = $4, role = $5, isActive = $6, profileImage = $7, locale = $8, totpEnabled = $9, totpSecret = $10, extras = $11, updatedAt = $12 WHERE id = $13",
+      "UPDATE accounts SET email = $1, firstName = $2, lastName = $3, fullName = $4, role = $5, isActive = $6, sessionVersion = $7, profileImage = $8, locale = $9, totpEnabled = $10, totpSecret = $11, extras = $12, updatedAt = $13 WHERE id = $14",
       [
         updated.email ?? null,
         updated.firstName ?? null,
@@ -366,6 +374,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
         updated.fullName ?? null,
         normalizeRole(updated.role) ?? null,
         updated.isActive ?? 1,
+        updated.sessionVersion ?? 1,
         updated.profileImage ?? null,
         updated.locale ?? "fr",
         updated.totpEnabled ?? 0,
@@ -381,7 +390,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
   if (!sqliteDb) return undefined;
 
   const stmt = sqliteDb.prepare(
-    "UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, isActive = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?"
+    "UPDATE accounts SET email = ?, firstName = ?, lastName = ?, fullName = ?, role = ?, isActive = ?, sessionVersion = ?, profileImage = ?, locale = ?, totpEnabled = ?, totpSecret = ?, extras = ?, updatedAt = ? WHERE id = ?"
   );
   stmt.run(
     updated.email ?? null,
@@ -390,6 +399,7 @@ export async function updateAccount(id: string, patch: Partial<AccountRow>) {
     updated.fullName ?? null,
     normalizeRole(updated.role) ?? null,
     updated.isActive ?? 1,
+    updated.sessionVersion ?? 1,
     updated.profileImage ?? null,
     updated.locale ?? "fr",
     updated.totpEnabled ?? 0,
@@ -458,6 +468,22 @@ export async function getRecentLogs(limit = 50): Promise<AuditLogRow[]> {
   if (!sqliteDb) return [];
   const stmt = sqliteDb.prepare("SELECT id, accountId, type, message, timestamp FROM logs ORDER BY timestamp DESC LIMIT ?");
   return stmt.all(safeLimit) as AuditLogRow[];
+}
+
+export async function bumpAccountSessionVersion(accountId: string): Promise<void> {
+  const now = new Date().toISOString();
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    await pgPool.query("UPDATE accounts SET sessionVersion = COALESCE(sessionVersion, 1) + 1, updatedAt = $1 WHERE id = $2", [
+      now,
+      accountId,
+    ]);
+    return;
+  }
+
+  if (!sqliteDb) return;
+  sqliteDb.prepare("UPDATE accounts SET sessionVersion = COALESCE(sessionVersion, 1) + 1, updatedAt = ? WHERE id = ?").run(now, accountId);
 }
 
 function hashResetToken(token: string): string {
@@ -546,6 +572,7 @@ export async function setAccountPassword(accountId: string, plainPassword: strin
       "INSERT INTO account_credentials (accountId,passwordHash,createdAt,updatedAt) VALUES ($1,$2,$3,$4) ON CONFLICT (accountId) DO UPDATE SET passwordHash = EXCLUDED.passwordHash, updatedAt = EXCLUDED.updatedAt",
       [accountId, passwordHash, now, now]
     );
+    await bumpAccountSessionVersion(accountId);
     return;
   }
 }
@@ -599,6 +626,7 @@ if (sqliteDb) {
     const hasLastName = info.some((columnInfo) => columnInfo.name === "lastName");
     const hasLocale = info.some((columnInfo) => columnInfo.name === "locale");
     const hasIsActive = info.some((columnInfo) => columnInfo.name === "isActive");
+    const hasSessionVersion = info.some((columnInfo) => columnInfo.name === "sessionVersion");
 
     if (!hasFirstName) {
       sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN firstName TEXT").run();
@@ -611,6 +639,9 @@ if (sqliteDb) {
     }
     if (!hasIsActive) {
       sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN isActive INTEGER DEFAULT 1").run();
+    }
+    if (!hasSessionVersion) {
+      sqliteDb.prepare("ALTER TABLE accounts ADD COLUMN sessionVersion INTEGER DEFAULT 1").run();
     }
 
     const rows = sqliteDb

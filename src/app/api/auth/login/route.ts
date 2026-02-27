@@ -48,7 +48,11 @@ export async function POST(req: Request) {
 
   await addLog(account.id, "auth.login_success", "Internal login successful");
 
-  const token = createSessionToken({ userId: account.id, role: account.role });
+  const token = createSessionToken({
+    userId: account.id,
+    role: account.role,
+    sessionVersion: account.sessionVersion,
+  });
   const response = NextResponse.json({
     ok: true,
     user: {

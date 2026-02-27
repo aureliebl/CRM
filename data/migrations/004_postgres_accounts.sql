@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   fullName TEXT,
   role TEXT,
   isActive INTEGER DEFAULT 1,
+  sessionVersion INTEGER DEFAULT 1,
   profileImage TEXT,
   locale TEXT DEFAULT 'fr',
   totpEnabled INTEGER DEFAULT 0,
@@ -19,6 +20,7 @@ CREATE TABLE IF NOT EXISTS accounts (
 );
 
 ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1;
+ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sessionVersion INTEGER DEFAULT 1;
 
 CREATE TABLE IF NOT EXISTS logs (
   id TEXT PRIMARY KEY,

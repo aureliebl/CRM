@@ -57,6 +57,7 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    - `data/migrations/004_postgres_accounts.sql`
    - `data/migrations/005_postgres_dashboard_graphs.sql`
    - `data/migrations/006_postgres_auth_rate_limits.sql`
+   - `data/migrations/007_postgres_session_version.sql`
 
 4. Backfill des données SQLite historiques vers PostgreSQL :
    ```bash
@@ -92,6 +93,7 @@ Remarque :
 - phase 4 migre les comptes opérateurs (`accounts`, `logs`, `account_password_reset_tokens`)
 - phase 5 migre la bibliothèque dashboard (`dashboard_graphs`)
 - phase 6 ajoute le throttling auth (`auth_rate_limits`)
+- phase 7 ajoute l'invalidation de sessions par compte (`accounts.sessionVersion`)
 - le flux BigQuery reste identique côté application
 - le script de backfill est idempotent (UPSERT), donc relançable sans doublons
 
@@ -106,6 +108,8 @@ Remarque :
 - La page Sécurité permet aussi l'envoi d'un email de reset de mot de passe (lien vers `/resetlogin`).
 - Si SMTP n'est pas configuré, le lien de reset est loggé côté serveur (mode dev fallback).
 - Les endpoints de login/reset sont protégés par un rate limiting serveur (retours `429` + header `Retry-After`).
+- Les resets de mot de passe invalident toutes les sessions existantes du compte visé.
+- Un endpoint de logout global est disponible (`POST /api/auth/logout-all`).
 - Le mode démo peut être conservé temporairement via `DEMO_AUTH=true`, puis coupé progressivement.
 
 Variables SMTP optionnelles :

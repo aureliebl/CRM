@@ -6,7 +6,7 @@ import { getGroupIdForAccount } from "@/lib/security-store";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

@@ -20,7 +20,7 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  const actorId = getActorIdFromRequest(req);
+  const actorId = await getActorIdFromRequest(req);
   if (!actorId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
