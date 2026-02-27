@@ -6,8 +6,12 @@ import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { IconPickerModal } from "@/components/admin/IconPickerModal";
 import { AsyncButton } from "@/components/admin/AsyncButton";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
-import { getCurrentUser } from "@/lib/mock/auth";
 import type { DynamicTabColumnConfig, DynamicTabConfig, DynamicTabFieldFormat, DynamicTabRowActionConfig, DynamicTabComputedColumn, DynamicTabDetailSection, DynamicTabDetailSectionField } from "@/lib/types";
+
+type SessionActor = {
+  id: string;
+  role: string;
+};
 
 function toTitleLabel(value: string) {
   return value
@@ -44,9 +48,30 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [tabUpdatedAt, setTabUpdatedAt] = useState("");
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const router = useRouter();
 
-  const actor = getCurrentUser();
+  useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -57,7 +82,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
       setMessage(null);
 
       try {
-        const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}?userId=${encodeURIComponent(actor.id)}`, {
+        const res = await fetch(`/api/tabs/slug/${encodeURIComponent(tabSlug)}`, {
           cache: "no-store",
         });
 
@@ -74,6 +99,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
         setIcon(tab.icon ?? APP_MATERIAL_SYMBOLS.navigation.components);
         setDraftConfig(tab.config ?? null);
         setConfigText(JSON.stringify(tab.config ?? {}, null, 2));
+        setTabUpdatedAt(String(tab.updatedAt ?? ""));
         if (Array.isArray(tab.groupIds)) {
           setSelectedGroupIds(tab.groupIds);
         }
@@ -89,7 +115,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
     const loadConnectors = async () => {
       if (!actor) return;
       try {
-        const res = await fetch(`/api/connectors?userId=${encodeURIComponent(actor.id)}`, {
+        const res = await fetch(`/api/connectors`, {
           cache: "no-store",
         });
         if (!res.ok) {
@@ -116,7 +142,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
     const loadGroups = async () => {
       if (!actor) return;
       try {
-        const res = await fetch(`/api/security/groups?userId=${encodeURIComponent(actor.id)}`, {
+        const res = await fetch(`/api/security/groups`, {
           cache: "no-store",
         });
         if (!res.ok) return;
@@ -140,6 +166,10 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
     [slug]
   );
 
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
   if (actor?.role !== "admin") {
     return (
       <section className="admin-placeholder-card">
@@ -161,10 +191,9 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
 
     setLoadingTables(true);
     try {
-      const res = await fetch(
-        `/api/connectors/tables?userId=${encodeURIComponent(actor.id)}&connectorId=${encodeURIComponent(connectorId)}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/connectors/tables?connectorId=${encodeURIComponent(connectorId)}`, {
+        cache: "no-store",
+      });
 
       if (!res.ok) {
         setAvailableTables([]);
@@ -193,10 +222,9 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
       const connectorQuery = draftConfig.connectorId
         ? `&connectorId=${encodeURIComponent(draftConfig.connectorId)}`
         : "";
-      const res = await fetch(
-        `/api/connectors/schema?userId=${encodeURIComponent(actor.id)}&table=${encodeURIComponent(draftConfig.externalTable)}${connectorQuery}`,
-        { cache: "no-store" }
-      );
+      const res = await fetch(`/api/connectors/schema?table=${encodeURIComponent(draftConfig.externalTable)}${connectorQuery}`, {
+        cache: "no-store",
+      });
 
       if (!res.ok) {
         setMessage("Failed to load schema");
@@ -412,7 +440,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
     setMessage(null);
 
     try {
-      const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}?userId=${encodeURIComponent(actor.id)}`, {
+      const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -422,13 +450,22 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
           icon: icon.trim() || undefined,
           config: parsedConfig,
           groupIds: selectedGroupIds,
+          expectedUpdatedAt: tabUpdatedAt || undefined,
         }),
       });
+
+      if (res.status === 409) {
+        setMessage("Conflict detected: tab was modified by another user. Please reload.");
+        return;
+      }
 
       if (!res.ok) {
         setMessage("Failed to save tab");
         return;
       }
+
+      const updatedTab = (await res.json()) as { updatedAt?: string };
+      setTabUpdatedAt(String(updatedTab?.updatedAt ?? tabUpdatedAt));
 
       setMessage("Saved");
       setSaved(true);

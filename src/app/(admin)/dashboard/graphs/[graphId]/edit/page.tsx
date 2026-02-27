@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/mock/auth";
 import { useLocale } from "@/lib/use-locale";
 import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
 import { AsyncButton } from "@/components/admin/AsyncButton";
@@ -36,6 +35,11 @@ function sectionTitleStyle() {
 
 type GraphResponse = DashboardGraphWithData;
 
+type SessionActor = {
+  id: string;
+  role: string;
+};
+
 export default function EditDashboardGraphPage() {
   const { locale } = useLocale();
   const router = useRouter();
@@ -47,6 +51,9 @@ export default function EditDashboardGraphPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
+  const [graphUpdatedAt, setGraphUpdatedAt] = useState("");
 
   const labels =
     locale === "fr"
@@ -205,10 +212,28 @@ export default function EditDashboardGraphPage() {
   const [extFields, setExtFields] = useState<DashboardGraphFieldOption[]>([]);
 
   useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
+
+  useEffect(() => {
     if (form.source !== "external") return;
-    const user = getCurrentUser();
-    if (!user) return;
-    fetch(`/api/connectors?userId=${encodeURIComponent(user.id)}`, { cache: "no-store" })
+    fetch(`/api/connectors`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: any[]) => {
         setConnectors(data.map((c: any) => ({ id: c.id, label: c.label || c.id })));
@@ -221,12 +246,7 @@ export default function EditDashboardGraphPage() {
 
   useEffect(() => {
     if (form.source !== "external" || !form.connectorId) return;
-    const user = getCurrentUser();
-    if (!user) return;
-    fetch(
-      `/api/connectors/tables?userId=${encodeURIComponent(user.id)}&connectorId=${encodeURIComponent(form.connectorId)}`,
-      { cache: "no-store" }
-    )
+    fetch(`/api/connectors/tables?connectorId=${encodeURIComponent(form.connectorId)}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data: any) => {
         const raw = Array.isArray(data) ? data : data.tables ?? [];
@@ -244,10 +264,8 @@ export default function EditDashboardGraphPage() {
       setExtFields([]);
       return;
     }
-    const user = getCurrentUser();
-    if (!user) return;
     fetch(
-      `/api/connectors/schema?userId=${encodeURIComponent(user.id)}&connectorId=${encodeURIComponent(form.connectorId)}&table=${encodeURIComponent(form.externalTable)}`,
+      `/api/connectors/schema?connectorId=${encodeURIComponent(form.connectorId)}&table=${encodeURIComponent(form.externalTable)}`,
       { cache: "no-store" }
     )
       .then((r) => r.json())
@@ -286,6 +304,7 @@ export default function EditDashboardGraphPage() {
           return;
         }
         const graph = (await res.json()) as GraphResponse;
+        setGraphUpdatedAt(String(graph.updatedAt ?? ""));
 
         const firstFilter = graph.config.filters?.[0];
         setForm({
@@ -459,8 +478,7 @@ export default function EditDashboardGraphPage() {
   }, [previewConfig, form.title, form.description, form.size, form.isShared, graphId, locale]);
 
   const onSave = async () => {
-    const user = getCurrentUser();
-    if (!user || !graphId) return;
+    if (!graphId) return;
 
     setSaving(true);
     setError("");
@@ -469,19 +487,26 @@ export default function EditDashboardGraphPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: user.id,
           title: form.title.trim() || (locale === "fr" ? "Graphique" : "Graph"),
           description: form.description.trim(),
           size: form.size,
           isShared: form.isShared,
           config: previewConfig,
+          expectedUpdatedAt: graphUpdatedAt || undefined,
         }),
       });
+
+      if (res.status === 409) {
+        throw new Error(locale === "fr" ? "Conflit détecté : ce graphique a été modifié ailleurs. Rechargez la page." : "Conflict detected: this graph was modified elsewhere. Reload the page.");
+      }
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Save failed");
       }
+
+      const updatedGraph = (await res.json()) as { updatedAt?: string };
+      setGraphUpdatedAt(String(updatedGraph?.updatedAt ?? graphUpdatedAt));
 
       setSaved(true);
       await new Promise((resolve) => setTimeout(resolve, 800));
@@ -503,6 +528,18 @@ export default function EditDashboardGraphPage() {
 
   if (loading) {
     return <section className="admin-placeholder-card">{labels.loading}</section>;
+  }
+
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
+  if (actor?.role !== "admin") {
+    return (
+      <section className="admin-placeholder-card">
+        Only admins can edit dashboard graphs.
+      </section>
+    );
   }
 
   return (
