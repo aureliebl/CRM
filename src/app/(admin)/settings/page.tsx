@@ -1,15 +1,27 @@
 "use client";
 
 import { useTheme } from "@/lib/theme-context";
-import { getCurrentUser, logout, syncCurrentUser, type User } from "@/lib/mock/auth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useLocale } from "@/lib/use-locale";
 import { AsyncButton } from "@/components/admin/AsyncButton";
 
+type LocalUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "admin" | "operator";
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImage?: string | null;
+  totpEnabled?: number;
+  updatedAt?: string | null;
+};
+
 export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
-  const [user, setUser] = useState(() => getCurrentUser());
+  const [user, setUser] = useState<LocalUser | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const router = useRouter();
   const { t, locale } = useLocale();
   const labels =
@@ -54,14 +66,59 @@ export default function SettingsPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const persistAccount = async (patch: Partial<User>) => {
-    const current = getCurrentUser();
-    if (!current) return null;
+  const loadUser = async () => {
+    try {
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!sessionRes.ok) {
+        setUser(null);
+        return;
+      }
 
-    const res = await fetch(`/api/accounts/${current.id}?userId=${encodeURIComponent(current.id)}`, {
+      const sessionPayload = (await sessionRes.json()) as {
+        authenticated?: boolean;
+        user?: {
+          id: string;
+          email: string;
+          fullName: string;
+          role: "admin" | "operator";
+        };
+      };
+
+      if (!sessionPayload.authenticated || !sessionPayload.user) {
+        setUser(null);
+        return;
+      }
+
+      const sessionUser = sessionPayload.user;
+      const accountRes = await fetch(`/api/accounts/${encodeURIComponent(sessionUser.id)}`, {
+        cache: "no-store",
+      });
+
+      if (!accountRes.ok) {
+        setUser({
+          id: sessionUser.id,
+          email: sessionUser.email,
+          fullName: sessionUser.fullName,
+          role: sessionUser.role,
+          totpEnabled: 0,
+        });
+        return;
+      }
+
+      const account = (await accountRes.json()) as LocalUser;
+      setUser(account);
+    } finally {
+      setAuthResolved(true);
+    }
+  };
+
+  const persistAccount = async (patch: Partial<LocalUser>) => {
+    if (!user) return null;
+
+    const res = await fetch(`/api/accounts/${user.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ ...patch, expectedUpdatedAt: user.updatedAt ?? undefined }),
       cache: "no-store",
     });
 
@@ -70,23 +127,22 @@ export default function SettingsPage() {
       throw new Error(body.error || "SAVE_FAILED");
     }
 
-    const row = await res.json();
-    const synced: User = {
-      id: row.id ?? current.id,
-      email: row.email ?? current.email,
-      firstName: row.firstName ?? current.firstName,
-      lastName: row.lastName ?? current.lastName,
+    const row = (await res.json()) as LocalUser;
+    const synced: LocalUser = {
+      id: row.id ?? user.id,
+      email: row.email ?? user.email,
+      firstName: row.firstName ?? user.firstName,
+      lastName: row.lastName ?? user.lastName,
       fullName:
-        `${row.firstName ?? current.firstName ?? ""} ${row.lastName ?? current.lastName ?? ""}`.trim() ||
+        `${row.firstName ?? user.firstName ?? ""} ${row.lastName ?? user.lastName ?? ""}`.trim() ||
         row.fullName ||
-        current.fullName,
-      role: (row.role as User["role"]) ?? current.role,
+        user.fullName,
+      role: row.role ?? user.role,
       profileImage: row.profileImage ?? undefined,
-      totpEnabled: !!(row.totpEnabled ?? current.totpEnabled),
-      totpSecret: row.totpSecret ?? current.totpSecret,
+      totpEnabled: row.totpEnabled ?? user.totpEnabled ?? 0,
+      updatedAt: row.updatedAt ?? user.updatedAt,
     };
 
-    syncCurrentUser(synced);
     setUser(synced);
     window.dispatchEvent(new Event("user:update"));
     return synced;
@@ -129,7 +185,6 @@ export default function SettingsPage() {
     } catch {
       // ignore network issues on logout
     }
-    logout();
     router.push("/login");
   };
 
@@ -160,6 +215,10 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
+    void loadUser();
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     const nextFirstName = user.firstName ?? user.fullName.split(/\s+/)[0] ?? "";
     const parts = user.fullName.split(/\s+/);
@@ -171,10 +230,20 @@ export default function SettingsPage() {
   }, [user]);
 
   useEffect(() => {
-    const handler = () => setUser(getCurrentUser());
+    const handler = () => {
+      void loadUser();
+    };
     window.addEventListener("user:update", handler);
     return () => window.removeEventListener("user:update", handler);
   }, []);
+
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Loading...</section>;
+  }
+
+  if (!user) {
+    return <section className="admin-placeholder-card">Not authenticated.</section>;
+  }
 
   return (
     <div>

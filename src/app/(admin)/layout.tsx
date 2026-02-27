@@ -3,16 +3,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Breadcrumb } from "@/components/admin/Breadcrumb";
 import { ClientSearch } from "@/components/admin/ClientSearch";
 import { BugReportModal } from "@/components/admin/BugReportModal";
 import { AircallButton } from "@/components/admin/AircallButton";
 import { AircallWidget } from "@/components/admin/AircallWidget";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
-import { getCurrentUser, syncCurrentUser, syncCurrentUserFromStorage, type User } from "@/lib/mock/auth";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useLocale } from "@/lib/use-locale";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 
@@ -23,19 +21,29 @@ interface SidebarTabItem {
   icon?: string;
 }
 
-function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollapsed: boolean; onExpandSidebar: () => void }) {
+type LocalUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "admin" | "operator";
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImage?: string | null;
+  totpEnabled?: number;
+};
+
+function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: LocalUser; isSidebarCollapsed: boolean; onExpandSidebar: () => void }) {
   const pathname = usePathname() || "/dashboard";
   const { t, locale } = useLocale();
-  const currentUser = getCurrentUser();
-  const isAdmin = currentUser?.role === "admin";
+  const isAdmin = user?.role === "admin";
   const [dynamicTabs, setDynamicTabs] = useState<SidebarTabItem[]>([]);
   const [isTestOpen, setIsTestOpen] = useState(false);
 
   useEffect(() => {
     const loadTabs = async () => {
-      if (!currentUser) return;
+      if (!user) return;
       try {
-        const res = await fetch(`/api/tabs?userId=${encodeURIComponent(currentUser.id)}`, {
+        const res = await fetch(`/api/tabs`, {
           cache: "no-store",
         });
         if (!res.ok) {
@@ -63,7 +71,7 @@ function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollap
     const refresh = () => { loadTabs(); };
     window.addEventListener("tabs:refresh", refresh);
     return () => window.removeEventListener("tabs:refresh", refresh);
-  }, [currentUser?.id]);
+  }, [user?.id]);
 
   const navItems = [
     { href: "/dashboard", label: t.navigation.dashboard, icon: APP_MATERIAL_SYMBOLS.navigation.dashboard },
@@ -280,14 +288,15 @@ function AdminSidebar({ isSidebarCollapsed, onExpandSidebar }: { isSidebarCollap
 }
 
 function AdminTopbar({
+  user,
   isSidebarCollapsed,
   onToggleSidebar,
 }: {
+  user: LocalUser;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }) {
   const [showBugModal, setShowBugModal] = useState(false);
-  const [user, setUser] = useState(() => getCurrentUser());
   const { locale, t, setLocale } = useLocale();
   const labels =
     locale === "fr"
@@ -320,15 +329,6 @@ function AdminTopbar({
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-  // Listen for external updates (settings page) and refresh local user
-  useEffect(() => {
-    const handler = () => {
-      setUser(getCurrentUser());
-    };
-    window.addEventListener("user:update", handler);
-    return () => window.removeEventListener("user:update", handler);
-  }, []);
 
   // Keyboard shortcut to focus search: Ctrl/Cmd+K
   useEffect(() => {
@@ -492,54 +492,90 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname() || "/dashboard";
-  const [user, setUser] = useState(() => getCurrentUser());
+  const [user, setUser] = useState<LocalUser | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
+  const loadCurrentUser = useCallback(async () => {
+    try {
+      const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
+      if (!sessionRes.ok) {
+        setUser(null);
+        setAuthResolved(true);
+        return;
+      }
+
+      const sessionPayload = (await sessionRes.json()) as {
+        authenticated?: boolean;
+        user?: {
+          id: string;
+          email: string;
+          fullName: string;
+          role: "admin" | "operator";
+        };
+      };
+
+      if (!sessionPayload.authenticated || !sessionPayload.user) {
+        setUser(null);
+        setAuthResolved(true);
+        return;
+      }
+
+      const sessionUser = sessionPayload.user;
+
+      const accountRes = await fetch(`/api/accounts/${encodeURIComponent(sessionUser.id)}`, {
+        cache: "no-store",
+      });
+
+      if (!accountRes.ok) {
+        setUser({
+          id: sessionUser.id,
+          email: sessionUser.email,
+          fullName: sessionUser.fullName,
+          role: sessionUser.role,
+          totpEnabled: 0,
+        });
+        setAuthResolved(true);
+        return;
+      }
+
+      const account = (await accountRes.json()) as {
+        id: string;
+        email: string;
+        fullName: string;
+        role: "admin" | "operator";
+        firstName?: string | null;
+        lastName?: string | null;
+        profileImage?: string | null;
+        totpEnabled?: number;
+      };
+
+      setUser({
+        id: account.id,
+        email: account.email,
+        fullName: account.fullName,
+        role: account.role,
+        firstName: account.firstName,
+        lastName: account.lastName,
+        profileImage: account.profileImage,
+        totpEnabled: account.totpEnabled ?? 0,
+      });
+    } catch {
+      setUser(null);
+    } finally {
+      setAuthResolved(true);
+    }
+  }, []);
+
   useEffect(() => {
-    const synced = syncCurrentUserFromStorage();
     const savedSidebarState = window.localStorage.getItem("admin:sidebar-collapsed");
     if (savedSidebarState !== null) {
       setIsSidebarCollapsed(savedSidebarState === "1");
     }
-    setUser(synced);
     setMounted(true);
-    if (synced) {
-      window.dispatchEvent(new Event("user:update"));
-      return;
-    }
-
-    void (async () => {
-      try {
-        const res = await fetch("/api/auth/session", { cache: "no-store" });
-        if (!res.ok) return;
-        const payload = (await res.json()) as {
-          authenticated?: boolean;
-          user?: {
-            id: string;
-            email: string;
-            fullName: string;
-            role: "admin" | "operator";
-          };
-        };
-
-        if (!payload.authenticated || !payload.user) return;
-
-        const userFromSession: User = {
-          id: payload.user.id,
-          email: payload.user.email,
-          fullName: payload.user.fullName,
-          role: payload.user.role,
-          totpEnabled: false,
-        };
-        syncCurrentUser(userFromSession);
-        setUser(userFromSession);
-        window.dispatchEvent(new Event("user:update"));
-      } catch {
-        // ignore
-      }
-    })();
-  }, []);
+    void loadCurrentUser();
+  }, [loadCurrentUser]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -547,25 +583,15 @@ export default function AdminLayout({
   }, [isSidebarCollapsed, mounted]);
 
   useEffect(() => {
-    const handler = () => setUser(getCurrentUser());
+    const handler = () => {
+      void loadCurrentUser();
+    };
     window.addEventListener("user:update", handler);
     return () => window.removeEventListener("user:update", handler);
-  }, []);
+  }, [loadCurrentUser]);
 
   useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== "admin-current-user") return;
-      const synced = syncCurrentUserFromStorage();
-      setUser(synced);
-      window.dispatchEvent(new Event("user:update"));
-    };
-
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
+    if (!mounted || !authResolved) return;
     if (!user) {
       router.push("/login");
       return;
@@ -576,15 +602,16 @@ export default function AdminLayout({
     if (isAdminOnlyRoute && user.role !== "admin") {
       router.push("/dashboard");
     }
-  }, [router, user, mounted, pathname]);
+  }, [router, user, mounted, authResolved, pathname]);
 
-  if (!mounted || !user) return null;
+  if (!mounted || !authResolved || !user) return null;
 
   return (
     <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
-      <AdminSidebar isSidebarCollapsed={isSidebarCollapsed} onExpandSidebar={() => setIsSidebarCollapsed(false)} />
+      <AdminSidebar user={user} isSidebarCollapsed={isSidebarCollapsed} onExpandSidebar={() => setIsSidebarCollapsed(false)} />
       <div className="admin-content-shell">
         <AdminTopbar
+          user={user}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
         />

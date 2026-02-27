@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getCurrentUser } from "@/lib/mock/auth";
 import { useLocale } from "@/lib/use-locale";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 
@@ -89,13 +88,10 @@ export default function DashboardLibraryPage() {
   );
 
   const handleImport = async (graphId: string) => {
-    const user = getCurrentUser();
-    if (!user) return;
-
     const res = await fetch("/api/dashboard/graphs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: user.id, importGraphId: graphId }),
+      body: JSON.stringify({ importGraphId: graphId }),
     });
 
     if (res.ok) {

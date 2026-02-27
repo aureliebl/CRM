@@ -2,8 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getCurrentUser } from "@/lib/mock/auth";
 import type { DynamicTabConfig, DynamicTabDetailSection, DynamicTabFormatOptions, DynamicTabFieldFormat } from "@/lib/types";
+
+type SessionActor = {
+  id: string;
+  role: string;
+};
 
 type RowData = Record<string, string | number | boolean | null | undefined>;
 
@@ -148,20 +152,41 @@ export default function TabDetailPage({
   const [config, setConfig] = useState<DynamicTabConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actor, setActor] = useState<SessionActor | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
+    const loadActor = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok) {
+          setActor(null);
+          setAuthResolved(true);
+          return;
+        }
+
+        const data = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
+        setActor(data?.authenticated ? data.user ?? null : null);
+      } finally {
+        setAuthResolved(true);
+      }
+    };
+
+    loadActor();
+  }, []);
+
+  useEffect(() => {
     const run = async () => {
+      if (!authResolved || !actor) return;
       const { tabSlug, rowId } = await params;
-      const actor = getCurrentUser();
-      if (!actor) return;
 
       setLoading(true);
       setError(null);
 
       try {
         const res = await fetch(
-          `/api/tabs/slug/${encodeURIComponent(tabSlug)}/rows/${encodeURIComponent(rowId)}?userId=${encodeURIComponent(actor.id)}`,
+          `/api/tabs/slug/${encodeURIComponent(tabSlug)}/rows/${encodeURIComponent(rowId)}`,
           { cache: "no-store" }
         );
 
@@ -181,7 +206,15 @@ export default function TabDetailPage({
     };
 
     run();
-  }, [params]);
+  }, [params, authResolved, actor]);
+
+  if (!authResolved) {
+    return <section className="admin-placeholder-card">Chargement...</section>;
+  }
+
+  if (!actor) {
+    return <section className="admin-placeholder-card">Not authenticated.</section>;
+  }
 
   if (loading) {
     return <section className="admin-placeholder-card">Chargement...</section>;
