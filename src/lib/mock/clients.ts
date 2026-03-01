@@ -755,3 +755,35 @@ export function addClientCommunication(
   return newCommunication;
 }
 
+function normalizePhone(value?: string): string {
+  return (value ?? "").replace(/\D/g, "");
+}
+
+export function createClientFromPhone(phoneNumber: string): Client {
+  const normalizedInput = normalizePhone(phoneNumber);
+  const existing = clients.find((client) => normalizePhone(client.phone) === normalizedInput);
+  if (existing) return existing;
+
+  const now = new Date().toISOString();
+  const suffix = normalizedInput.slice(-8) || `${Date.now()}`.slice(-8);
+  const id = `c-aircall-${Date.now()}`;
+
+  const newClient: Client = {
+    id,
+    fullName: `Nouveau contact ${suffix}`,
+    firstName: "Nouveau",
+    lastName: `Contact ${suffix}`,
+    email: `aircall+${suffix}@costockage.local`,
+    phone: phoneNumber,
+    createdAt: now,
+    segment: "B2C",
+    status: "lead",
+    notes: "Créé automatiquement depuis le widget Aircall.",
+    leadSource: "bot-ia",
+  };
+
+  clients.unshift(newClient);
+  rebuildClientIndexes();
+  return newClient;
+}
+

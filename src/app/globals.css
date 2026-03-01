@@ -142,6 +142,28 @@ button {
   font: inherit;
 }
 
+@keyframes aircallWidgetExpandIn {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) translateX(6px) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes aircallWidgetCollapseIn {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) translateX(16px) scale(0.86);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) translateX(0) scale(1);
+  }
+}
+
 .material-symbol {
   font-family: "Material Symbols Rounded";
   font-weight: 400;

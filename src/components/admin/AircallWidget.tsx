@@ -1,26 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  getActiveCall,
-  subscribeToCalls,
-  answerCall,
-  endCall,
-  startCall,
-  simulateIncomingCall,
-  toggleHold,
-  toggleMute,
-} from "@/lib/mock/aircall";
-import { getClients } from "@/lib/mock/clients";
+import { createClientFromPhone, getClients } from "@/lib/mock/clients";
 import { useLocale } from "@/lib/use-locale";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
-import type { AircallCall } from "@/lib/mock/aircall";
+import type { AircallCall } from "@/lib/aircall-types";
 
-type SessionActor = {
+type AircallEventLogItem = {
   id: string;
-  role: string;
+  event: string;
+  resource: string;
+  callId?: string;
+  messageId?: string;
+  receivedAt: string;
 };
+
+function getStoredSectionState(storageKey: string, defaultValue: boolean): boolean {
+  if (typeof window === "undefined") return defaultValue;
+  const raw = window.localStorage.getItem(storageKey);
+  if (raw === "1") return true;
+  if (raw === "0") return false;
+  return defaultValue;
+}
 
 function formatDuration(totalSeconds: number): string {
   const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
@@ -28,7 +30,121 @@ function formatDuration(totalSeconds: number): string {
   return `${minutes}:${seconds}`;
 }
 
+async function fetchAircallState(): Promise<AircallCall | null> {
+  const res = await fetch("/api/aircall/calls", { cache: "no-store" });
+  if (!res.ok) {
+    return null;
+  }
+  const payload = (await res.json()) as { call?: AircallCall | null };
+  return payload.call ?? null;
+}
+
+async function startAircallCallRequest(phoneNumber: string): Promise<AircallCall | null> {
+  const res = await fetch("/api/aircall/calls", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ phoneNumber }),
+  });
+  if (!res.ok) return null;
+  const payload = (await res.json()) as { call?: AircallCall | null };
+  return payload.call ?? null;
+}
+
+async function sendAircallAction(callId: string, action: "answer" | "end" | "toggleMute" | "toggleHold"): Promise<AircallCall | null> {
+  const res = await fetch(`/api/aircall/calls/${callId}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) return null;
+  const payload = (await res.json()) as { call?: AircallCall | null };
+  return payload.call ?? null;
+}
+
+async function simulateInboundCallRequest(phoneNumber: string): Promise<AircallCall | null> {
+  const res = await fetch("/api/aircall/simulate/inbound", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ phoneNumber }),
+  });
+  if (!res.ok) return null;
+  const payload = (await res.json()) as { call?: AircallCall | null };
+  return payload.call ?? null;
+}
+
+async function sendAircallSmsRequest(input: { to: string; body: string }): Promise<boolean> {
+  const res = await fetch("/api/aircall/messages/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+  return res.ok;
+}
+
+async function syncAircallContactsRequest(): Promise<number | null> {
+  let page = 1;
+  const perPage = 100;
+  let syncedCount = 0;
+  let maxPages = 20;
+
+  while (maxPages > 0) {
+    const res = await fetch(`/api/aircall/contacts?page=${page}&perPage=${perPage}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      return null;
+    }
+
+    const payload = (await res.json()) as {
+      contacts?: Array<Record<string, unknown>>;
+      page?: number;
+      perPage?: number;
+      total?: number;
+    };
+
+    const contacts = payload.contacts ?? [];
+    syncedCount += contacts.length;
+
+    const total = typeof payload.total === "number" ? payload.total : undefined;
+    if (contacts.length === 0) {
+      break;
+    }
+    if (typeof total === "number" && syncedCount >= total) {
+      break;
+    }
+
+    page += 1;
+    maxPages -= 1;
+  }
+
+  return syncedCount;
+}
+
+async function fetchAircallEventLogsRequest(limit = 10): Promise<AircallEventLogItem[]> {
+  const res = await fetch(`/api/aircall/events/logs?limit=${limit}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    return [];
+  }
+
+  const payload = (await res.json()) as { events?: AircallEventLogItem[] };
+  return payload.events ?? [];
+}
+
 export function AircallWidget() {
+  const SPECTRUM_BARS = 24;
+  const PANEL_OPEN_STORAGE_KEY = "aircall:widget:panel-open";
+  const CONTACTS_SECTION_STORAGE_KEY = "aircall:widget:contacts-open";
+  const API_SECTION_STORAGE_KEY = "aircall:widget:api-open";
   const { locale } = useLocale();
   const labels =
     locale === "fr"
@@ -48,10 +164,27 @@ export function AircallWidget() {
           unmute: "Activer micro",
           hold: "Mettre en attente",
           resume: "Reprendre",
-          listeningLevel: "Votre micro",
-          remoteLevel: "Interlocuteur",
           onHold: "En attente",
           activeCall: "Appel en cours",
+          openClient: "Ouvrir la fiche",
+          createClient: "Créer la fiche",
+          collapse: "Réduire",
+          expand: "Développer",
+          userTrack: "Vous",
+          clientTrack: "Client",
+          contactsTitle: "Contacts",
+          toolsTitle: "Aircall API",
+          smsTo: "Numéro SMS",
+          smsBody: "Message SMS",
+          smsSend: "Envoyer SMS",
+          smsSent: "SMS envoyé",
+          smsFailed: "Échec envoi SMS",
+          syncContacts: "Sync contacts",
+          syncOk: "contacts synchronisés",
+          syncFailed: "Échec sync contacts",
+          eventsTitle: "Événements webhook",
+          refresh: "Rafraîchir",
+          noEvents: "Aucun événement",
         }
       : {
           incoming: "Incoming call",
@@ -69,20 +202,52 @@ export function AircallWidget() {
           unmute: "Unmute",
           hold: "Hold",
           resume: "Resume",
-          listeningLevel: "Your mic",
-          remoteLevel: "Remote",
           onHold: "On hold",
           activeCall: "Active call",
+          openClient: "Open client",
+          createClient: "Create client",
+          collapse: "Collapse",
+          expand: "Expand",
+          userTrack: "You",
+          clientTrack: "Client",
+          contactsTitle: "Contacts",
+          toolsTitle: "Aircall API",
+          smsTo: "SMS number",
+          smsBody: "SMS body",
+          smsSend: "Send SMS",
+          smsSent: "SMS sent",
+          smsFailed: "SMS send failed",
+          syncContacts: "Sync contacts",
+          syncOk: "contacts synced",
+          syncFailed: "Contacts sync failed",
+          eventsTitle: "Webhook events",
+          refresh: "Refresh",
+          noEvents: "No events",
         };
   const [call, setCall] = useState<AircallCall | null>(null);
-  const [showContacts, setShowContacts] = useState(false);
+  const [showContacts, setShowContacts] = useState(() =>
+    getStoredSectionState(PANEL_OPEN_STORAGE_KEY, false)
+  );
   const [searchContact, setSearchContact] = useState("");
   const [devMode, setDevMode] = useState(false);
   const [simNumber, setSimNumber] = useState("");
-  const [actor, setActor] = useState<SessionActor | null>(null);
   const [callSeconds, setCallSeconds] = useState(0);
-  const [localLevel, setLocalLevel] = useState(0);
-  const [remoteLevel, setRemoteLevel] = useState(0);
+  const [localSpectrum, setLocalSpectrum] = useState<number[]>(() => Array.from({ length: SPECTRUM_BARS }, () => 0));
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [smsTo, setSmsTo] = useState("");
+  const [smsBody, setSmsBody] = useState("");
+  const [isSendingSms, setIsSendingSms] = useState(false);
+  const [smsFeedback, setSmsFeedback] = useState<"" | "ok" | "error">("");
+  const [isSyncingContacts, setIsSyncingContacts] = useState(false);
+  const [contactsSynced, setContactsSynced] = useState<number | null>(null);
+  const [eventLogs, setEventLogs] = useState<AircallEventLogItem[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [isContactsSectionOpen, setIsContactsSectionOpen] = useState(() =>
+    getStoredSectionState(CONTACTS_SECTION_STORAGE_KEY, true)
+  );
+  const [isApiSectionOpen, setIsApiSectionOpen] = useState(() =>
+    getStoredSectionState(API_SECTION_STORAGE_KEY, true)
+  );
   const panelRef = useRef<HTMLDivElement | null>(null);
   const ringtoneContextRef = useRef<AudioContext | null>(null);
   const ringtoneIntervalRef = useRef<number | null>(null);
@@ -95,51 +260,75 @@ export function AircallWidget() {
   const router = useRouter();
   const clients = getClients();
 
-  const remoteBars = useMemo(() => {
-    const count = 14;
-    return Array.from({ length: count }, (_, index) => {
-      const jitter = ((index % 3) + 1) * 0.06;
-      const value = Math.min(1, remoteLevel + jitter);
-      return `${16 + value * 34}px`;
+  const spectrumTracks = useMemo(() => {
+    const width = 300;
+    const height = 56;
+    const baseline = 50;
+    const holdAttenuation = call?.isOnHold ? 0.2 : 1;
+    const baseLevels = Array.from({ length: SPECTRUM_BARS }, (_, index) => {
+      const sourceIndex = Math.floor(
+        (index / Math.max(1, SPECTRUM_BARS - 1)) * Math.max(0, localSpectrum.length - 1)
+      );
+      return localSpectrum[sourceIndex] ?? 0;
     });
-  }, [remoteLevel]);
 
-  const localBars = useMemo(() => {
-    const count = 14;
-    return Array.from({ length: count }, (_, index) => {
-      const jitter = ((index % 4) + 1) * 0.05;
-      const value = Math.min(1, localLevel + jitter);
-      return `${16 + value * 34}px`;
-    });
-  }, [localLevel]);
-
-  useEffect(() => {
-    const loadActor = async () => {
-      const res = await fetch("/api/auth/session", { cache: "no-store" });
-      if (!res.ok) {
-        setActor(null);
-        return;
-      }
-      const payload = (await res.json()) as { authenticated?: boolean; user?: SessionActor };
-      setActor(payload.authenticated ? payload.user ?? null : null);
+    const computeSideLevel = (value: number, index: number) => {
+      const centerDistance = Math.abs(index - (SPECTRUM_BARS - 1) / 2) / ((SPECTRUM_BARS - 1) / 2);
+      const centerDamping = 0.38 + centerDistance * 0.62;
+      const shaped = Math.pow(Math.min(1, value), 0.8) * 0.95;
+      return Math.min(1, shaped * centerDamping * holdAttenuation);
     };
 
-    loadActor();
-  }, []);
-
-  useEffect(() => {
-    setCall(getActiveCall());
-    const unsubscribe = subscribeToCalls((newCall) => {
-      setCall(newCall);
-      if (newCall && newCall.direction === "inbound") {
-        const client = clients.find((c) => c.phone === newCall.from);
-        if (client) {
-          router.push(`/crm/${client.id}`);
-        }
-      }
+    const userLevels = Array.from({ length: SPECTRUM_BARS }, (_, index) => {
+      const level = computeSideLevel(baseLevels[index] ?? 0, index);
+      return call?.isMuted ? 0 : level;
     });
 
+    const clientLevels = Array.from({ length: SPECTRUM_BARS }, () => 0);
+
+    const buildTrack = (levels: number[], xShift = 0) => {
+      const points = levels.map((level, index) => {
+        const isFirst = index === 0;
+        const isLast = index === levels.length - 1;
+        const xRaw = (index / Math.max(1, levels.length - 1)) * width + xShift;
+        const x = isFirst ? 0 : isLast ? width : Math.max(0, Math.min(width, xRaw));
+        const y = baseline - level * 70;
+        return { x, y, level };
+      });
+
+      const linePath = points
+        .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
+        .join(" ");
+      const areaPath = `${linePath} L ${width} ${baseline} L 0 ${baseline} Z`;
+
+      return { points, linePath, areaPath };
+    };
+
+    const step = width / Math.max(1, SPECTRUM_BARS - 1);
+    const userTrack = buildTrack(userLevels, 0);
+    const clientTrack = buildTrack(clientLevels, step * 0.45);
+
+    return { width, height, baseline, userTrack, clientTrack };
+  }, [localSpectrum, call?.isOnHold, call?.isMuted, SPECTRUM_BARS]);
+
+  const activePhone = useMemo(() => {
+    if (!call) return "";
+    return call.direction === "inbound" ? call.from : call.to;
+  }, [call]);
+
+  const matchingClient = useMemo(() => {
+    const normalize = (value?: string) => (value ?? "").replace(/\D/g, "");
+    const target = normalize(activePhone);
+    if (!target) return null;
+    return clients.find((client) => {
+      const candidate = normalize(client.phone);
+      return candidate === target || candidate.endsWith(target) || target.endsWith(candidate);
+    }) ?? null;
+  }, [activePhone, clients]);
+
+  useEffect(() => {
     const handleToggle = () => {
+      setIsCollapsed(false);
       setShowContacts((prev) => !prev);
     };
 
@@ -156,16 +345,58 @@ export function AircallWidget() {
     window.addEventListener("mousedown", handleOutside);
 
     return () => {
-      unsubscribe();
       window.removeEventListener("aircall:toggle", handleToggle);
       window.removeEventListener("mousedown", handleOutside);
     };
-  }, [router, clients, showContacts]);
+  }, [showContacts]);
+
+  useEffect(() => {
+    let mounted = true;
+    const applyCall = (nextCall: AircallCall | null) => {
+      if (!mounted) return;
+      setCall(nextCall);
+    };
+
+    fetchAircallState().then((nextCall) => {
+      applyCall(nextCall);
+    });
+
+    const events = new EventSource("/api/aircall/events");
+    events.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as { call?: AircallCall | null };
+        applyCall(payload.call ?? null);
+      } catch {
+        // ignore malformed event payload
+      }
+    };
+
+    events.onerror = () => {
+      events.close();
+      window.setTimeout(() => {
+        if (!mounted) return;
+        fetchAircallState().then((nextCall) => applyCall(nextCall));
+      }, 1200);
+    };
+
+    return () => {
+      mounted = false;
+      events.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!call || call.direction !== "inbound") return;
+    const client = clients.find((c) => c.phone === call.from);
+    if (client) {
+      router.push(`/crm/${client.id}`);
+    }
+  }, [call?.id, call?.direction, call?.from, clients, router]);
 
   useEffect(() => {
     if (!call || call.status !== "answered") {
-      setCallSeconds(0);
-      return;
+      const resetTimer = window.setTimeout(() => setCallSeconds(0), 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     const started = new Date(call.startedAt).getTime();
@@ -277,10 +508,10 @@ export function AircallWidget() {
         micAudioContextRef.current.close().catch(() => undefined);
         micAudioContextRef.current = null;
       }
-      setLocalLevel(0);
+      setLocalSpectrum(Array.from({ length: SPECTRUM_BARS }, () => 0));
     };
 
-    if (!call || call.status !== "answered") {
+    if (!call || call.status !== "answered" || call.isMuted) {
       stopMic();
       return;
     }
@@ -297,19 +528,80 @@ export function AircallWidget() {
         const context = new AudioContext();
         const source = context.createMediaStreamSource(stream);
         const analyser = context.createAnalyser();
-        analyser.fftSize = 256;
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.45;
         source.connect(analyser);
 
-        const data = new Uint8Array(analyser.frequencyBinCount);
+        const freqData = new Uint8Array(analyser.frequencyBinCount);
+        const timeData = new Uint8Array(analyser.fftSize);
         const update = () => {
-          analyser.getByteFrequencyData(data);
-          let sum = 0;
-          for (let index = 0; index < data.length; index += 1) {
-            sum += data[index];
+          analyser.getByteFrequencyData(freqData);
+          analyser.getByteTimeDomainData(timeData);
+
+          let sumSquares = 0;
+          for (let index = 0; index < timeData.length; index += 1) {
+            const centered = (timeData[index] - 128) / 128;
+            sumSquares += centered * centered;
           }
-          const avg = sum / data.length / 255;
-          const gated = call?.isMuted ? 0 : avg;
-          setLocalLevel(gated);
+          const rms = Math.sqrt(sumSquares / Math.max(1, timeData.length));
+          const loudness = Math.min(1, Math.pow(rms * 2.35, 0.95));
+
+          const nyquist = context.sampleRate / 2;
+          const hzPerBin = nyquist / freqData.length;
+          const speechMinHz = 120;
+          const speechMaxHz = 4200;
+          const minBin = Math.max(1, Math.floor(speechMinHz / hzPerBin));
+          const maxBin = Math.min(freqData.length - 1, Math.ceil(speechMaxHz / hzPerBin));
+
+          const rawBars = Array.from({ length: SPECTRUM_BARS }, (_, barIndex) => {
+            const t0 = barIndex / SPECTRUM_BARS;
+            const t1 = (barIndex + 1) / SPECTRUM_BARS;
+            const start = Math.floor(minBin + Math.pow(t0, 1.12) * (maxBin - minBin));
+            const end = Math.floor(minBin + Math.pow(t1, 1.12) * (maxBin - minBin));
+            let totalSquare = 0;
+            let samples = 0;
+            for (let freqIndex = start; freqIndex <= Math.max(start, end); freqIndex += 1) {
+              const normalizedBin = freqData[freqIndex] / 255;
+              totalSquare += normalizedBin * normalizedBin;
+              samples += 1;
+            }
+            const bandRms = samples > 0 ? Math.sqrt(totalSquare / samples) : 0;
+            return Math.min(1, Math.pow(bandRms, 0.9));
+          });
+
+          const frameMax = Math.max(0.001, ...rawBars);
+          const frameMean = rawBars.reduce((sum, value) => sum + value, 0) / Math.max(1, rawBars.length);
+          const denominator = Math.max(0.1, frameMax * 1.22 + frameMean * 0.35);
+          const normalizedBars = rawBars.map((value) => Math.min(1, Math.pow(value / denominator, 1.08)));
+
+          const spread = normalizedBars.map((value, index) => {
+            const left = normalizedBars[index - 1] ?? value;
+            const right = normalizedBars[index + 1] ?? value;
+            return value * 0.5 + left * 0.25 + right * 0.25;
+          });
+
+          const withLoudness = spread.map((value) => {
+            const floor = loudness * 0.22;
+            const mixed = value * 0.78 + floor;
+            if (loudness < 0.035) {
+              return mixed * (loudness / 0.035);
+            }
+            return mixed;
+          });
+
+          setLocalSpectrum((previous) =>
+            withLoudness.map((value, index) => {
+              const prev = previous[index] ?? 0;
+              const edgeFactor = Math.abs(index - (SPECTRUM_BARS - 1) / 2) / ((SPECTRUM_BARS - 1) / 2);
+              if (value >= prev) {
+                return prev * 0.78 + value * 0.22;
+              }
+              const releasePrevWeight = 0.58 - edgeFactor * 0.2;
+              const releaseNextWeight = 1 - releasePrevWeight;
+              const released = prev * releasePrevWeight + value * releaseNextWeight;
+              return released < 0.01 ? 0 : released;
+            })
+          );
           micRafRef.current = window.requestAnimationFrame(update);
         };
 
@@ -317,7 +609,7 @@ export function AircallWidget() {
         micAudioContextRef.current = context;
         update();
       } catch {
-        setLocalLevel(0);
+        setLocalSpectrum(Array.from({ length: SPECTRUM_BARS }, () => 0));
       }
     };
 
@@ -329,43 +621,173 @@ export function AircallWidget() {
     };
   }, [call?.id, call?.status, call?.isMuted]);
 
-  useEffect(() => {
-    if (!call || call.status !== "answered") {
-      setRemoteLevel(0);
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      if (call.isOnHold) {
-        setRemoteLevel(0.08);
-        return;
-      }
-      const base = 0.2 + Math.random() * 0.55;
-      setRemoteLevel(base);
-    }, 140);
-
-    return () => window.clearInterval(interval);
-  }, [call?.id, call?.status, call?.isOnHold]);
-
-  const handleAnswer = () => {
-    if (call) answerCall(call.id);
+  const handleAnswer = async () => {
+    if (!call) return;
+    const nextCall = await sendAircallAction(call.id, "answer");
+    if (nextCall) setCall(nextCall);
   };
 
-  const handleEnd = () => {
-    if (call) endCall(call.id);
+  const handleEnd = async () => {
+    if (!call) return;
+    await sendAircallAction(call.id, "end");
+    setCall(null);
   };
 
-  const handleCall = (phoneNumber: string) => {
-    if (actor) {
-      startCall(phoneNumber, actor.id);
+  const handleOpenOrCreateClient = () => {
+    if (!activePhone) return;
+    const client = matchingClient ?? createClientFromPhone(activePhone);
+    router.push(`/crm/${client.id}`);
+  };
+
+  const handleCall = async (phoneNumber: string) => {
+    const started = await startAircallCallRequest(phoneNumber);
+    if (started) {
+      setCall(started);
       setShowContacts(false);
       setSearchContact("");
     }
   };
 
+  const handleToggleMute = async () => {
+    if (!call) return;
+    const nextCall = await sendAircallAction(call.id, "toggleMute");
+    if (nextCall) setCall(nextCall);
+  };
+
+  const handleToggleHold = async () => {
+    if (!call) return;
+    const nextCall = await sendAircallAction(call.id, "toggleHold");
+    if (nextCall) setCall(nextCall);
+  };
+
+  const handleSendSms = async () => {
+    if (isSendingSms) return;
+    if (!smsTo.trim() || !smsBody.trim()) {
+      setSmsFeedback("error");
+      return;
+    }
+
+    setIsSendingSms(true);
+    setSmsFeedback("");
+    const ok = await sendAircallSmsRequest({ to: smsTo.trim(), body: smsBody.trim() });
+    setSmsFeedback(ok ? "ok" : "error");
+    if (ok) {
+      setSmsBody("");
+    }
+    setIsSendingSms(false);
+  };
+
+  const handleSyncContacts = async () => {
+    if (isSyncingContacts) return;
+    setIsSyncingContacts(true);
+    const synced = await syncAircallContactsRequest();
+    setContactsSynced(synced === null ? -1 : synced);
+    setIsSyncingContacts(false);
+  };
+
+  const refreshEventLogs = useCallback(async () => {
+    setIsLoadingLogs(true);
+    const items = await fetchAircallEventLogsRequest(8);
+    setEventLogs(items);
+    setIsLoadingLogs(false);
+  }, []);
+
+  useEffect(() => {
+    if (!showContacts) return;
+    const task = window.setTimeout(() => {
+      refreshEventLogs();
+    }, 0);
+    return () => window.clearTimeout(task);
+  }, [showContacts, refreshEventLogs]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      CONTACTS_SECTION_STORAGE_KEY,
+      isContactsSectionOpen ? "1" : "0"
+    );
+  }, [CONTACTS_SECTION_STORAGE_KEY, isContactsSectionOpen]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      API_SECTION_STORAGE_KEY,
+      isApiSectionOpen ? "1" : "0"
+    );
+  }, [API_SECTION_STORAGE_KEY, isApiSectionOpen]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      PANEL_OPEN_STORAGE_KEY,
+      showContacts ? "1" : "0"
+    );
+  }, [PANEL_OPEN_STORAGE_KEY, showContacts]);
+
   const filteredContacts = clients.filter((c) =>
     `${c.fullName} ${c.phone}`.toLowerCase().includes(searchContact.toLowerCase())
   );
+
+  if (isCollapsed) {
+    return (
+      <div
+        ref={panelRef}
+        style={{
+          position: "fixed",
+          bottom: "1.5rem",
+          right: "1.5rem",
+          zIndex: 1000,
+          background: "var(--modal-bg)",
+          border: "1px solid var(--border-color)",
+          borderRadius: "999px",
+          padding: "0.45rem",
+          boxShadow: `0 10px 40px var(--shadow-color)`,
+          display: "flex",
+          gap: "0.35rem",
+          alignItems: "center",
+          animation: "aircallWidgetCollapseIn 240ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+        }}
+      >
+        <button
+          type="button"
+          title={labels.expand}
+          onClick={() => setIsCollapsed(false)}
+          style={{
+            width: "32px",
+            height: "32px",
+            borderRadius: "999px",
+            border: "1px solid var(--border-color)",
+            background: "var(--button-bg)",
+            color: "var(--text-primary)",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <MaterialSymbol name="chevron_left" size={18} weight={500} opticalSize={20} />
+        </button>
+        {call && (
+          <button
+            type="button"
+            title={labels.hangup}
+            onClick={handleEnd}
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "999px",
+              border: "none",
+              background: "linear-gradient(120deg,#ef4444,#dc2626)",
+              color: "#fff",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <MaterialSymbol name="call_end" size={16} weight={500} opticalSize={20} />
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (call) {
     return (
@@ -382,6 +804,7 @@ export function AircallWidget() {
           border: "1px solid var(--border-color)",
           boxShadow: `0 10px 40px var(--shadow-color)`,
           minWidth: "280px",
+          animation: "aircallWidgetExpandIn 260ms cubic-bezier(0.2, 0.8, 0.2, 1)",
         }}
       >
         <div
@@ -419,59 +842,83 @@ export function AircallWidget() {
               </div>
             )}
           </div>
-          <div
-            style={{
-              width: "12px",
-              height: "12px",
-              borderRadius: "50%",
-              background:
-                call.status === "ringing"
-                  ? "#f59e0b"
-                  : call.status === "answered"
-                  ? "#10b981"
-                  : "#ef4444",
-              animation:
-                call.status === "ringing" ? "pulse 2s infinite" : "none",
-            }}
-          />
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+            <div
+              style={{
+                width: "12px",
+                height: "12px",
+                borderRadius: "50%",
+                background:
+                  call.status === "ringing"
+                    ? "#f59e0b"
+                    : call.status === "answered"
+                    ? "#10b981"
+                    : "#ef4444",
+                animation: call.status === "ringing" ? "pulse 2s infinite" : "none",
+              }}
+            />
+            <button
+              type="button"
+              title={labels.collapse}
+              onClick={() => setIsCollapsed(true)}
+              style={{
+                width: "30px",
+                height: "30px",
+                borderRadius: "999px",
+                border: "1px solid var(--border-color)",
+                background: "var(--button-bg)",
+                color: "var(--text-primary)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <MaterialSymbol name="chevron_right" size={18} weight={500} opticalSize={20} />
+            </button>
+          </div>
         </div>
 
         {call.status === "answered" && (
-          <div style={{ marginBottom: "0.8rem", display: "grid", gap: "0.5rem" }}>
-            <div>
-              <div style={{ fontSize: "0.72rem", color: "#f59e0b", marginBottom: "0.2rem" }}>{labels.remoteLevel}</div>
-              <div style={{ display: "flex", alignItems: "end", gap: "0.2rem", height: "56px" }}>
-                {remoteBars.map((height, index) => (
-                  <div
-                    key={`remote-${index}`}
-                    style={{
-                      width: "7px",
-                      height,
-                      borderRadius: "999px",
-                      background: "linear-gradient(180deg, #f59e0b, #fb923c)",
-                      transition: "height 120ms linear",
-                    }}
-                  />
-                ))}
-              </div>
+          <div style={{ marginBottom: "0.8rem" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.22rem" }}>
+              <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>{labels.userTrack}</div>
+              <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)" }}>{labels.clientTrack}</div>
             </div>
+            <div style={{ borderRadius: "0.65rem", background: "var(--button-bg)", padding: "0.25rem 0.35rem" }}>
+              <svg width="100%" height={spectrumTracks.height} viewBox={`0 0 ${spectrumTracks.width} ${spectrumTracks.height}`} preserveAspectRatio="none">
+                <path d={spectrumTracks.userTrack.areaPath} fill="rgba(34,197,94,0.16)" />
+                <path d={spectrumTracks.clientTrack.areaPath} fill="rgba(245,158,11,0.16)" />
 
-            <div>
-              <div style={{ fontSize: "0.72rem", color: "#22c55e", marginBottom: "0.2rem" }}>{labels.listeningLevel}</div>
-              <div style={{ display: "flex", alignItems: "end", gap: "0.2rem", height: "56px" }}>
-                {localBars.map((height, index) => (
-                  <div
-                    key={`local-${index}`}
-                    style={{
-                      width: "7px",
-                      height,
-                      borderRadius: "999px",
-                      background: "linear-gradient(180deg, #22c55e, #16a34a)",
-                      transition: "height 120ms linear",
-                    }}
+                <path d={spectrumTracks.userTrack.linePath} fill="none" stroke="#16a34a" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d={spectrumTracks.clientTrack.linePath} fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+
+                {spectrumTracks.userTrack.points.map((point, index) => (
+                  index % 2 === 0 ? (
+                  <circle
+                    key={`user-dot-${index}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={1.25}
+                    fill="#22c55e"
+                    fillOpacity={0.45 + point.level * 0.35}
                   />
+                  ) : null
                 ))}
-              </div>
+
+                {spectrumTracks.clientTrack.points.map((point, index) => (
+                  index % 2 === 0 ? (
+                  <circle
+                    key={`client-dot-${index}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={1.25}
+                    fill="#f59e0b"
+                    fillOpacity={0.45 + point.level * 0.35}
+                  />
+                  ) : null
+                ))}
+              </svg>
             </div>
           </div>
         )}
@@ -507,12 +954,12 @@ export function AircallWidget() {
             <>
               <button
                 type="button"
-                onClick={() => toggleMute(call.id)}
+                onClick={handleOpenOrCreateClient}
                 style={{
                   padding: "0.5rem 0.8rem",
                   borderRadius: "999px",
                   border: "1px solid var(--border-color)",
-                  background: call.isMuted ? "rgba(239,68,68,0.15)" : "var(--button-bg)",
+                  background: "var(--button-bg)",
                   color: "var(--text-primary)",
                   cursor: "pointer",
                   fontSize: "0.82rem",
@@ -521,13 +968,40 @@ export function AircallWidget() {
                   gap: "0.35rem",
                 }}
               >
-                <MaterialSymbol name={call.isMuted ? "mic_off" : "mic"} size={16} weight={500} opticalSize={20} />
+                <MaterialSymbol name="contact_phone" size={16} weight={500} opticalSize={20} />
+                {matchingClient ? labels.openClient : labels.createClient}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleMute}
+                style={{
+                  padding: "0.5rem 0.8rem",
+                  borderRadius: "999px",
+                  border: call.isMuted ? "1px solid rgba(239,68,68,0.55)" : "1px solid var(--border-color)",
+                  background: call.isMuted ? "rgba(239,68,68,0.2)" : "var(--button-bg)",
+                  color: call.isMuted ? "#b91c1c" : "var(--text-primary)",
+                  cursor: "pointer",
+                  fontSize: "0.82rem",
+                  fontWeight: call.isMuted ? 600 : 500,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.35rem",
+                }}
+              >
+                <MaterialSymbol
+                  name={call.isMuted ? "mic_off" : "mic"}
+                  size={16}
+                  weight={500}
+                  opticalSize={20}
+                  fill={call.isMuted ? 1 : 0}
+                />
                 {call.isMuted ? labels.unmute : labels.mute}
               </button>
 
               <button
                 type="button"
-                onClick={() => toggleHold(call.id)}
+                onClick={handleToggleHold}
                 style={{
                   padding: "0.5rem 0.8rem",
                   borderRadius: "999px",
@@ -553,11 +1027,12 @@ export function AircallWidget() {
             style={{
               padding: "0.5rem 1rem",
               borderRadius: "999px",
-              border: "1px solid var(--border-color)",
-              background: "var(--button-bg)",
-              color: "var(--text-primary)",
+              border: "none",
+              background: "linear-gradient(120deg,#ef4444,#dc2626)",
+              color: "#fff",
               cursor: "pointer",
               fontSize: "0.85rem",
+              fontWeight: 600,
             }}
           >
             {labels.hangup}
@@ -575,6 +1050,7 @@ export function AircallWidget() {
         bottom: "1.5rem",
         right: "1.5rem",
         zIndex: 1000,
+        animation: "aircallWidgetExpandIn 240ms cubic-bezier(0.2, 0.8, 0.2, 1)",
       }}
     >
       <div
@@ -597,66 +1073,276 @@ export function AircallWidget() {
               marginBottom: "0.5rem",
             }}
           >
-            <input
-              type="text"
-              placeholder={labels.searchContact}
-              value={searchContact}
-              onChange={(e) => setSearchContact(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "0.5rem",
-                borderRadius: "0.5rem",
-                border: "1px solid var(--border-color)",
-                background: "var(--input-bg)",
-                color: "var(--text-primary)",
-                marginBottom: "0.5rem",
-                fontSize: "0.85rem",
-                boxSizing: "border-box",
-              }}
-            />
-            <div
-              style={{
-                maxHeight: "300px",
-                overflowY: "auto",
-                display: "flex",
-                flexDirection: "column",
-                gap: "0.25rem",
-              }}
-            >
-              {filteredContacts.length > 0 ? (
-                filteredContacts.map((contact) => (
-                  <button
-                    key={contact.id}
-                    type="button"
-                    onClick={() => handleCall(contact.phone || "")}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "0.35rem" }}>
+              <button
+                type="button"
+                title={labels.collapse}
+                onClick={() => {
+                  setIsCollapsed(true);
+                  setShowContacts(false);
+                }}
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "999px",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <MaterialSymbol name="chevron_right" size={16} weight={500} opticalSize={20} />
+              </button>
+            </div>
+
+            <div style={{ marginTop: "0.2rem", borderTop: "1px solid var(--border-color)", paddingTop: "0.5rem" }}>
+              <button
+                type="button"
+                onClick={() => setIsContactsSectionOpen((prev) => !prev)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  borderRadius: "0.5rem",
+                  padding: "0.4rem 0.5rem",
+                  cursor: "pointer",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                }}
+              >
+                {labels.contactsTitle}
+                <MaterialSymbol
+                  name={isContactsSectionOpen ? "expand_less" : "expand_more"}
+                  size={16}
+                  weight={500}
+                  opticalSize={20}
+                />
+              </button>
+
+              {isContactsSectionOpen && (
+                <>
+                  <input
+                    type="text"
+                    placeholder={labels.searchContact}
+                    value={searchContact}
+                    onChange={(e) => setSearchContact(e.target.value)}
                     style={{
                       width: "100%",
                       padding: "0.5rem",
                       borderRadius: "0.5rem",
                       border: "1px solid var(--border-color)",
-                      background: "var(--button-bg)",
+                      background: "var(--input-bg)",
                       color: "var(--text-primary)",
-                      cursor: "pointer",
-                      fontSize: "0.8rem",
-                      textAlign: "left",
-                      transition: "all 0.2s",
+                      marginTop: "0.45rem",
+                      marginBottom: "0.5rem",
+                      fontSize: "0.85rem",
+                      boxSizing: "border-box",
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "var(--border-hover)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "var(--button-bg)";
+                  />
+                  <div
+                    style={{
+                      maxHeight: "300px",
+                      overflowY: "auto",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "0.25rem",
                     }}
                   >
-                    <div style={{ fontWeight: 500 }}>{contact.fullName}</div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                      {contact.phone}
-                    </div>
+                    {filteredContacts.length > 0 ? (
+                      filteredContacts.map((contact) => (
+                        <button
+                          key={contact.id}
+                          type="button"
+                          onClick={() => handleCall(contact.phone || "")}
+                          style={{
+                            width: "100%",
+                            padding: "0.5rem",
+                            borderRadius: "0.5rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--button-bg)",
+                            color: "var(--text-primary)",
+                            cursor: "pointer",
+                            fontSize: "0.8rem",
+                            textAlign: "left",
+                            transition: "all 0.2s",
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = "var(--border-hover)";
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = "var(--button-bg)";
+                          }}
+                        >
+                          <div style={{ fontWeight: 500 }}>{contact.fullName}</div>
+                          <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                            {contact.phone}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", padding: "0.5rem", textAlign: "center" }}>
+                        {labels.noContact}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-color)" }}>
+              <button
+                type="button"
+                onClick={() => setIsApiSectionOpen((prev) => !prev)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  border: "1px solid var(--border-color)",
+                  background: "var(--button-bg)",
+                  color: "var(--text-primary)",
+                  borderRadius: "0.5rem",
+                  padding: "0.4rem 0.5rem",
+                  cursor: "pointer",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                }}
+              >
+                {labels.toolsTitle}
+                <MaterialSymbol
+                  name={isApiSectionOpen ? "expand_less" : "expand_more"}
+                  size={16}
+                  weight={500}
+                  opticalSize={20}
+                />
+              </button>
+
+              {isApiSectionOpen && (
+                <div style={{ display: "grid", gap: "0.35rem", marginTop: "0.45rem" }}>
+                <input
+                  type="text"
+                  value={smsTo}
+                  onChange={(e) => setSmsTo(e.target.value)}
+                  placeholder={labels.smsTo}
+                  style={{
+                    width: "100%",
+                    padding: "0.38rem 0.45rem",
+                    borderRadius: "0.4rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                    fontSize: "0.75rem",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <input
+                  type="text"
+                  value={smsBody}
+                  onChange={(e) => setSmsBody(e.target.value)}
+                  placeholder={labels.smsBody}
+                  style={{
+                    width: "100%",
+                    padding: "0.38rem 0.45rem",
+                    borderRadius: "0.4rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                    fontSize: "0.75rem",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSendSms}
+                  disabled={isSendingSms}
+                  style={{
+                    width: "100%",
+                    padding: "0.38rem 0.45rem",
+                    borderRadius: "0.4rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--button-bg)",
+                    color: "var(--text-primary)",
+                    cursor: isSendingSms ? "not-allowed" : "pointer",
+                    fontSize: "0.75rem",
+                  }}
+                >
+                  {labels.smsSend}
+                </button>
+                {smsFeedback !== "" && (
+                  <div style={{ fontSize: "0.72rem", color: smsFeedback === "ok" ? "var(--success-text)" : "var(--error-text)" }}>
+                    {smsFeedback === "ok" ? labels.smsSent : labels.smsFailed}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSyncContacts}
+                  disabled={isSyncingContacts}
+                  style={{
+                    width: "100%",
+                    padding: "0.38rem 0.45rem",
+                    borderRadius: "0.4rem",
+                    border: "1px solid var(--border-color)",
+                    background: "var(--button-bg)",
+                    color: "var(--text-primary)",
+                    cursor: isSyncingContacts ? "not-allowed" : "pointer",
+                    fontSize: "0.75rem",
+                  }}
+                >
+                  {labels.syncContacts}
+                </button>
+                {contactsSynced !== null && (
+                  <div style={{ fontSize: "0.72rem", color: contactsSynced >= 0 ? "var(--success-text)" : "var(--error-text)" }}>
+                    {contactsSynced >= 0
+                      ? `${contactsSynced} ${labels.syncOk}`
+                      : labels.syncFailed}
+                  </div>
+                )}
+
+                <div style={{ marginTop: "0.15rem", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{labels.eventsTitle}</div>
+                  <button
+                    type="button"
+                    onClick={refreshEventLogs}
+                    disabled={isLoadingLogs}
+                    style={{
+                      border: "1px solid var(--border-color)",
+                      background: "var(--button-bg)",
+                      color: "var(--text-primary)",
+                      borderRadius: "0.35rem",
+                      fontSize: "0.68rem",
+                      padding: "0.2rem 0.35rem",
+                      cursor: isLoadingLogs ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {labels.refresh}
                   </button>
-                ))
-              ) : (
-                <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", padding: "0.5rem", textAlign: "center" }}>
-                  {labels.noContact}
+                </div>
+                <div style={{ maxHeight: "120px", overflowY: "auto", border: "1px solid var(--border-color)", borderRadius: "0.4rem", padding: "0.35rem" }}>
+                  {eventLogs.length === 0 ? (
+                    <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", textAlign: "center", padding: "0.3rem" }}>
+                      {labels.noEvents}
+                    </div>
+                  ) : (
+                    eventLogs.map((item) => (
+                      <div key={item.id} style={{ fontSize: "0.69rem", color: "var(--text-primary)", padding: "0.2rem 0", borderBottom: "1px dashed var(--border-color)" }}>
+                        <div style={{ fontWeight: 600 }}>{item.event || "event"}</div>
+                        <div style={{ color: "var(--text-secondary)" }}>
+                          {item.resource}
+                          {item.callId ? ` • call:${item.callId}` : ""}
+                          {item.messageId ? ` • msg:${item.messageId}` : ""}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
                 </div>
               )}
             </div>
@@ -698,9 +1384,10 @@ export function AircallWidget() {
                     />
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (simNumber.trim()) {
-                          simulateIncomingCall(simNumber.trim());
+                          const simulated = await simulateInboundCallRequest(simNumber.trim());
+                          if (simulated) setCall(simulated);
                           setSimNumber("");
                           setShowContacts(false);
                         }
@@ -723,6 +1410,31 @@ export function AircallWidget() {
             )}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={() => {
+            setIsCollapsed(false);
+            setShowContacts((prev) => !prev);
+          }}
+          style={{
+            border: "1px solid var(--border-color)",
+            background: "linear-gradient(120deg, rgba(30,64,175,0.95), rgba(79,70,229,0.95))",
+            color: "#ffffff",
+            borderRadius: "999px",
+            padding: "0.45rem 0.75rem",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.35rem",
+            fontSize: "0.78rem",
+            fontWeight: 600,
+            boxShadow: "0 8px 24px var(--shadow-color)",
+          }}
+        >
+          <MaterialSymbol name="support_agent" size={16} weight={500} opticalSize={20} />
+          Aircall
+        </button>
       </div>
     </div>
   );
@@ -759,7 +1471,10 @@ export function CallClientButton({ phoneNumber }: { phoneNumber: string }) {
         return;
       }
 
-      startCall(phoneNumber, actorId);
+      const started = await startAircallCallRequest(phoneNumber);
+      if (!started) {
+        alert(labels.mustBeConnected);
+      }
     } catch {
       alert(labels.mustBeConnected);
     } finally {
