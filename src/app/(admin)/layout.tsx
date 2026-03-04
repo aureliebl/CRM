@@ -90,6 +90,11 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
       label: t.navigation.documentation ?? "Documentation",
       icon: APP_MATERIAL_SYMBOLS.navigation.documentation,
     },
+    {
+      href: "/flowise",
+      label: t.navigation.assistant ?? "Assistant",
+      icon: "smart_toy",
+    },
     { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
     ...(isAdmin
       ? [

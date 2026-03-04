@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { getGroupIdForAccount } from "@/lib/security-store";
 import type {
   DocumentationBlock,
@@ -24,6 +26,7 @@ const pgPool = new Pool({
 });
 
 let postgresReady: Promise<void> | null = null;
+let documentationMediaReconciled = false;
 
 const nowIso = () => new Date().toISOString();
 
@@ -52,6 +55,97 @@ type DocumentationNodeRow = {
   createdat: string;
   updatedat: string;
 };
+
+type DocumentationMediaRow = {
+  id: string;
+  nodeid: string;
+  ownerid: string;
+  filename: string;
+  mimetype: string;
+  sizebytes: number;
+  storagepath: string;
+  createdat: string;
+  updatedat: string;
+};
+
+function extractMediaIdsFromBlocks(blocks: DocumentationBlock[]): Set<string> {
+  const mediaIds = new Set<string>();
+  for (const block of blocks) {
+    if (block.type !== "image") continue;
+    const mediaId = String(block.mediaId ?? "").trim();
+    if (mediaId) mediaIds.add(mediaId);
+  }
+  return mediaIds;
+}
+
+async function listMediaRowsForNodeIds(nodeIds: string[]): Promise<DocumentationMediaRow[]> {
+  if (nodeIds.length === 0) return [];
+  const result = await pgPool.query(
+    "SELECT * FROM documentation_media WHERE nodeId = ANY($1::text[])",
+    [nodeIds]
+  );
+  return result.rows as DocumentationMediaRow[];
+}
+
+async function deleteMediaRowsAndFiles(rows: DocumentationMediaRow[]): Promise<void> {
+  if (rows.length === 0) return;
+
+  const ids = rows.map((row) => row.id);
+  await pgPool.query("DELETE FROM documentation_media WHERE id = ANY($1::text[])", [ids]);
+
+  for (const row of rows) {
+    await fs.unlink(row.storagepath).catch(() => undefined);
+  }
+}
+
+async function reconcileDocumentationMediaStorage(): Promise<void> {
+  if (documentationMediaReconciled) return;
+
+  const mediaResult = await pgPool.query("SELECT id, nodeId, storagePath FROM documentation_media");
+  const mediaRows = mediaResult.rows as Array<{ id: string; nodeid: string; storagepath: string }>;
+
+  const pagesResult = await pgPool.query("SELECT id, contentJson FROM documentation_nodes WHERE kind = 'page'");
+  const pageRows = pagesResult.rows as Array<{ id: string; contentjson: string }>;
+
+  const referencedMediaIds = new Set<string>();
+  for (const page of pageRows) {
+    const blocks = parseContentJson(page.contentjson ?? "[]");
+    const mediaIds = extractMediaIdsFromBlocks(blocks);
+    for (const mediaId of mediaIds) {
+      referencedMediaIds.add(mediaId);
+    }
+  }
+
+  const staleRows = mediaRows.filter((row) => !referencedMediaIds.has(String(row.id)));
+  if (staleRows.length > 0) {
+    await deleteMediaRowsAndFiles(
+      staleRows.map((row) => ({
+        id: String(row.id),
+        nodeid: String(row.nodeid),
+        ownerid: "",
+        filename: "",
+        mimetype: "",
+        sizebytes: 0,
+        storagepath: String(row.storagepath),
+        createdat: "",
+        updatedat: "",
+      }))
+    );
+  }
+
+  const uploadsDir = path.join(process.cwd(), "data", "uploads", "documentation");
+  const dbPaths = new Set(mediaRows.map((row) => String(row.storagepath)));
+  const files = await fs.readdir(uploadsDir).catch(() => [] as string[]);
+
+  for (const file of files) {
+    const absolutePath = path.join(uploadsDir, file);
+    if (!dbPaths.has(absolutePath)) {
+      await fs.unlink(absolutePath).catch(() => undefined);
+    }
+  }
+
+  documentationMediaReconciled = true;
+}
 
 function parseContentJson(raw: string): DocumentationBlock[] {
   try {
@@ -169,6 +263,7 @@ async function ensurePostgresReady() {
     postgresReady = ensurePostgresSchema();
   }
   await postgresReady;
+  await reconcileDocumentationMediaStorage();
 }
 
 async function getAllDocumentationNodes(): Promise<DocumentationNode[]> {
@@ -377,7 +472,8 @@ export async function updateDocumentationNode(
       ? Boolean(patch.isPrivate)
       : node.isPrivate;
 
-  const nextContent = patch.content !== undefined ? JSON.stringify(patch.content) : JSON.stringify(node.content);
+  const nextBlocks = patch.content !== undefined ? patch.content : node.content;
+  const nextContent = JSON.stringify(nextBlocks);
 
   let nextFolderVisibility = node.folderVisibility;
   let nextGroupId = node.groupId;
@@ -407,6 +503,13 @@ export async function updateDocumentationNode(
       nodeId,
     ]
   );
+
+  if (node.kind === "page" && patch.content !== undefined) {
+    const referencedMediaIds = extractMediaIdsFromBlocks(nextBlocks);
+    const nodeMediaRows = await listMediaRowsForNodeIds([nodeId]);
+    const orphanRows = nodeMediaRows.filter((row) => !referencedMediaIds.has(row.id));
+    await deleteMediaRowsAndFiles(orphanRows);
+  }
 
   return getNodeById(nodeId);
 }
@@ -485,7 +588,8 @@ export async function deleteDocumentationNode(actor: DocumentationActorScope, no
   const ids = Array.from(descendants);
   if (ids.length === 0) return false;
 
-  await pgPool.query("DELETE FROM documentation_media WHERE nodeId = ANY($1::text[])", [ids]);
+  const mediaRows = await listMediaRowsForNodeIds(ids);
+  await deleteMediaRowsAndFiles(mediaRows);
   await pgPool.query("DELETE FROM documentation_nodes WHERE id = ANY($1::text[])", [ids]);
   return true;
 }
@@ -548,19 +652,7 @@ export async function getDocumentationMediaForActor(
   await ensurePostgresReady();
 
   const mediaResult = await pgPool.query("SELECT * FROM documentation_media WHERE id = $1", [mediaId]);
-  const mediaRow = mediaResult.rows[0] as
-    | {
-        id: string;
-        nodeid: string;
-        ownerid: string;
-        filename: string;
-        mimetype: string;
-        sizebytes: number;
-        storagepath: string;
-        createdat: string;
-        updatedat: string;
-      }
-    | undefined;
+  const mediaRow = mediaResult.rows[0] as DocumentationMediaRow | undefined;
 
   if (!mediaRow) return null;
 

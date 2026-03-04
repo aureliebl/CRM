@@ -14,6 +14,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   centers: "Centers",
   security: "Admin & Security",
   documentation: "Documentation",
+  flowise: "Assistant",
   tabs: "Tabs",
   graphs: "Graphs",
   new: "New",
