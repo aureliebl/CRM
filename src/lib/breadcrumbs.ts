@@ -13,6 +13,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "live-users": "Live users",
   centers: "Centers",
   security: "Admin & Security",
+  documentation: "Documentation",
   tabs: "Tabs",
   graphs: "Graphs",
   new: "New",

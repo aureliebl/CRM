@@ -1,0 +1,14 @@
+{
+  "name": "costockage-docs-collab-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@hocuspocus/server": "^2.15.2",
+    "pg": "^8.19.0",
+    "yjs": "^13.6.27"
+  }
+}

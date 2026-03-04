@@ -85,6 +85,11 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
     })),
     { href: "/crm", label: locale === "fr" ? "Fiche client" : "Client file", icon: "person" },
     { href: "/acquisition", label: locale === "fr" ? "Acquisition" : "Acquisition", icon: "trending_up" },
+    {
+      href: "/documentation",
+      label: t.navigation.documentation ?? "Documentation",
+      icon: APP_MATERIAL_SYMBOLS.navigation.documentation,
+    },
     { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
     ...(isAdmin
       ? [

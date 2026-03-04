@@ -69,42 +69,53 @@ function detectLanguage(code: string): string {
 function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSProperties {
   if (type === "heading1") {
     return {
-      fontSize: "2rem",
-      fontWeight: 700,
-      lineHeight: 1.2,
-      paddingTop: "0.3rem",
-      paddingBottom: "0.2rem",
+      fontFamily: "inherit",
+      fontSize: "2.05rem",
+      fontWeight: 650,
+      lineHeight: 1.25,
+      letterSpacing: "-0.02em",
+      paddingTop: "0.34rem",
+      paddingBottom: "0.28rem",
     };
   }
   if (type === "heading2") {
     return {
-      fontSize: "1.55rem",
-      fontWeight: 650,
-      lineHeight: 1.25,
-      paddingTop: "0.24rem",
-      paddingBottom: "0.16rem",
+      fontFamily: "inherit",
+      fontSize: "1.58rem",
+      fontWeight: 620,
+      lineHeight: 1.32,
+      letterSpacing: "-0.018em",
+      paddingTop: "0.28rem",
+      paddingBottom: "0.22rem",
     };
   }
   if (type === "heading3") {
     return {
-      fontSize: "1.2rem",
+      fontFamily: "inherit",
+      fontSize: "1.26rem",
       fontWeight: 600,
-      lineHeight: 1.3,
-      paddingTop: "0.18rem",
-      paddingBottom: "0.1rem",
+      lineHeight: 1.35,
+      letterSpacing: "-0.014em",
+      paddingTop: "0.22rem",
+      paddingBottom: "0.18rem",
     };
   }
   if (type === "subtitle") {
     return {
-      fontSize: "1rem",
+      fontFamily: "inherit",
+      fontSize: "1.02rem",
       fontWeight: 500,
+      lineHeight: 1.5,
+      letterSpacing: "-0.006em",
       color: "var(--text-secondary)",
     };
   }
   if (type === "info") {
     return {
+      fontFamily: "inherit",
       fontSize: "0.95rem",
       fontWeight: 500,
+      lineHeight: 1.5,
       background: "var(--bg-hover)",
       border: "1px solid var(--border-color)",
       borderRadius: "0.5rem",
@@ -112,8 +123,11 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
     };
   }
   return {
+    fontFamily: "inherit",
     fontSize: "1rem",
     fontWeight: 400,
+    lineHeight: 1.6,
+    letterSpacing: "-0.01em",
   };
 }
 
@@ -455,6 +469,37 @@ export default function DocumentationPage() {
     const updated = (await res.json()) as DocumentationNode;
     setSelectedNode(updated);
     await refreshTree();
+  };
+
+  const handleExportNode = async (format: "pdf" | "doc") => {
+    if (!selectedNode || selectedNode.kind !== "page") return;
+
+    const res = await fetch("/api/documentation/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nodeId: selectedNode.id,
+        format,
+        content: selectedNode.content,
+      }),
+    });
+
+    if (!res.ok) {
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert(payload?.error || "Export failed");
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const defaultName = `${selectedNode.title || "Documentation"}.${format === "pdf" ? "pdf" : "docx"}`;
+    link.href = url;
+    link.download = defaultName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const updateSelectedBlock = (blockId: string, patch: Partial<DocumentationBlock>) => {
@@ -893,6 +938,24 @@ export default function DocumentationPage() {
                 <button className="admin-btn admin-btn-secondary" type="button" onClick={handleDeleteNode}>
                   {labels.delete}
                 </button>
+                {selectedNode.kind === "page" && (
+                  <>
+                    <button
+                      className="admin-btn admin-btn-secondary"
+                      type="button"
+                      onClick={() => handleExportNode("pdf")}
+                    >
+                      Export PDF
+                    </button>
+                    <button
+                      className="admin-btn admin-btn-secondary"
+                      type="button"
+                      onClick={() => handleExportNode("doc")}
+                    >
+                      Export DOC
+                    </button>
+                  </>
+                )}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>

@@ -58,6 +58,8 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    - `data/migrations/005_postgres_dashboard_graphs.sql`
    - `data/migrations/006_postgres_auth_rate_limits.sql`
    - `data/migrations/007_postgres_session_version.sql`
+   - `data/migrations/008_postgres_documentation.sql`
+   - `data/migrations/009_postgres_documentation_crdt.sql`
 
    Pour la migration 007 uniquement, vous pouvez aussi utiliser :
    ```bash
@@ -89,6 +91,32 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    Pour forcer une égalité stricte (aucune ligne en plus côté PostgreSQL) :
    ```bash
    VERIFY_STRICT=true DATABASE_URL=postgres://user:password@host:5432/database npm run db:verify:content:postgres
+   ```
+
+### Collaboration CRDT (Documentation)
+
+Le mode collaboratif temps réel de la Documentation utilise un serveur WebSocket dédié (Hocuspocus + Yjs).
+
+1. Variables d'environnement (app Next + serveur collab) :
+   ```env
+   DOCS_CRDT_SECRET=change-me-with-a-long-random-secret
+   NEXT_PUBLIC_DOCS_CRDT_WS_URL=ws://localhost:1234
+   DOCS_CRDT_PORT=1234
+   ```
+
+2. Installer les dépendances du serveur collab :
+   ```bash
+   npm --prefix collab-server install
+   ```
+
+3. Lancer le serveur collab en dev (dans un terminal dédié) :
+   ```bash
+   npm run docs:collab:dev
+   ```
+
+4. Lancer ensuite l'app Next normalement :
+   ```bash
+   npm run dev
    ```
 
 Remarque :

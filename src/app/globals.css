@@ -699,6 +699,10 @@ button {
 .doc-editor-surface {
   display: grid;
   gap: 0;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
 }
 
 .doc-editor-block {
@@ -818,8 +822,10 @@ button {
   padding: 0.18rem 0.25rem;
   background: transparent;
   color: var(--text-primary);
+  font-family: inherit;
   font-size: 1rem;
-  line-height: 1.5;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
   outline: none;
   resize: none;
   overflow: hidden;
@@ -830,43 +836,41 @@ button {
   box-shadow: none;
 }
 
-.doc-editor-inline-input-paragraph {
-  font-size: 1rem;
-  font-weight: 400;
-  color: var(--text-primary);
-}
-
 .doc-editor-inline-input-heading1 {
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.2;
+  font-size: 2.05rem;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
-  padding-top: 0.3rem;
-  padding-bottom: 0.25rem;
+  padding-top: 0.34rem;
+  padding-bottom: 0.28rem;
 }
 
 .doc-editor-inline-input-heading2 {
-  font-size: 1.55rem;
-  font-weight: 650;
-  line-height: 1.25;
+  font-size: 1.58rem;
+  font-weight: 620;
+  line-height: 1.32;
+  letter-spacing: -0.018em;
   color: var(--text-primary);
-  padding-top: 0.26rem;
-  padding-bottom: 0.2rem;
+  padding-top: 0.28rem;
+  padding-bottom: 0.22rem;
 }
 
 .doc-editor-inline-input-heading3 {
-  font-size: 1.2rem;
+  font-size: 1.26rem;
   font-weight: 600;
-  line-height: 1.3;
+  line-height: 1.35;
+  letter-spacing: -0.014em;
   color: var(--text-primary);
-  padding-top: 0.2rem;
-  padding-bottom: 0.15rem;
+  padding-top: 0.22rem;
+  padding-bottom: 0.18rem;
 }
 
 .doc-editor-inline-input-subtitle {
-  font-size: 1rem;
+  font-size: 1.02rem;
   font-weight: 500;
-  line-height: 1.4;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
   color: var(--text-secondary);
 }
 

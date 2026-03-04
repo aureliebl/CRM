@@ -9,6 +9,7 @@ export const APP_MATERIAL_SYMBOLS = {
     bookings: "inventory_2",
     liveUsers: "monitoring",
     security: "admin_panel_settings",
+    documentation: "description",
   },
   actions: {
     add: "add",

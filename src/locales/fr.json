@@ -13,6 +13,7 @@
     "components": "Composants",
     "bookings": "Bookings",
     "live_users": "Live users",
+    "documentation": "Documentation",
     "security": "Admin & Sécurité",
     "new_tab": "Ajouter un onglet"
   }

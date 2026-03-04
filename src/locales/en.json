@@ -13,6 +13,7 @@
     "components": "Components",
     "bookings": "Bookings",
     "live_users": "Live users",
+    "documentation": "Documentation",
     "security": "Admin & Security",
     "new_tab": "Add tab"
   }
