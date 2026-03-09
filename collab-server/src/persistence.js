@@ -5,6 +5,7 @@ const databaseUrl = process.env.DATABASE_URL || "postgres://theomingault@localho
 
 const pool = new Pool({
   connectionString: databaseUrl,
+  family: 4,
   ssl:
     process.env.PGSSL === "true"
       ? {
