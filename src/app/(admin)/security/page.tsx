@@ -800,6 +800,7 @@ export default function SecurityPage() {
                   role: account.role,
                   isActive: account.isActive === 1 ? labels.yes : labels.no,
                   group: groupNameById.get(membershipMap.get(account.id) || "") || labels.noGroup,
+                  actions: "",
                 }))}
                 columns={[
                   { key: "account", label: labels.account, filterType: "text" },

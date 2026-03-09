@@ -16,7 +16,7 @@ if (!databaseUrl) {
 }
 
 const usePostgres = true;
-const sqliteDb: SqliteCompat | null = null;
+let sqliteDb: SqliteCompat | null = null;
 
 const pgPool = new Pool({
   connectionString: databaseUrl,
@@ -29,31 +29,6 @@ const pgPool = new Pool({
 });
 
 let postgresReady: Promise<void> | null = null;
-
-if (sqliteDb) {
-  sqliteDb.exec(`
-CREATE TABLE IF NOT EXISTS app_tabs (
-  id TEXT PRIMARY KEY,
-  slug TEXT UNIQUE NOT NULL,
-  title TEXT NOT NULL,
-  subtitle TEXT,
-  icon TEXT,
-  enabled INTEGER DEFAULT 1,
-  isSystem INTEGER DEFAULT 0,
-  createdBy TEXT NOT NULL,
-  configJson TEXT NOT NULL,
-  createdAt TEXT,
-  updatedAt TEXT
-);
-
-CREATE TABLE IF NOT EXISTS app_tab_group_visibility (
-  tabId TEXT NOT NULL,
-  groupId TEXT NOT NULL,
-  createdAt TEXT,
-  PRIMARY KEY (tabId, groupId)
-);
-`);
-}
 
 const nowIso = () => new Date().toISOString();
 

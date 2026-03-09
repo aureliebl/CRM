@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
-export default function ResetLoginPage() {
+function ResetLoginContent() {
   const searchParams = useSearchParams();
   const initialToken = useMemo(() => searchParams.get("token") ?? "", [searchParams]);
 
@@ -132,5 +132,13 @@ export default function ResetLoginPage() {
         </form>
       </section>
     </main>
+  );
+}
+
+export default function ResetLoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <ResetLoginContent />
+    </Suspense>
   );
 }

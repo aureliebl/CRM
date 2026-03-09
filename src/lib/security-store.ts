@@ -22,7 +22,7 @@ if (!databaseUrl) {
 
 const usePostgres = true;
 
-const sqliteDb: SqliteCompat | null = null;
+let sqliteDb: SqliteCompat | null = null;
 
 const pgPool = new Pool({
   connectionString: databaseUrl,
@@ -35,42 +35,6 @@ const pgPool = new Pool({
 });
 
 let postgresReady: Promise<void> | null = null;
-
-// Security + IAM tables
-if (sqliteDb) {
- sqliteDb.exec(`
-CREATE TABLE IF NOT EXISTS user_groups (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  isDefault INTEGER DEFAULT 0,
-  createdAt TEXT,
-  updatedAt TEXT
-);
-
-CREATE TABLE IF NOT EXISTS account_group_memberships (
-  accountId TEXT PRIMARY KEY,
-  groupId TEXT NOT NULL,
-  createdAt TEXT,
-  updatedAt TEXT
-);
-
-CREATE TABLE IF NOT EXISTS security_settings (
-  key TEXT PRIMARY KEY,
-  value TEXT,
-  updatedAt TEXT
-);
-
-CREATE TABLE IF NOT EXISTS ip_allowlist_entries (
-  id TEXT PRIMARY KEY,
-  ipOrCidr TEXT NOT NULL,
-  label TEXT,
-  isActive INTEGER DEFAULT 1,
-  createdAt TEXT,
-  updatedAt TEXT
-);
-`);
-}
 
 const nowIso = () => new Date().toISOString();
 

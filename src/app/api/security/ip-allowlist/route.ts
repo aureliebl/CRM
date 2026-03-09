@@ -38,6 +38,10 @@ export async function POST(req: Request) {
     isActive: body.isActive !== false,
   });
 
+  if (!created) {
+    return NextResponse.json({ error: "Unable to create IP allowlist entry" }, { status: 500 });
+  }
+
   if (actorId) {
     await addLog(actorId, "security.ip_allowlist.created", `IP allowlist entry ${created.id} created by ${actorId}`);
   }

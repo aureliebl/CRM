@@ -26,6 +26,10 @@ export async function POST(req: Request) {
     isDefault: !!body.isDefault,
   });
 
+  if (!created) {
+    return NextResponse.json({ error: "Unable to create group" }, { status: 500 });
+  }
+
   if (actorId) {
     await addLog(actorId, "security.group.created", `Group ${created.id} created by ${actorId}`);
   }
