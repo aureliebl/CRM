@@ -1,21 +1,37 @@
 import { NextResponse } from "next/server";
-import { addLog, createAccount, getAccountByEmail, setAccountPassword, toSafeAccount } from "@/lib/account-store";
+import {
+  addLog,
+  createAccount,
+  getAccountByEmail,
+  getAllAccounts,
+  setAccountPassword,
+  toSafeAccount,
+} from "@/lib/account-store";
 import { getDefaultGroupId, setAccountGroupMembership } from "@/lib/security-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  if (!(await isActorAdmin(req))) {
+  const body = await req.json().catch(() => ({}));
+  const actorIsAdmin = await isActorAdmin(req);
+  const actorId = actorIsAdmin ? await getActorIdFromRequest(req) : null;
+  const bootstrapToken = String(body?.bootstrapToken ?? "").trim();
+  const configuredBootstrapToken = String(process.env.ADMIN_BOOTSTRAP_TOKEN ?? "").trim();
+
+  let allowBootstrap = false;
+  if (!actorIsAdmin && configuredBootstrapToken && bootstrapToken === configuredBootstrapToken) {
+    const accounts = await getAllAccounts();
+    allowBootstrap = accounts.length === 0;
+  }
+
+  if (!actorIsAdmin && !allowBootstrap) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const actorId = await getActorIdFromRequest(req);
-
-  const body = await req.json().catch(() => ({}));
   const email = String(body?.email ?? "").trim().toLowerCase();
   const fullName = String(body?.fullName ?? "").trim();
-  const role = body?.role === "admin" ? "admin" : "operator";
+  const role = allowBootstrap ? "admin" : body?.role === "admin" ? "admin" : "operator";
   const password = String(body?.password ?? "");
 
   if (!email || !fullName || !password) {
