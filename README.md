@@ -119,6 +119,49 @@ Le mode collaboratif temps réel de la Documentation utilise un serveur WebSocke
    npm run dev
    ```
 
+### Déploiement option 1 (Vercel + Supabase + Render)
+
+Stack recommandée pour rester proche du gratuit :
+- **Vercel** : app Next.js (frontend + API routes)
+- **Supabase** : PostgreSQL managé
+- **Render** : serveur WebSocket CRDT (`collab-server`)
+
+1. Créer une base PostgreSQL Supabase et récupérer la chaîne de connexion.
+
+2. Appliquer les migrations SQL sur la base Supabase (fichiers `data/migrations/*.sql`, du `001` au `009`).
+
+3. Déployer l'app Next.js sur Vercel (import du repo), puis configurer les variables d'environnement Vercel :
+   ```env
+   DATABASE_URL=postgres://...
+   PGSSL=true
+   APP_SESSION_SECRET=<secret-long-et-random>
+   APP_ENCRYPTION_KEY=<secret-long-et-random>
+   DOCS_CRDT_SECRET=<secret-long-et-random>
+   PASSWORD_RESET_URL_BASE=https://<ton-domaine>/resetlogin
+   NEXT_PUBLIC_DOCS_CRDT_WS_URL=wss://<render-collab-domain>
+   ```
+   Ajouter ensuite les variables optionnelles selon vos usages (`SMTP_*`, `AIRCALL_*`, `FLOWISE_*`, etc.).
+
+4. Déployer le serveur collab sur Render :
+   - le fichier `render.yaml` à la racine contient la config de base,
+   - créer le service web Render depuis le repo,
+   - renseigner les variables Render :
+   ```env
+   DATABASE_URL=postgres://...
+   PGSSL=true
+   DOCS_CRDT_SECRET=<même valeur que Vercel>
+   DOCS_CRDT_PORT=10000
+   DOCS_CRDT_SNAPSHOT_INTERVAL_MS=10000
+   ```
+
+5. Vérifier que `NEXT_PUBLIC_DOCS_CRDT_WS_URL` (Vercel) pointe bien vers le domaine Render en `wss://...`.
+
+6. Faire un smoke test en production :
+   - login + navigation admin,
+   - création/édition de contenu,
+   - édition collaborative Documentation dans deux onglets (sync temps réel),
+   - envoi email reset si SMTP activé.
+
 Remarque :
 - phase 1 migre le stockage des connecteurs (`data_connectors`) vers PostgreSQL
 - phase 2 migre le stockage des onglets dynamiques (`app_tabs`, `app_tab_group_visibility`)

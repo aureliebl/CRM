@@ -21,6 +21,17 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   headers.delete("host");
   headers.delete("origin");
   headers.delete("referer");
+  headers.delete("cookie");
+  headers.delete("authorization");
+
+  const flowiseApiKey = process.env.FLOWISE_API_KEY?.trim();
+  const flowiseAuthorization = process.env.FLOWISE_AUTHORIZATION?.trim();
+  if (flowiseApiKey) {
+    headers.set("x-api-key", flowiseApiKey);
+  }
+  if (flowiseAuthorization) {
+    headers.set("authorization", flowiseAuthorization);
+  }
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const body = hasBody ? await req.arrayBuffer() : undefined;

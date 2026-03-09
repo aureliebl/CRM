@@ -57,6 +57,7 @@ export async function middleware(req: NextRequest) {
   const isPublicPath =
     pathname === "/login" ||
     pathname === "/resetlogin" ||
+    pathname.startsWith("/api/flowise") ||
     pathname === "/api/security/access" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/password-login" ||

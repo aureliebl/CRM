@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: costotest-collab-server
+    runtime: node
+    rootDir: collab-server
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm run start
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: PGSSL
+        value: "true"
+      - key: DOCS_CRDT_SECRET
+        sync: false
+      - key: DOCS_CRDT_PORT
+        value: "10000"
+      - key: DOCS_CRDT_SNAPSHOT_INTERVAL_MS
+        value: "10000"

@@ -3,7 +3,7 @@ import * as Y from "yjs";
 import { verifyCrdtToken } from "./auth.js";
 import { loadDocument, storeSnapshot, storeUpdate } from "./persistence.js";
 
-const PORT = Number(process.env.DOCS_CRDT_PORT || 1234);
+const PORT = Number(process.env.PORT || process.env.DOCS_CRDT_PORT || 1234);
 const snapshotIntervalMs = Number(process.env.DOCS_CRDT_SNAPSHOT_INTERVAL_MS || 10000);
 
 const lastSnapshotByDoc = new Map();
@@ -56,4 +56,4 @@ const server = Server.configure({
 });
 
 server.listen();
-console.log(`[docs-collab] running on ws://localhost:${PORT}`);
+console.log(`[docs-collab] running on ws://0.0.0.0:${PORT}`);
