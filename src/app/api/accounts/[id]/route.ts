@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { addLog, deleteAccount, getAccountById, toSafeAccount, updateAccount } from "@/lib/account-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
+import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const a = await getAccountById(id);
+  const a = await getOrSetMemoryCache(`accounts:item:${id}`, 3000, async () => {
+    return getAccountById(id);
+  });
   if (!a) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(toSafeAccount(a));
 }
@@ -56,6 +59,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   const updated = await updateAccount(id, patch);
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  clearMemoryCacheByPrefix("accounts:");
 
   await addLog(actorId, "account.updated", `Account ${id} updated by ${actorId}`);
 
@@ -76,6 +80,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   }
 
   await deleteAccount(id);
+  clearMemoryCacheByPrefix("accounts:");
   if (actorId) {
     await addLog(actorId, "account.deleted", `Account ${id} deleted by ${actorId}`);
   }

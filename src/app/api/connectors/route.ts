@@ -3,6 +3,7 @@ import { addLog } from "@/lib/account-store";
 import { createConnector, getConnectors, getConnectorConfig } from "@/lib/connectors-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import type { DataConnectorProvider } from "@/lib/types";
+import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -11,21 +12,24 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const allConnectors = await getConnectors();
-  const connectors = await Promise.all(allConnectors.map(async (connector) => {
-    const config = (await getConnectorConfig(connector.id)) as
-      | { projectId?: string; dataset?: string; serviceAccountJson?: string }
-      | null;
+  const connectors = await getOrSetMemoryCache("connectors:list", 3000, async () => {
+    const allConnectors = await getConnectors();
+    return Promise.all(allConnectors.map(async (connector) => {
+      const config = (await getConnectorConfig(connector.id)) as
+        | { projectId?: string; dataset?: string; serviceAccountJson?: string }
+        | null;
 
-    return {
-      ...connector,
-      config: {
-        projectId: config?.projectId,
-        dataset: config?.dataset,
-        hasServiceAccount: !!config?.serviceAccountJson,
-      },
-    };
-  }));
+      return {
+        ...connector,
+        config: {
+          projectId: config?.projectId,
+          dataset: config?.dataset,
+          hasServiceAccount: !!config?.serviceAccountJson,
+        },
+      };
+    }));
+  });
+
   return NextResponse.json(connectors);
 }
 
@@ -63,6 +67,7 @@ export async function POST(req: Request) {
   if (created) {
     await addLog(actorId, "connector.created", `Connector ${created.id} created by ${actorId}`);
   }
+  clearMemoryCacheByPrefix("connectors:");
 
   return NextResponse.json(created, { status: 201 });
 }

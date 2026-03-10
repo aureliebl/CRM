@@ -3,6 +3,7 @@ import { addLog } from "@/lib/account-store";
 import { deleteConnector, getConnectorConfig, getConnectors, updateConnector } from "@/lib/connectors-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
+import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -12,21 +13,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 
   const { id } = await params;
-  const connector = (await getConnectors()).find((item) => item.id === id);
-  if (!connector) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const payload = await getOrSetMemoryCache(`connectors:item:${id}`, 3000, async () => {
+    const connector = (await getConnectors()).find((item) => item.id === id);
+    if (!connector) return null;
 
-  const config = (await getConnectorConfig(id)) as
-    | { projectId?: string; dataset?: string; serviceAccountJson?: string }
-    | null;
+    const config = (await getConnectorConfig(id)) as
+      | { projectId?: string; dataset?: string; serviceAccountJson?: string }
+      | null;
 
-  return NextResponse.json({
-    ...connector,
-    config: {
-      projectId: config?.projectId,
-      dataset: config?.dataset,
-      hasServiceAccount: !!config?.serviceAccountJson,
-    },
+    return {
+      ...connector,
+      config: {
+        projectId: config?.projectId,
+        dataset: config?.dataset,
+        hasServiceAccount: !!config?.serviceAccountJson,
+      },
+    };
   });
+
+  if (!payload) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(payload);
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -59,6 +65,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
 
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  clearMemoryCacheByPrefix("connectors:");
   if (actorId) {
     await addLog(actorId, "connector.updated", `Connector ${id} updated by ${actorId}`);
   }
@@ -73,6 +80,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const actorId = await getActorIdFromRequest(req);
   const { id } = await params;
   await deleteConnector(id);
+  clearMemoryCacheByPrefix("connectors:");
   if (actorId) {
     await addLog(actorId, "connector.deleted", `Connector ${id} deleted by ${actorId}`);
   }
