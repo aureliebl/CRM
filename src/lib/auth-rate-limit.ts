@@ -17,9 +17,21 @@ type ConsumeRateLimitResult = {
 
 const databaseUrl = process.env.DATABASE_URL;
 
+const pgPoolMax = Math.max(1, Number(process.env.PGPOOL_MAX_CONNECTIONS || 1));
+const pgPoolMin = Math.max(0, Number(process.env.PGPOOL_MIN_CONNECTIONS || 0));
+const pgConnectionTimeoutMs = Math.max(
+  1000,
+  Number(process.env.PG_CONNECTION_TIMEOUT_MS || 15000)
+);
+const pgIdleTimeoutMs = Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 10000));
+
 const pgPool = databaseUrl
   ? new Pool({
       connectionString: databaseUrl,
+      max: pgPoolMax,
+      min: pgPoolMin,
+      connectionTimeoutMillis: pgConnectionTimeoutMs,
+      idleTimeoutMillis: pgIdleTimeoutMs,
       ssl:
         process.env.PGSSL === "true"
           ? {

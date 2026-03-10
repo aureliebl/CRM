@@ -40,7 +40,12 @@ export default function LoginPage() {
     });
 
     if (!loginRes.ok) {
-      setError("Email ou mot de passe incorrect");
+      const body = (await loginRes.json().catch(() => null)) as { error?: string } | null;
+      if (loginRes.status === 401) {
+        setError("Email ou mot de passe incorrect");
+        return;
+      }
+      setError(body?.error || "Impossible de se connecter pour le moment");
       return;
     }
 
