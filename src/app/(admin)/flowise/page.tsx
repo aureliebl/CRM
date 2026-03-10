@@ -38,7 +38,7 @@ export default function FlowisePage() {
       >
         <FullPageChat
           chatflowid="47146e72-8790-4600-846f-03ba7e0301ae"
-          apiHost="/api/flowise"
+          apiHost="https://flowise.costockage.fr"
           theme={{
             chatWindow: {
               height: chatHeight,
