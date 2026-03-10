@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import { NextResponse } from "next/server";
 import { getActorFromRequest } from "@/lib/server-permissions";
 import {
-  getDocumentationMediaForActor,
+  getDocumentationMediaBinaryForActor,
   resolveDocumentationActorScope,
 } from "@/lib/documentation-store";
 
@@ -22,10 +22,22 @@ export async function GET(
     id: actor.id,
     role: actor.role === "admin" ? "admin" : "operator",
   });
-  const media = await getDocumentationMediaForActor(scope, mediaId);
+  const mediaPayload = await getDocumentationMediaBinaryForActor(scope, mediaId);
 
-  if (!media) {
+  if (!mediaPayload) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const { media, contentBytes } = mediaPayload;
+
+  if (contentBytes && contentBytes.length > 0) {
+    return new Response(new Uint8Array(contentBytes), {
+      headers: {
+        "Content-Type": media.mimeType,
+        "Cache-Control": "private, max-age=300",
+        "Content-Disposition": `inline; filename=\"${media.fileName.replace(/\"/g, "")}\"`,
+      },
+    });
   }
 
   const fileBuffer = await fs.readFile(media.storagePath).catch(() => null);

@@ -1,5 +1,3 @@
-import path from "node:path";
-import { promises as fs } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
@@ -65,28 +63,28 @@ export async function POST(req: Request) {
   });
 
   const mediaId = `media_${Date.now()}_${randomBytes(4).toString("hex")}`;
-  const uploadDir = path.join(process.cwd(), "data", "uploads", "documentation");
   const fileName = `${mediaId}${ext}`;
-  const absolutePath = path.join(uploadDir, fileName);
-
-  await fs.mkdir(uploadDir, { recursive: true });
   const arrayBuffer = await file.arrayBuffer();
-  await fs.writeFile(absolutePath, Buffer.from(arrayBuffer));
+  const contentBytes = Buffer.from(arrayBuffer);
 
   const record = await createDocumentationMediaRecord(scope, {
     nodeId,
     fileName: file.name,
     mimeType: file.type,
     sizeBytes: file.size,
-    storagePath: absolutePath,
+    storagePath: "",
+    contentBytes,
   });
 
   if (!record) {
-    await fs.unlink(absolutePath).catch(() => undefined);
     return NextResponse.json({ error: "Unable to attach image to page" }, { status: 400 });
   }
 
-  await addLog(actor.id, "documentation.media.uploaded", `Media ${record.id} uploaded on node ${nodeId}`);
+  try {
+    await addLog(actor.id, "documentation.media.uploaded", `Media ${record.id} uploaded on node ${nodeId}`);
+  } catch {
+    // Ignore logging failures: upload already succeeded.
+  }
 
   return NextResponse.json({
     id: record.id,

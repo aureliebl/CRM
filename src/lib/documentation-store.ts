@@ -87,6 +87,7 @@ type DocumentationMediaRow = {
   mimetype: string;
   sizebytes: number;
   storagepath: string;
+  contentbytes: Buffer | null;
   createdat: string;
   updatedat: string;
 };
@@ -117,15 +118,22 @@ async function deleteMediaRowsAndFiles(rows: DocumentationMediaRow[]): Promise<v
   await pgPool.query("DELETE FROM documentation_media WHERE id = ANY($1::text[])", [ids]);
 
   for (const row of rows) {
-    await fs.unlink(row.storagepath).catch(() => undefined);
+    const storagePath = String(row.storagepath ?? "").trim();
+    if (!storagePath || !path.isAbsolute(storagePath)) continue;
+    await fs.unlink(storagePath).catch(() => undefined);
   }
 }
 
 async function reconcileDocumentationMediaStorage(): Promise<void> {
   if (documentationMediaReconciled) return;
 
-  const mediaResult = await pgPool.query("SELECT id, nodeId, storagePath FROM documentation_media");
-  const mediaRows = mediaResult.rows as Array<{ id: string; nodeid: string; storagepath: string }>;
+  const mediaResult = await pgPool.query("SELECT id, nodeId, storagePath, contentBytes FROM documentation_media");
+  const mediaRows = mediaResult.rows as Array<{
+    id: string;
+    nodeid: string;
+    storagepath: string;
+    contentbytes?: Buffer | null;
+  }>;
 
   const pagesResult = await pgPool.query("SELECT id, contentJson FROM documentation_nodes WHERE kind = 'page'");
   const pageRows = pagesResult.rows as Array<{ id: string; contentjson: string }>;
@@ -150,6 +158,7 @@ async function reconcileDocumentationMediaStorage(): Promise<void> {
         mimetype: "",
         sizebytes: 0,
         storagepath: String(row.storagepath),
+        contentbytes: row.contentbytes ?? null,
         createdat: "",
         updatedat: "",
       }))
@@ -157,7 +166,12 @@ async function reconcileDocumentationMediaStorage(): Promise<void> {
   }
 
   const uploadsDir = path.join(process.cwd(), "data", "uploads", "documentation");
-  const dbPaths = new Set(mediaRows.map((row) => String(row.storagepath)));
+  const dbPaths = new Set(
+    mediaRows
+      .filter((row) => !row.contentbytes)
+      .map((row) => String(row.storagepath))
+      .filter((value) => Boolean(value) && path.isAbsolute(value))
+  );
   const files = await fs.readdir(uploadsDir).catch(() => [] as string[]);
 
   for (const file of files) {
@@ -275,10 +289,13 @@ async function ensurePostgresSchema() {
       mimeType TEXT NOT NULL,
       sizeBytes INTEGER NOT NULL,
       storagePath TEXT NOT NULL,
+      contentBytes BYTEA,
       createdAt TEXT,
       updatedAt TEXT
     )
   `);
+
+  await pgPool.query("ALTER TABLE documentation_media ADD COLUMN IF NOT EXISTS contentBytes BYTEA");
 
   await pgPool.query(`
     CREATE INDEX IF NOT EXISTS idx_documentation_media_node
@@ -807,6 +824,7 @@ export async function createDocumentationMediaRecord(
     mimeType: string;
     sizeBytes: number;
     storagePath: string;
+    contentBytes?: Buffer;
   }
 ): Promise<DocumentationMedia | null> {
   await ensurePostgresReady();
@@ -822,8 +840,8 @@ export async function createDocumentationMediaRecord(
 
   await pgPool.query(
     `INSERT INTO documentation_media
-      (id, nodeId, ownerId, fileName, mimeType, sizeBytes, storagePath, createdAt, updatedAt)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      (id, nodeId, ownerId, fileName, mimeType, sizeBytes, storagePath, contentBytes, createdAt, updatedAt)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
     [
       id,
       input.nodeId,
@@ -832,6 +850,7 @@ export async function createDocumentationMediaRecord(
       input.mimeType,
       input.sizeBytes,
       input.storagePath,
+      input.contentBytes ?? null,
       now,
       now,
     ]
@@ -926,5 +945,34 @@ export async function getDocumentationMediaForActor(
     storagePath: mediaRow.storagepath,
     createdAt: mediaRow.createdat,
     updatedAt: mediaRow.updatedat,
+  };
+}
+
+export async function getDocumentationMediaBinaryForActor(
+  actor: DocumentationActorScope,
+  mediaId: string
+): Promise<{ media: DocumentationMedia; contentBytes: Buffer | null } | null> {
+  await ensurePostgresReady();
+
+  const mediaResult = await pgPool.query("SELECT * FROM documentation_media WHERE id = $1", [mediaId]);
+  const mediaRow = mediaResult.rows[0] as DocumentationMediaRow | undefined;
+  if (!mediaRow) return null;
+
+  const node = await getDocumentationNodeForActor(actor, mediaRow.nodeid);
+  if (!node) return null;
+
+  return {
+    media: {
+      id: mediaRow.id,
+      nodeId: mediaRow.nodeid,
+      ownerId: mediaRow.ownerid,
+      fileName: mediaRow.filename,
+      mimeType: mediaRow.mimetype,
+      sizeBytes: Number(mediaRow.sizebytes ?? 0),
+      storagePath: mediaRow.storagepath,
+      createdAt: mediaRow.createdat,
+      updatedAt: mediaRow.updatedat,
+    },
+    contentBytes: mediaRow.contentbytes ?? null,
   };
 }
