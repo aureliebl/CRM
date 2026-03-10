@@ -13,6 +13,7 @@ import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useRouter } from "next/navigation";
 import { useLocale } from "@/lib/use-locale";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
+import { RightPanelProvider } from "@/components/admin/right-panel/RightPanelProvider";
 
 interface SidebarTabItem {
   id: string;
@@ -617,21 +618,23 @@ export default function AdminLayout({
   if (!mounted || !authResolved || !user) return null;
 
   return (
-    <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
-      <AdminSidebar user={user} isSidebarCollapsed={isSidebarCollapsed} onExpandSidebar={() => setIsSidebarCollapsed(false)} />
-      <div className="admin-content-shell">
-        <AdminTopbar
-          user={user}
-          isSidebarCollapsed={isSidebarCollapsed}
-          onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
-        />
-        <Breadcrumb />
-        <main className="admin-main">
-          <div className="admin-main-inner">{children}</div>
-        </main>
+    <RightPanelProvider>
+      <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
+        <AdminSidebar user={user} isSidebarCollapsed={isSidebarCollapsed} onExpandSidebar={() => setIsSidebarCollapsed(false)} />
+        <div className="admin-content-shell">
+          <AdminTopbar
+            user={user}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+          />
+          <Breadcrumb />
+          <main className="admin-main">
+            <div className="admin-main-inner">{children}</div>
+          </main>
+        </div>
+        <AircallWidget />
       </div>
-      <AircallWidget />
-    </div>
+    </RightPanelProvider>
   );
 }
 

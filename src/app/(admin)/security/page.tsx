@@ -5,6 +5,7 @@ import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilter
 import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 import type { AccountGroupMembership, IpAllowlistEntry, SecuritySettings, UserGroup } from "@/lib/types";
+import type { RightPanelConfig } from "@/lib/right-panel-types";
 
 type AccountLite = {
   id: string;
@@ -56,6 +57,11 @@ type SessionActor = {
   fullName?: string;
 };
 
+type RightPanelLite = Pick<
+  RightPanelConfig,
+  "panelId" | "displayName" | "contexts" | "titleTemplate" | "subtitleTemplate"
+>;
+
 export default function SecurityPage() {
   const { locale } = useLocale();
   const [overview, setOverview] = useState<SecurityOverview | null>(null);
@@ -94,6 +100,12 @@ export default function SecurityPage() {
   const [connectorAdded, setConnectorAdded] = useState(false);
   const [actor, setActor] = useState<SessionActor | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
+  const [rightPanels, setRightPanels] = useState<RightPanelLite[]>([]);
+  const [selectedPanelId, setSelectedPanelId] = useState("");
+  const [panelEditorText, setPanelEditorText] = useState("{}");
+  const [savingPanelConfig, setSavingPanelConfig] = useState(false);
+  const [panelConfigSaved, setPanelConfigSaved] = useState(false);
+  const [panelConfigError, setPanelConfigError] = useState<string | null>(null);
 
   const labels =
     locale === "fr"
@@ -161,6 +173,16 @@ export default function SecurityPage() {
           previewEmpty: "Aucune table trouvée pour ce connecteur.",
           previewSuccess: "Tables chargées.",
           activeConnector: "Connecteur actif",
+          rightPanelsTitle: "Configuration des panneaux lateraux",
+          rightPanelsDescription:
+            "Configurer uniquement le contenu des panneaux existants (sans creation ni suppression).",
+          panelId: "Panel ID",
+          panelName: "Nom",
+          panelContexts: "Contextes",
+          panelEditor: "Override JSON",
+          panelSave: "Enregistrer la configuration",
+          panelSaved: "Configuration enregistree",
+          panelSaveError: "Configuration invalide ou non enregistrable",
         }
       : {
           title: "Admin & security",
@@ -226,6 +248,16 @@ export default function SecurityPage() {
           previewEmpty: "No tables found for this connector.",
           previewSuccess: "Tables loaded.",
           activeConnector: "Active connector",
+          rightPanelsTitle: "Right panel configuration",
+          rightPanelsDescription:
+            "Configure content only for existing panels (no create/delete).",
+          panelId: "Panel ID",
+          panelName: "Name",
+          panelContexts: "Contexts",
+          panelEditor: "JSON override",
+          panelSave: "Save configuration",
+          panelSaved: "Configuration saved",
+          panelSaveError: "Invalid or non-saveable configuration",
         };
 
   useEffect(() => {
@@ -330,6 +362,44 @@ export default function SecurityPage() {
   useEffect(() => {
     loadConnectors();
   }, [actor?.id]);
+
+  const loadRightPanels = async () => {
+    if (!actor) return;
+    const res = await fetch(`/api/security/right-panels`, {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      setRightPanels([]);
+      return;
+    }
+
+    const data = (await res.json()) as RightPanelLite[];
+    setRightPanels(data);
+    if (!selectedPanelId && data.length > 0) {
+      setSelectedPanelId(data[0].panelId);
+    }
+  };
+
+  useEffect(() => {
+    void loadRightPanels();
+  }, [actor?.id]);
+
+  useEffect(() => {
+    const selected = rightPanels.find((item) => item.panelId === selectedPanelId);
+    if (!selected) {
+      setPanelEditorText("{}");
+      return;
+    }
+
+    // Start from current merged shape; admin can keep only fields to override.
+    const initial = {
+      displayName: selected.displayName,
+      titleTemplate: selected.titleTemplate,
+      subtitleTemplate: selected.subtitleTemplate,
+      contexts: selected.contexts,
+    };
+    setPanelEditorText(JSON.stringify(initial, null, 2));
+  }, [selectedPanelId, rightPanels]);
 
   const membershipMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -665,6 +735,40 @@ export default function SecurityPage() {
     }
 
     setSavingTabAccess(null);
+  };
+
+  const saveRightPanelConfig = async () => {
+    if (!actor || !selectedPanelId) return;
+
+    setPanelConfigError(null);
+    setSavingPanelConfig(true);
+    try {
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(panelEditorText);
+      } catch {
+        setPanelConfigError(labels.panelSaveError);
+        return;
+      }
+
+      const res = await fetch(`/api/security/right-panels/${encodeURIComponent(selectedPanelId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setPanelConfigError(body.error || labels.panelSaveError);
+        return;
+      }
+
+      setPanelConfigSaved(true);
+      setTimeout(() => setPanelConfigSaved(false), 900);
+      await loadRightPanels();
+    } finally {
+      setSavingPanelConfig(false);
+    }
   };
 
   return (
@@ -1030,6 +1134,118 @@ export default function SecurityPage() {
                     ))}
                 </div>
               )}
+            </div>
+          </section>
+
+          <section className="admin-placeholder-card" style={{ marginBottom: "1rem" }}>
+            <div className="admin-placeholder-title">{labels.rightPanelsTitle}</div>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.82rem", margin: "0.45rem 0 0.65rem 0" }}>
+              {labels.rightPanelsDescription}
+            </p>
+
+            <div style={{ display: "grid", gap: "0.7rem", gridTemplateColumns: "minmax(260px, 320px) 1fr" }}>
+              <div style={{ border: "1px solid var(--border-color)", borderRadius: "0.55rem", overflow: "hidden" }}>
+                <div style={{ padding: "0.5rem 0.6rem", borderBottom: "1px solid var(--border-color)", fontWeight: 600, fontSize: "0.82rem" }}>
+                  {labels.rightPanelsTitle}
+                </div>
+                <div style={{ maxHeight: 320, overflow: "auto", display: "grid" }}>
+                  {rightPanels.map((panel) => {
+                    const selected = panel.panelId === selectedPanelId;
+                    return (
+                      <button
+                        key={panel.panelId}
+                        type="button"
+                        onClick={() => setSelectedPanelId(panel.panelId)}
+                        style={{
+                          textAlign: "left",
+                          border: "none",
+                          borderBottom: "1px solid var(--border-color)",
+                          background: selected ? "var(--surface-secondary)" : "transparent",
+                          color: "var(--text-primary)",
+                          cursor: "pointer",
+                          padding: "0.5rem 0.6rem",
+                          display: "grid",
+                          gap: 2,
+                        }}
+                      >
+                        <span style={{ fontSize: "0.82rem", fontWeight: 600 }}>{panel.displayName}</span>
+                        <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>{panel.panelId}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: "0.55rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.45rem" }}>
+                  <label style={{ display: "grid", gap: "0.2rem" }}>
+                    <span>{labels.panelId}</span>
+                    <input
+                      value={selectedPanelId}
+                      readOnly
+                      style={{
+                        padding: "0.45rem 0.65rem",
+                        borderRadius: "0.45rem",
+                        border: "1px solid var(--border-color)",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: "0.2rem" }}>
+                    <span>{labels.panelContexts}</span>
+                    <input
+                      value={(rightPanels.find((item) => item.panelId === selectedPanelId)?.contexts || []).join(", ")}
+                      readOnly
+                      style={{
+                        padding: "0.45rem 0.65rem",
+                        borderRadius: "0.45rem",
+                        border: "1px solid var(--border-color)",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <label style={{ display: "grid", gap: "0.3rem" }}>
+                  <span>{labels.panelEditor}</span>
+                  <textarea
+                    value={panelEditorText}
+                    onChange={(event) => setPanelEditorText(event.target.value)}
+                    rows={14}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      padding: "0.55rem 0.65rem",
+                      borderRadius: "0.45rem",
+                      border: "1px solid var(--border-color)",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                      fontSize: "0.78rem",
+                    }}
+                  />
+                </label>
+
+                <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                  <AsyncButton
+                    type="button"
+                    onClick={saveRightPanelConfig}
+                    disabled={!selectedPanelId}
+                    isLoading={savingPanelConfig}
+                    isSuccess={panelConfigSaved}
+                    loadingLabel={labels.panelSave}
+                    successLabel={labels.panelSaved}
+                    minWidth={220}
+                  >
+                    {labels.panelSave}
+                  </AsyncButton>
+                  {panelConfigError ? (
+                    <span style={{ color: "var(--error-text)", fontSize: "0.82rem" }}>{panelConfigError}</span>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </section>
 

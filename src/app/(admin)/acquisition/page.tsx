@@ -6,6 +6,7 @@ import { centers, boxTypes } from "@/lib/mock/centers-and-pricing";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useLocale } from "@/lib/use-locale";
+import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider";
 
 type AcqTab = "unfinished" | "quotes" | "abandoned";
 type ViewMode = "table" | "kanban";
@@ -120,6 +121,7 @@ function getInitialQuoteRows(fr: boolean): QuoteRow[] {
 
 export default function AcquisitionPage() {
   const { locale } = useLocale();
+  const { openPanel } = useRightPanel();
   const fr = locale === "fr";
   const [activeTab, setActiveTab] = useState<AcqTab>("unfinished");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
@@ -523,6 +525,13 @@ export default function AcquisitionPage() {
           operators={operators}
           operatorById={operatorById}
           operatorsLoading={operatorsLoading}
+          onOpenDetails={(row) =>
+            openPanel({
+              panelId: "acquisition.unfinishedBooking",
+              contextKey: "acquisition.unfinished",
+              entity: row,
+            })
+          }
         />
       )}
       {activeTab === "quotes" && (
@@ -531,6 +540,13 @@ export default function AcquisitionPage() {
           rows={quoteRows}
           setRows={setQuoteRows}
           viewMode={viewMode}
+          onOpenDetails={(row) =>
+            openPanel({
+              panelId: "acquisition.quoteRequest",
+              contextKey: "acquisition.quotes",
+              entity: row,
+            })
+          }
         />
       )}
       {activeTab === "abandoned" && (
@@ -539,6 +555,13 @@ export default function AcquisitionPage() {
           rows={quoteRows}
           setRows={setQuoteRows}
           viewMode={viewMode}
+          onOpenDetails={(row) =>
+            openPanel({
+              panelId: "acquisition.quoteRequest",
+              contextKey: "acquisition.abandoned",
+              entity: row,
+            })
+          }
         />
       )}
 
@@ -721,6 +744,7 @@ function UnfinishedBookingsTab({
   operators,
   operatorById,
   operatorsLoading,
+  onOpenDetails,
 }: {
   fr: boolean;
   rows: UnfinishedBookingRow[];
@@ -729,6 +753,7 @@ function UnfinishedBookingsTab({
   operators: OperatorAccount[];
   operatorById: Map<string, OperatorAccount>;
   operatorsLoading: boolean;
+  onOpenDetails: (row: UnfinishedBookingRow) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [openAssignMenuId, setOpenAssignMenuId] = useState<string | null>(null);
@@ -848,6 +873,23 @@ function UnfinishedBookingsTab({
                           </div>
 
                           <div style={{ position: "relative" }}>
+                            <button
+                              type="button"
+                              onClick={() => onOpenDetails(row)}
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                color: "var(--text-secondary)",
+                                cursor: "pointer",
+                                padding: 0,
+                                lineHeight: 1,
+                                marginRight: 6,
+                              }}
+                              title={fr ? "Voir details" : "View details"}
+                            >
+                              <MaterialSymbol name="info" size={15} weight={500} opticalSize={20} />
+                            </button>
+
                             <button
                               type="button"
                               onClick={() => setOpenAssignMenuId((current) => (current === row.id ? null : row.id))}
@@ -1074,15 +1116,26 @@ function UnfinishedBookingsTab({
           label: "",
           filterType: "text",
           render: (row) => (
-            <button
-              type="button"
-              onClick={() => window.alert(fr ? `Relance simulée pour ${row.contactLabel}` : `Simulated follow-up for ${row.contactLabel}`)}
-              className="admin-btn admin-btn-secondary"
-              style={{ padding: "3px 10px", fontSize: 11 }}
-            >
-              <MaterialSymbol name="reply" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
-              {fr ? "Relancer" : "Follow up"}
-            </button>
+            <span style={{ display: "inline-flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onOpenDetails(row as UnfinishedBookingRow)}
+                className="admin-btn admin-btn-secondary"
+                style={{ padding: "3px 10px", fontSize: 11 }}
+              >
+                <MaterialSymbol name="info" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                {fr ? "Details" : "Details"}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.alert(fr ? `Relance simulée pour ${row.contactLabel}` : `Simulated follow-up for ${row.contactLabel}`)}
+                className="admin-btn admin-btn-secondary"
+                style={{ padding: "3px 10px", fontSize: 11 }}
+              >
+                <MaterialSymbol name="reply" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                {fr ? "Relancer" : "Follow up"}
+              </button>
+            </span>
           ),
         },
       ]}
@@ -1099,11 +1152,13 @@ function QuoteRequestsTab({
   rows,
   setRows,
   viewMode,
+  onOpenDetails,
 }: {
   fr: boolean;
   rows: QuoteRow[];
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
+  onOpenDetails: (row: QuoteRow) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const statusOrder: QuoteStatus[] = ["new", "sent", "accepted", "expired", "abandoned"];
@@ -1207,6 +1262,15 @@ function QuoteRequestsTab({
                         {row.centerName}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDetails(row)}
+                        className="admin-btn admin-btn-secondary"
+                        style={{ fontSize: 11, padding: "3px 8px", justifySelf: "start" }}
+                      >
+                        <MaterialSymbol name="info" style={{ fontSize: 13, verticalAlign: "middle", marginRight: 4 }} />
+                        {fr ? "Details" : "Details"}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1258,17 +1322,30 @@ function QuoteRequestsTab({
           key: "id",
           label: "",
           filterType: "text",
-          render: (row) => row.status === "new" ? (
-            <button
-              type="button"
-              onClick={() => window.alert(fr ? `Envoi de devis simulé pour ${row.fullName}` : `Simulated quote send for ${row.fullName}`)}
-              className="admin-btn admin-btn-primary"
-              style={{ padding: "3px 10px", fontSize: 11 }}
-            >
-              <MaterialSymbol name="send" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
-              {fr ? "Envoyer" : "Send"}
-            </button>
-          ) : null,
+          render: (row) => (
+            <span style={{ display: "inline-flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onOpenDetails(row as QuoteRow)}
+                className="admin-btn admin-btn-secondary"
+                style={{ padding: "3px 10px", fontSize: 11 }}
+              >
+                <MaterialSymbol name="info" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                {fr ? "Details" : "Details"}
+              </button>
+              {row.status === "new" ? (
+                <button
+                  type="button"
+                  onClick={() => window.alert(fr ? `Envoi de devis simulé pour ${row.fullName}` : `Simulated quote send for ${row.fullName}`)}
+                  className="admin-btn admin-btn-primary"
+                  style={{ padding: "3px 10px", fontSize: 11 }}
+                >
+                  <MaterialSymbol name="send" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                  {fr ? "Envoyer" : "Send"}
+                </button>
+              ) : null}
+            </span>
+          ),
         },
       ]}
     />
@@ -1284,11 +1361,13 @@ function AbandonedQuotesTab({
   rows,
   setRows,
   viewMode,
+  onOpenDetails,
 }: {
   fr: boolean;
   rows: QuoteRow[];
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
+  onOpenDetails: (row: QuoteRow) => void;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const filteredRows = rows.filter((q) => q.status === "abandoned" || q.status === "expired");
@@ -1391,6 +1470,15 @@ function AbandonedQuotesTab({
                         {row.centerName}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenDetails(row)}
+                        className="admin-btn admin-btn-secondary"
+                        style={{ fontSize: 11, padding: "3px 8px", justifySelf: "start" }}
+                      >
+                        <MaterialSymbol name="info" style={{ fontSize: 13, verticalAlign: "middle", marginRight: 4 }} />
+                        {fr ? "Details" : "Details"}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1440,15 +1528,26 @@ function AbandonedQuotesTab({
           label: "",
           filterType: "text",
           render: (row) => (
-            <button
-              type="button"
-              onClick={() => window.alert(fr ? `Relance simulée pour ${row.fullName}` : `Simulated follow-up for ${row.fullName}`)}
-              className="admin-btn admin-btn-secondary"
-              style={{ padding: "3px 10px", fontSize: 11 }}
-            >
-              <MaterialSymbol name="reply" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
-              {fr ? "Relancer" : "Follow up"}
-            </button>
+            <span style={{ display: "inline-flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onOpenDetails(row as QuoteRow)}
+                className="admin-btn admin-btn-secondary"
+                style={{ padding: "3px 10px", fontSize: 11 }}
+              >
+                <MaterialSymbol name="info" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                {fr ? "Details" : "Details"}
+              </button>
+              <button
+                type="button"
+                onClick={() => window.alert(fr ? `Relance simulée pour ${row.fullName}` : `Simulated follow-up for ${row.fullName}`)}
+                className="admin-btn admin-btn-secondary"
+                style={{ padding: "3px 10px", fontSize: 11 }}
+              >
+                <MaterialSymbol name="reply" style={{ fontSize: 14, verticalAlign: "middle", marginRight: 4 }} />
+                {fr ? "Relancer" : "Follow up"}
+              </button>
+            </span>
           ),
         },
       ]}
