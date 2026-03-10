@@ -39,6 +39,20 @@ function isPoolLimitError(error) {
   return code === "XX000" && message.includes("MaxClientsInSessionMode");
 }
 
+function isTransientConnectionError(error) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code || "") : "";
+  const message = "message" in error ? String(error.message || "") : "";
+
+  return (
+    code === "53300" ||
+    code === "57P03" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNRESET" ||
+    message.toLowerCase().includes("too many clients")
+  );
+}
+
 async function ensureSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS documentation_crdt_docs (
@@ -70,26 +84,60 @@ function nowIso() {
 }
 
 async function ensureSchemaWithRetry() {
-  const attempts = Math.max(1, Number(process.env.PG_SCHEMA_RETRY_ATTEMPTS || 6));
+  const parsedAttempts = Number(process.env.PG_SCHEMA_RETRY_ATTEMPTS || 0);
+  const attempts = Number.isFinite(parsedAttempts) && parsedAttempts >= 0 ? parsedAttempts : 0;
   const delayMs = Math.max(500, Number(process.env.PG_SCHEMA_RETRY_DELAY_MS || 2000));
+  const shouldRetryForever = attempts === 0;
 
-  for (let index = 0; index < attempts; index++) {
+  for (let index = 0; shouldRetryForever || index < attempts; index++) {
     try {
       await ensureSchema();
       return;
     } catch (error) {
-      const isLast = index === attempts - 1;
-      if (!isPoolLimitError(error) || isLast) {
+      const retriable = isPoolLimitError(error) || isTransientConnectionError(error);
+      const isLast = !shouldRetryForever && index === attempts - 1;
+
+      if (!retriable || isLast) {
         throw error;
       }
+
+      console.warn(
+        `[docs-collab] schema init retry ${index + 1}${
+          shouldRetryForever ? "" : `/${attempts}`
+        } - ${String(error?.message || error)}`
+      );
       await sleep(delayMs);
     }
   }
 }
 
-await ensureSchemaWithRetry();
+let schemaReady = false;
+let schemaReadyPromise = null;
+
+async function ensureSchemaReady() {
+  if (schemaReady) return;
+  if (!schemaReadyPromise) {
+    schemaReadyPromise = ensureSchemaWithRetry()
+      .then(() => {
+        schemaReady = true;
+      })
+      .finally(() => {
+        if (!schemaReady) {
+          schemaReadyPromise = null;
+        }
+      });
+  }
+
+  await schemaReadyPromise;
+}
+
+void ensureSchemaReady().catch((error) => {
+  console.error("[docs-collab] initial schema bootstrap failed", error);
+});
 
 export async function loadDocument(name) {
+  await ensureSchemaReady();
+
   const snapshot = await pool.query(
     "SELECT ydoc FROM documentation_crdt_docs WHERE nodeId = $1",
     [name]
@@ -124,6 +172,8 @@ export async function loadDocument(name) {
 }
 
 export async function storeUpdate(name, update, actorId = null) {
+  await ensureSchemaReady();
+
   await pool.query(
     "INSERT INTO documentation_crdt_updates (nodeId, actorId, update, createdAt) VALUES ($1,$2,$3,$4)",
     [name, actorId, update, nowIso()]
@@ -131,6 +181,8 @@ export async function storeUpdate(name, update, actorId = null) {
 }
 
 export async function storeSnapshot(name, state) {
+  await ensureSchemaReady();
+
   const now = nowIso();
   await pool.query(
     `INSERT INTO documentation_crdt_docs (nodeId, ydoc, createdAt, updatedAt)
