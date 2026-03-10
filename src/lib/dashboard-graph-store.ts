@@ -1,5 +1,5 @@
-import { Pool } from "pg";
 import type { DashboardGraph, DashboardGraphConfig, DashboardGraphSize } from "@/lib/types";
+import { getSharedPgPool } from "@/lib/pg-pool";
 
 type SqliteCompat = {
   exec: (sql: string) => void;
@@ -37,7 +37,7 @@ let sqliteDb: SqliteCompat | null =
       }
     : null;
 
-const pgPool = new Pool({
+const pgPool = getSharedPgPool({
   connectionString: databaseUrl,
   max: pgPoolMax,
   min: pgPoolMin,

@@ -909,7 +909,9 @@ export default function DocumentationPage() {
     setSelectedNode(updated);
     lastSavedSnapshotRef.current = nodeSnapshot(updated);
     setSaveStatus("saved");
-    await refreshTree();
+    if (!options?.silent) {
+      await refreshTree();
+    }
   };
 
   const handleExportNode = async (format: "pdf" | "doc") => {

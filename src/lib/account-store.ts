@@ -1,6 +1,6 @@
-import { Pool } from "pg";
 import { createHash, randomBytes } from "crypto";
 import { hashPassword, verifyPassword } from "@/lib/password-hash";
+import { getSharedPgPool } from "@/lib/pg-pool";
 
 type SqliteCompat = {
   exec: (sql: string) => void;
@@ -38,7 +38,7 @@ let sqliteDb: SqliteCompat | null =
       }
     : null;
 
-const pgPool = new Pool({
+const pgPool = getSharedPgPool({
   connectionString: databaseUrl,
   max: pgPoolMax,
   min: pgPoolMin,

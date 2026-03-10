@@ -1,6 +1,6 @@
-import { Pool } from "pg";
 import { decryptText, encryptText } from "@/lib/crypto";
 import type { DataConnector, DataConnectorProvider } from "@/lib/types";
+import { getSharedPgPool } from "@/lib/pg-pool";
 
 type SqliteCompat = {
   exec: (sql: string) => void;
@@ -26,7 +26,7 @@ const pgIdleTimeoutMs = Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 
 
 const usePostgres = true;
 let sqliteDb: SqliteCompat | null = null;
-const pgPool = new Pool({
+const pgPool = getSharedPgPool({
   connectionString: databaseUrl,
   max: pgPoolMax,
   min: pgPoolMin,

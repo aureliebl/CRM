@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { Pool } from "pg";
+import { getSharedPgPool } from "@/lib/pg-pool";
 
 type ConsumeRateLimitParams = {
   action: string;
@@ -26,7 +26,7 @@ const pgConnectionTimeoutMs = Math.max(
 const pgIdleTimeoutMs = Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 10000));
 
 const pgPool = databaseUrl
-  ? new Pool({
+  ? getSharedPgPool({
       connectionString: databaseUrl,
       max: pgPoolMax,
       min: pgPoolMin,

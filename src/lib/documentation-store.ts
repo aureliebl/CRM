@@ -1,7 +1,7 @@
-import { Pool } from "pg";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { getGroupIdForAccount } from "@/lib/security-store";
+import { getSharedPgPool } from "@/lib/pg-pool";
 import type {
   DocumentationBlock,
   DocumentationFolderVisibility,
@@ -23,7 +23,7 @@ const pgConnectionTimeoutMs = Math.max(
 );
 const pgIdleTimeoutMs = Math.max(1000, Number(process.env.PG_IDLE_TIMEOUT_MS || 10000));
 
-const pgPool = new Pool({
+const pgPool = getSharedPgPool({
   connectionString: databaseUrl,
   max: pgPoolMax,
   min: pgPoolMin,
