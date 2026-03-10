@@ -83,6 +83,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to create node" }, { status: 500 });
   }
 
-  await addLog(actor.id, "documentation.node.created", `Node ${created.id} created (${created.kind})`);
+  try {
+    await addLog(actor.id, "documentation.node.created", `Node ${created.id} created (${created.kind})`);
+  } catch (error) {
+    console.warn("[documentation.nodes.create] addLog failed", error);
+  }
   return NextResponse.json(created, { status: 201 });
 }

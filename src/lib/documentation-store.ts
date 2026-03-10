@@ -608,14 +608,28 @@ export async function createDocumentationNode(
     ]
   );
 
-  await syncNodeShares(id, input.sharedGroupIds, input.sharedUserIds);
+  const sharedGroupIds = normalizeIds(input.sharedGroupIds);
+  const sharedUserIds = normalizeIds(input.sharedUserIds);
+  await syncNodeShares(id, sharedGroupIds, sharedUserIds);
 
-  const created = await getNodeById(id);
-  if (!created) {
-    throw new DocumentationCreateNodeError("Node created but not readable");
-  }
-
-  return created;
+  return {
+    id,
+    parentId: input.parentId,
+    kind: input.kind,
+    title,
+    subtitle,
+    coverMediaId,
+    isPublic,
+    ownerId: actor.id,
+    folderVisibility,
+    groupId,
+    sharedGroupIds,
+    sharedUserIds,
+    isPrivate,
+    content: [],
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export async function updateDocumentationNode(
