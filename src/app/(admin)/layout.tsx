@@ -283,7 +283,7 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
         </ul>
       </div>
       {isAdmin && (
-        <div style={{ marginTop: "auto", paddingTop: "0.75rem" }}>
+        <div className="admin-sidebar-footer">
           <Link
             href="/tabs/new"
             className="admin-nav-link"
@@ -373,7 +373,12 @@ function AdminTopbar({
           </button>
         )}
         <div className="admin-topbar-search">
-          <ClientSearch inputId="client-search-input" placeholder={t.search_placeholder} maxWidth="100%" />
+          <ClientSearch
+            inputId="client-search-input"
+            placeholder={t.search_placeholder}
+            maxWidth="100%"
+            appearance="embedded"
+          />
         </div>
         <div className="admin-topbar-controls">
           <AircallButton />

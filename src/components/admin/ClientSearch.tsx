@@ -5,7 +5,17 @@ import { useRouter } from "next/navigation";
 import { getClients } from "@/lib/mock/clients";
 import type { Client } from "@/lib/types";
 
-export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: string; placeholder?: string; maxWidth?: string | number }) {
+export function ClientSearch({
+  inputId,
+  placeholder,
+  maxWidth,
+  appearance = "default",
+}: {
+  inputId?: string;
+  placeholder?: string;
+  maxWidth?: string | number;
+  appearance?: "default" | "embedded";
+}) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -88,8 +98,8 @@ export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: str
           padding: "0.5rem 0.75rem",
           paddingRight: "3rem",
           borderRadius: "999px",
-          border: "1px solid var(--border-hover)",
-          background: "var(--search-bg)",
+          border: appearance === "embedded" ? "none" : "1px solid var(--border-hover)",
+          background: appearance === "embedded" ? "transparent" : "var(--search-bg)",
           color: "var(--text-primary)",
           fontSize: "0.85rem",
           outline: "none",
@@ -106,7 +116,7 @@ export function ClientSearch({ inputId, placeholder, maxWidth }: { inputId?: str
           transform: "translateY(-50%)",
           fontSize: "0.75rem",
           color: "var(--text-secondary)",
-          background: "var(--dropdown-bg)",
+          background: appearance === "embedded" ? "var(--button-bg)" : "var(--dropdown-bg)",
           border: "1px solid var(--border-color)",
           borderRadius: "999px",
           padding: "2px 6px",
