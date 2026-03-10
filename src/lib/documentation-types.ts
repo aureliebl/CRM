@@ -29,6 +29,9 @@ export type DocumentationNode = {
   parentId: string | null;
   kind: DocumentationNodeKind;
   title: string;
+  subtitle: string;
+  coverMediaId: string | null;
+  isPublic: boolean;
   ownerId: string;
   folderVisibility: DocumentationFolderVisibility;
   groupId: string | null;
@@ -55,6 +58,9 @@ export type DocumentationTreeItem = {
   parentId: string | null;
   kind: DocumentationNodeKind;
   title: string;
+  subtitle: string;
+  coverMediaId: string | null;
+  isPublic: boolean;
   isPrivate: boolean;
   folderVisibility: DocumentationFolderVisibility;
   groupId: string | null;

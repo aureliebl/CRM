@@ -47,6 +47,9 @@ export async function PUT(
   const body = (await req.json().catch(() => null)) as
     | {
         title?: string;
+        subtitle?: string;
+        coverMediaId?: string | null;
+        isPublic?: boolean;
         isPrivate?: boolean;
         folderVisibility?: "public" | "group";
         groupId?: string | null;
@@ -64,6 +67,9 @@ export async function PUT(
   });
   const updated = await updateDocumentationNode(scope, nodeId, {
     title: body.title,
+    subtitle: body.subtitle,
+    coverMediaId: body.coverMediaId,
+    isPublic: body.isPublic,
     isPrivate: body.isPrivate,
     folderVisibility: body.folderVisibility,
     groupId: body.groupId,

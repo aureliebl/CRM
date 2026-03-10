@@ -19,6 +19,9 @@ export async function POST(req: Request) {
         parentId?: string | null;
         kind?: "folder" | "page";
         title?: string;
+        subtitle?: string;
+        coverMediaId?: string | null;
+        isPublic?: boolean;
         folderVisibility?: "public" | "group";
         groupId?: string | null;
         isPrivate?: boolean;
@@ -38,6 +41,9 @@ export async function POST(req: Request) {
     parentId: body.parentId ?? null,
     kind: body.kind,
     title: body.title,
+    subtitle: body.subtitle,
+    coverMediaId: body.coverMediaId,
+    isPublic: body.isPublic,
     folderVisibility: body.folderVisibility,
     groupId: body.groupId,
     isPrivate: body.isPrivate,

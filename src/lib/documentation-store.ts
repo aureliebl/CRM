@@ -47,6 +47,9 @@ type DocumentationNodeRow = {
   parentid: string | null;
   kind: "folder" | "page";
   title: string;
+  subtitle: string | null;
+  covermediaid: string | null;
+  ispublic: number;
   ownerid: string;
   foldervisibility: DocumentationFolderVisibility;
   groupid: string | null;
@@ -162,6 +165,9 @@ function mapNodeRow(row: DocumentationNodeRow): DocumentationNode {
     parentId: row.parentid,
     kind: row.kind,
     title: row.title,
+    subtitle: row.subtitle ?? "",
+    coverMediaId: row.covermediaid,
+    isPublic: Number(row.ispublic ?? 0) === 1,
     ownerId: row.ownerid,
     folderVisibility: row.foldervisibility,
     groupId: row.groupid,
@@ -178,6 +184,9 @@ function mapTreeItem(node: DocumentationNode): DocumentationTreeItem {
     parentId: node.parentId,
     kind: node.kind,
     title: node.title,
+    subtitle: node.subtitle,
+    coverMediaId: node.coverMediaId,
+    isPublic: node.isPublic,
     isPrivate: node.isPrivate,
     folderVisibility: node.folderVisibility,
     groupId: node.groupId,
@@ -194,6 +203,9 @@ async function ensurePostgresSchema() {
       parentId TEXT,
       kind TEXT NOT NULL,
       title TEXT NOT NULL,
+      subtitle TEXT NOT NULL DEFAULT '',
+      coverMediaId TEXT,
+      isPublic INTEGER NOT NULL DEFAULT 0,
       ownerId TEXT NOT NULL,
       folderVisibility TEXT NOT NULL DEFAULT 'public',
       groupId TEXT,
@@ -213,6 +225,10 @@ async function ensurePostgresSchema() {
     CREATE INDEX IF NOT EXISTS idx_documentation_nodes_owner
       ON documentation_nodes(ownerId)
   `);
+
+  await pgPool.query("ALTER TABLE documentation_nodes ADD COLUMN IF NOT EXISTS subtitle TEXT NOT NULL DEFAULT ''");
+  await pgPool.query("ALTER TABLE documentation_nodes ADD COLUMN IF NOT EXISTS coverMediaId TEXT");
+  await pgPool.query("ALTER TABLE documentation_nodes ADD COLUMN IF NOT EXISTS isPublic INTEGER NOT NULL DEFAULT 0");
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS documentation_media (
@@ -301,6 +317,8 @@ function resolveFolderShareScope(node: DocumentationNode, map: Map<string, Docum
 }
 
 function canReadNode(actor: DocumentationActorScope, node: DocumentationNode, map: Map<string, DocumentationNode>) {
+  if (node.isPublic) return true;
+
   if (node.isPrivate) {
     return node.ownerId === actor.id;
   }
@@ -399,6 +417,9 @@ export async function createDocumentationNode(
     parentId: string | null;
     kind: "folder" | "page";
     title: string;
+    subtitle?: string;
+    coverMediaId?: string | null;
+    isPublic?: boolean;
     folderVisibility?: DocumentationFolderVisibility;
     groupId?: string | null;
     isPrivate?: boolean;
@@ -422,16 +443,22 @@ export async function createDocumentationNode(
   const folderVisibility = input.folderVisibility ?? "public";
   const groupId = folderVisibility === "group" ? (input.groupId ?? actor.groupId) : null;
   const isPrivate = input.kind === "page" ? Boolean(input.isPrivate) : false;
+  const subtitle = String(input.subtitle ?? "").trim();
+  const coverMediaId = input.kind === "page" ? input.coverMediaId ?? null : null;
+  const isPublic = input.kind === "page" ? Boolean(input.isPublic) : false;
 
   await pgPool.query(
     `INSERT INTO documentation_nodes
-      (id, parentId, kind, title, ownerId, folderVisibility, groupId, isPrivate, contentJson, createdAt, updatedAt)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      (id, parentId, kind, title, subtitle, coverMediaId, isPublic, ownerId, folderVisibility, groupId, isPrivate, contentJson, createdAt, updatedAt)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     [
       id,
       input.parentId,
       input.kind,
       title,
+      subtitle,
+      coverMediaId,
+      isPublic ? 1 : 0,
       actor.id,
       folderVisibility,
       groupId,
@@ -450,6 +477,9 @@ export async function updateDocumentationNode(
   nodeId: string,
   patch: {
     title?: string;
+    subtitle?: string;
+    coverMediaId?: string | null;
+    isPublic?: boolean;
     isPrivate?: boolean;
     content?: DocumentationBlock[];
     folderVisibility?: DocumentationFolderVisibility;
@@ -466,6 +496,9 @@ export async function updateDocumentationNode(
 
   const nextTitle = patch.title !== undefined ? patch.title.trim() : node.title;
   if (!nextTitle) return null;
+  const nextSubtitle = patch.subtitle !== undefined ? patch.subtitle.trim() : node.subtitle;
+  const nextCoverMediaId = node.kind === "page" ? (patch.coverMediaId !== undefined ? patch.coverMediaId : node.coverMediaId) : null;
+  const nextIsPublic = node.kind === "page" ? (patch.isPublic !== undefined ? Boolean(patch.isPublic) : node.isPublic) : false;
 
   const nextIsPrivate =
     node.kind === "page" && patch.isPrivate !== undefined
@@ -487,14 +520,20 @@ export async function updateDocumentationNode(
   await pgPool.query(
     `UPDATE documentation_nodes
      SET title = $1,
-         isPrivate = $2,
-         contentJson = $3,
-         folderVisibility = $4,
-         groupId = $5,
-         updatedAt = $6
-     WHERE id = $7`,
+         subtitle = $2,
+         coverMediaId = $3,
+         isPublic = $4,
+         isPrivate = $5,
+         contentJson = $6,
+         folderVisibility = $7,
+         groupId = $8,
+         updatedAt = $9
+     WHERE id = $10`,
     [
       nextTitle,
+      nextSubtitle,
+      nextCoverMediaId,
+      nextIsPublic ? 1 : 0,
       nextIsPrivate ? 1 : 0,
       nextContent,
       nextFolderVisibility,

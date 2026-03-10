@@ -163,6 +163,14 @@ export default function DocumentationPage() {
           codePreview: "Aperçu code",
           noPages: "Aucune page disponible",
           untitled: "Sans titre",
+          subtitlePlaceholder: "Sous-titre",
+          unsaved: "Modifications en cours...",
+          saved: "Enregistré automatiquement",
+          saveError: "Échec de l'enregistrement",
+          publish: "Rendre publique",
+          unpublish: "Rendre privée",
+          uploadCover: "Image de couverture",
+          pageActions: "Actions page",
         }
       : {
           title: "Documentation",
@@ -192,6 +200,14 @@ export default function DocumentationPage() {
           codePreview: "Code preview",
           noPages: "No page available",
           untitled: "Untitled",
+          subtitlePlaceholder: "Subtitle",
+          unsaved: "Saving changes...",
+          saved: "Saved automatically",
+          saveError: "Save failed",
+          publish: "Make public",
+          unpublish: "Make private",
+          uploadCover: "Cover image",
+          pageActions: "Page actions",
         };
 
   const [tree, setTree] = useState<DocumentationTreeItem[]>([]);
@@ -200,6 +216,11 @@ export default function DocumentationPage() {
   const [selectedNode, setSelectedNode] = useState<DocumentationNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [showPageMenu, setShowPageMenu] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
   const [crdtStatus, setCrdtStatus] = useState("disconnected");
   const [crdtPeers, setCrdtPeers] = useState<DocumentationPeer[]>([]);
   const [crdtCanWrite, setCrdtCanWrite] = useState(true);
@@ -208,13 +229,31 @@ export default function DocumentationPage() {
   const [slashMenu, setSlashMenu] = useState<{
     blockId: string;
     selectedIndex: number;
+    x: number;
+    y: number;
   } | null>(null);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<"before" | "after" | null>(null);
   const crdtSessionRef = useRef<DocumentationCrdtSession | null>(null);
   const initialBlocksRef = useRef<DocumentationBlock[]>([]);
+  const lastSavedSnapshotRef = useRef("");
   const blockInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+
+  const nodeSnapshot = useCallback((node: DocumentationNode | null) => {
+    if (!node) return "";
+    return JSON.stringify({
+      id: node.id,
+      title: node.title,
+      subtitle: node.subtitle,
+      coverMediaId: node.coverMediaId,
+      isPublic: node.isPublic,
+      isPrivate: node.isPrivate,
+      folderVisibility: node.folderVisibility,
+      groupId: node.groupId,
+      content: node.kind === "page" ? node.content : [],
+    });
+  }, []);
 
   const autoResizeTextarea = (element: HTMLTextAreaElement | null) => {
     if (!element) return;
@@ -274,6 +313,10 @@ export default function DocumentationPage() {
     const run = async () => {
       if (!mounted) return;
       setSelectedNode(null);
+      setShowPageMenu(false);
+      setEditingTitle(false);
+      setEditingSubtitle(false);
+      setSaveStatus("idle");
       await loadNode(selectedNodeId);
     };
     void run();
@@ -287,6 +330,14 @@ export default function DocumentationPage() {
       initialBlocksRef.current = selectedNode.content;
     }
   }, [selectedNodeId, selectedNode?.id, selectedNode?.kind, selectedNode?.content]);
+
+  useEffect(() => {
+    if (!selectedNode) {
+      lastSavedSnapshotRef.current = "";
+      return;
+    }
+    lastSavedSnapshotRef.current = nodeSnapshot(selectedNode);
+  }, [selectedNodeId, selectedNode?.id, nodeSnapshot]);
 
   useEffect(() => {
     if (selectedNode?.kind !== "page") return;
@@ -443,18 +494,23 @@ export default function DocumentationPage() {
     await loadNode(selectedNode.id);
   };
 
-  const handleSaveNode = async () => {
+  const handleSaveNode = async (options?: { silent?: boolean }) => {
     if (!selectedNode) return;
     setSaving(true);
+    setSaveStatus("saving");
 
     const res = await fetch(`/api/documentation/nodes/${selectedNode.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: selectedNode.title,
+        subtitle: selectedNode.subtitle,
+        coverMediaId: selectedNode.coverMediaId,
+        isPublic: selectedNode.kind === "page" ? selectedNode.isPublic : undefined,
         isPrivate: selectedNode.kind === "page" ? selectedNode.isPrivate : undefined,
         folderVisibility:
           selectedNode.kind === "folder" ? selectedNode.folderVisibility : undefined,
+        groupId: selectedNode.kind === "folder" ? selectedNode.groupId : undefined,
         content: selectedNode.kind === "page" ? selectedNode.content : undefined,
       }),
     });
@@ -462,12 +518,17 @@ export default function DocumentationPage() {
     setSaving(false);
 
     if (!res.ok) {
-      alert("Save failed");
+      setSaveStatus("error");
+      if (!options?.silent) {
+        alert("Save failed");
+      }
       return;
     }
 
     const updated = (await res.json()) as DocumentationNode;
     setSelectedNode(updated);
+    lastSavedSnapshotRef.current = nodeSnapshot(updated);
+    setSaveStatus("saved");
     await refreshTree();
   };
 
@@ -501,6 +562,22 @@ export default function DocumentationPage() {
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
   };
+
+  useEffect(() => {
+    if (!selectedNode) return;
+
+    const snapshot = nodeSnapshot(selectedNode);
+    if (!snapshot || snapshot === lastSavedSnapshotRef.current) return;
+
+    setSaveStatus("saving");
+    const timeout = window.setTimeout(() => {
+      void handleSaveNode({ silent: true });
+    }, 800);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [selectedNode, nodeSnapshot]);
 
   const updateSelectedBlock = (blockId: string, patch: Partial<DocumentationBlock>) => {
     if (selectedNode?.kind === "page" && crdtSessionRef.current) {
@@ -669,6 +746,26 @@ export default function DocumentationPage() {
     focusBlockInput(blockId);
   };
 
+  const openSlashMenu = (blockId: string, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const menuWidth = 240;
+    const menuHeight = 280;
+    const gap = 8;
+
+    let x = rect.left;
+    let y = rect.bottom + gap;
+
+    if (x + menuWidth > window.innerWidth - gap) {
+      x = Math.max(gap, window.innerWidth - menuWidth - gap);
+    }
+
+    if (y + menuHeight > window.innerHeight - gap) {
+      y = Math.max(gap, rect.top - menuHeight - gap);
+    }
+
+    setSlashMenu({ blockId, selectedIndex: 0, x, y });
+  };
+
   const handleTextBlockKeyDown = (
     block: DocumentationBlock,
     event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -718,7 +815,7 @@ export default function DocumentationPage() {
 
     if (event.key === "/" && currentText.trim().length === 0) {
       event.preventDefault();
-      setSlashMenu({ blockId: block.id, selectedIndex: 0 });
+      openSlashMenu(block.id, event.currentTarget);
       return;
     }
 
@@ -769,6 +866,34 @@ export default function DocumentationPage() {
     });
   };
 
+  const uploadCoverImage = async (file: File) => {
+    if (!selectedNode || selectedNode.kind !== "page") return;
+
+    setCoverUploading(true);
+    try {
+      const form = new FormData();
+      form.set("nodeId", selectedNode.id);
+      form.set("file", file);
+
+      const res = await fetch("/api/documentation/media/upload", {
+        method: "POST",
+        body: form,
+      });
+
+      if (!res.ok) {
+        alert("Upload failed");
+        return;
+      }
+
+      const payload = (await res.json()) as { id: string };
+      setSelectedNode((current) =>
+        current && current.kind === "page" ? { ...current, coverMediaId: payload.id } : current
+      );
+    } finally {
+      setCoverUploading(false);
+    }
+  };
+
   const handleDropImage: React.DragEventHandler<HTMLDivElement> = async (event) => {
     event.preventDefault();
     const file = event.dataTransfer.files?.[0];
@@ -780,6 +905,13 @@ export default function DocumentationPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     await uploadImage(file);
+    event.currentTarget.value = "";
+  };
+
+  const handleCoverInputChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await uploadCoverImage(file);
     event.currentTarget.value = "";
   };
 
@@ -871,92 +1003,238 @@ export default function DocumentationPage() {
           ) : (
             <div style={{ display: "grid", gap: "0.75rem" }}>
               {selectedNode.kind === "page" && (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "0.65rem",
-                    padding: "0.45rem 0.6rem",
-                  }}
-                >
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
-                    CRDT · {crdtStatus} · {crdtCanWrite ? "write" : "read-only"}
-                  </div>
-                  <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
-                    {crdtStatus === "disconnected" && (
-                      <button
-                        type="button"
-                        className="admin-btn admin-btn-secondary"
-                        onClick={() => setCrdtReconnectTick((current) => current + 1)}
-                      >
-                        reconnect
-                      </button>
+                <div style={{ display: "grid", gap: "0.5rem" }}>
+                  <div
+                    style={{
+                      minHeight: "140px",
+                      borderRadius: "0.75rem",
+                      border: "1px solid var(--border-color)",
+                      background: selectedNode.coverMediaId ? "transparent" : "var(--bg-hover)",
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {selectedNode.coverMediaId && (
+                      <img
+                        src={`/api/documentation/media/${selectedNode.coverMediaId}`}
+                        alt="Cover"
+                        style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}
+                      />
                     )}
-                    {crdtPeers.map((peer) => (
-                      <span
-                        key={peer.id}
-                        style={{
-                          fontSize: "0.72rem",
-                          border: "1px solid var(--border-color)",
-                          borderRadius: "999px",
-                          padding: "0.18rem 0.45rem",
-                          color: "var(--text-primary)",
-                          background: peer.color,
-                        }}
-                      >
-                        {peer.name}
+
+                    <div style={{ position: "absolute", top: "0.55rem", right: "0.55rem", display: "flex", gap: "0.4rem" }}>
+                      <label className="admin-btn admin-btn-secondary" style={{ cursor: "pointer" }}>
+                        {coverUploading ? labels.loading : labels.uploadCover}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          hidden
+                          onChange={handleCoverInputChange}
+                        />
+                      </label>
+                      <div style={{ position: "relative" }}>
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn-secondary"
+                          onClick={() => setShowPageMenu((current) => !current)}
+                        >
+                          <MaterialSymbol name="more_horiz" size={16} weight={500} opticalSize={20} />
+                        </button>
+                        {showPageMenu && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              right: 0,
+                              top: "2.2rem",
+                              zIndex: 20,
+                              minWidth: "210px",
+                              background: "var(--card-bg)",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "0.65rem",
+                              padding: "0.35rem",
+                              display: "grid",
+                              gap: "0.25rem",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => {
+                                setSelectedNode((current) =>
+                                  current && current.kind === "page" ? { ...current, isPublic: !current.isPublic } : current
+                                );
+                                setShowPageMenu(false);
+                              }}
+                            >
+                              {selectedNode.isPublic ? labels.unpublish : labels.publish}
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => {
+                                setShowPageMenu(false);
+                                void handleExportNode("pdf");
+                              }}
+                            >
+                              Export PDF
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => {
+                                setShowPageMenu(false);
+                                void handleExportNode("doc");
+                              }}
+                            >
+                              Export DOC
+                            </button>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => {
+                                setShowPageMenu(false);
+                                void handleDeleteNode();
+                              }}
+                            >
+                              {labels.delete}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {editingTitle ? (
+                        <input
+                          value={selectedNode.title}
+                          autoFocus
+                          onBlur={() => setEditingTitle(false)}
+                          onChange={(e) =>
+                            setSelectedNode((current) =>
+                              current ? { ...current, title: e.target.value } : current
+                            )
+                          }
+                          style={{
+                            width: "100%",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "0.6rem",
+                            padding: "0.45rem 0.6rem",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                            fontSize: "1.65rem",
+                            fontWeight: 650,
+                          }}
+                        />
+                      ) : (
+                        <h2
+                          onClick={() => setEditingTitle(true)}
+                          style={{ margin: 0, fontSize: "1.65rem", fontWeight: 650, cursor: "text" }}
+                        >
+                          {selectedNode.title || labels.untitled}
+                        </h2>
+                      )}
+
+                      {editingSubtitle ? (
+                        <input
+                          value={selectedNode.subtitle}
+                          autoFocus
+                          onBlur={() => setEditingSubtitle(false)}
+                          onChange={(e) =>
+                            setSelectedNode((current) =>
+                              current ? { ...current, subtitle: e.target.value } : current
+                            )
+                          }
+                          placeholder={labels.subtitlePlaceholder}
+                          style={{
+                            width: "100%",
+                            marginTop: "0.25rem",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "0.55rem",
+                            padding: "0.35rem 0.55rem",
+                            background: "var(--input-bg)",
+                            color: "var(--text-secondary)",
+                            fontSize: "0.98rem",
+                          }}
+                        />
+                      ) : (
+                        <p
+                          onClick={() => setEditingSubtitle(true)}
+                          style={{ margin: "0.3rem 0 0", color: "var(--text-secondary)", cursor: "text" }}
+                        >
+                          {selectedNode.subtitle || labels.subtitlePlaceholder}
+                        </p>
+                      )}
+                    </div>
+
+                    <div style={{ display: "grid", justifyItems: "end", gap: "0.3rem" }}>
+                      <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                        {saveStatus === "saving"
+                          ? labels.unsaved
+                          : saveStatus === "error"
+                          ? labels.saveError
+                          : labels.saved}
                       </span>
-                    ))}
+
+                      <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {crdtStatus === "disconnected" && (
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-secondary"
+                            onClick={() => setCrdtReconnectTick((current) => current + 1)}
+                          >
+                            reconnect
+                          </button>
+                        )}
+                        {crdtPeers.map((peer) => (
+                          <span
+                            key={peer.id}
+                            title={peer.name}
+                            style={{
+                              width: "28px",
+                              height: "28px",
+                              borderRadius: "999px",
+                              border: "1px solid var(--border-color)",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "0.72rem",
+                              fontWeight: 600,
+                              color: "var(--text-primary)",
+                              background: peer.color,
+                            }}
+                          >
+                            {peer.name.slice(0, 1).toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                <input
-                  value={selectedNode.title}
-                  onChange={(e) =>
-                    setSelectedNode((current) =>
-                      current ? { ...current, title: e.target.value } : current
-                    )
-                  }
-                  style={{
-                    flex: 1,
-                    border: "1px solid var(--border-color)",
-                    borderRadius: "0.6rem",
-                    padding: "0.5rem 0.65rem",
-                    background: "var(--input-bg)",
-                    color: "var(--text-primary)",
-                    fontSize: "0.95rem",
-                  }}
-                />
-                <button className="admin-btn admin-btn-secondary" type="button" onClick={handleSaveNode} disabled={saving}>
-                  {labels.save}
-                </button>
-                <button className="admin-btn admin-btn-secondary" type="button" onClick={handleDeleteNode}>
-                  {labels.delete}
-                </button>
-                {selectedNode.kind === "page" && (
-                  <>
-                    <button
-                      className="admin-btn admin-btn-secondary"
-                      type="button"
-                      onClick={() => handleExportNode("pdf")}
-                    >
-                      Export PDF
-                    </button>
-                    <button
-                      className="admin-btn admin-btn-secondary"
-                      type="button"
-                      onClick={() => handleExportNode("doc")}
-                    >
-                      Export DOC
-                    </button>
-                  </>
-                )}
-              </div>
+              {selectedNode.kind === "folder" && (
+                <div style={{ display: "grid", gap: "0.4rem" }}>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{labels.folderSettings}</div>
+                  <input
+                    value={selectedNode.title}
+                    onChange={(e) =>
+                      setSelectedNode((current) =>
+                        current ? { ...current, title: e.target.value } : current
+                      )
+                    }
+                    style={{
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "0.6rem",
+                      padding: "0.5rem 0.65rem",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                      fontSize: "1rem",
+                    }}
+                  />
+                </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                 <div>
@@ -1281,7 +1559,18 @@ export default function DocumentationPage() {
                           )}
 
                           {slashMenu?.blockId === block.id && (
-                            <div className="doc-editor-slash-menu">
+                            <div
+                              className="doc-editor-slash-menu"
+                              style={{
+                                position: "fixed",
+                                left: `${slashMenu.x}px`,
+                                top: `${slashMenu.y}px`,
+                                width: "240px",
+                                maxHeight: "280px",
+                                overflowY: "auto",
+                                zIndex: 1200,
+                              }}
+                            >
                               {SLASH_BLOCK_TYPES.map((type, index) => (
                                 <button
                                   key={`${block.id}_${type}`}
