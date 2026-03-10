@@ -171,6 +171,8 @@ function mapNodeRow(row: DocumentationNodeRow): DocumentationNode {
     ownerId: row.ownerid,
     folderVisibility: row.foldervisibility,
     groupId: row.groupid,
+    sharedGroupIds: [],
+    sharedUserIds: [],
     isPrivate: Number(row.isprivate ?? 0) === 1,
     content: parseContentJson(row.contentjson ?? "[]"),
     createdAt: row.createdat,
@@ -190,6 +192,8 @@ function mapTreeItem(node: DocumentationNode): DocumentationTreeItem {
     isPrivate: node.isPrivate,
     folderVisibility: node.folderVisibility,
     groupId: node.groupId,
+    sharedGroupIds: node.sharedGroupIds,
+    sharedUserIds: node.sharedUserIds,
     ownerId: node.ownerId,
     createdAt: node.createdAt,
     updatedAt: node.updatedAt,
@@ -272,6 +276,34 @@ async function ensurePostgresSchema() {
     CREATE INDEX IF NOT EXISTS idx_documentation_crdt_updates_node
       ON documentation_crdt_updates(nodeId)
   `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS documentation_node_group_shares (
+      nodeId TEXT NOT NULL,
+      groupId TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (nodeId, groupId)
+    )
+  `);
+
+  await pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_doc_node_group_shares_group
+      ON documentation_node_group_shares(groupId)
+  `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS documentation_node_user_shares (
+      nodeId TEXT NOT NULL,
+      accountId TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (nodeId, accountId)
+    )
+  `);
+
+  await pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_doc_node_user_shares_account
+      ON documentation_node_user_shares(accountId)
+  `);
 }
 
 async function ensurePostgresReady() {
@@ -285,7 +317,46 @@ async function ensurePostgresReady() {
 async function getAllDocumentationNodes(): Promise<DocumentationNode[]> {
   await ensurePostgresReady();
   const result = await pgPool.query("SELECT * FROM documentation_nodes ORDER BY createdAt ASC");
-  return result.rows.map((row) => mapNodeRow(row as DocumentationNodeRow));
+  const nodes = result.rows.map((row) => mapNodeRow(row as DocumentationNodeRow));
+  if (nodes.length === 0) return nodes;
+
+  const nodeIds = nodes.map((node) => node.id);
+  const [groupSharesResult, userSharesResult] = await Promise.all([
+    pgPool.query(
+      "SELECT nodeId, groupId FROM documentation_node_group_shares WHERE nodeId = ANY($1::text[])",
+      [nodeIds]
+    ),
+    pgPool.query(
+      "SELECT nodeId, accountId FROM documentation_node_user_shares WHERE nodeId = ANY($1::text[])",
+      [nodeIds]
+    ),
+  ]);
+
+  const groupByNode = new Map<string, string[]>();
+  for (const row of groupSharesResult.rows as Array<{ nodeid?: string; nodeId?: string; groupid?: string; groupId?: string }>) {
+    const nodeId = String(row.nodeid ?? row.nodeId ?? "");
+    const groupId = String(row.groupid ?? row.groupId ?? "");
+    if (!nodeId || !groupId) continue;
+    const values = groupByNode.get(nodeId) ?? [];
+    values.push(groupId);
+    groupByNode.set(nodeId, values);
+  }
+
+  const usersByNode = new Map<string, string[]>();
+  for (const row of userSharesResult.rows as Array<{ nodeid?: string; nodeId?: string; accountid?: string; accountId?: string }>) {
+    const nodeId = String(row.nodeid ?? row.nodeId ?? "");
+    const accountId = String(row.accountid ?? row.accountId ?? "");
+    if (!nodeId || !accountId) continue;
+    const values = usersByNode.get(nodeId) ?? [];
+    values.push(accountId);
+    usersByNode.set(nodeId, values);
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    sharedGroupIds: Array.from(new Set(groupByNode.get(node.id) ?? [])),
+    sharedUserIds: Array.from(new Set(usersByNode.get(node.id) ?? [])),
+  }));
 }
 
 function buildNodeMap(nodes: DocumentationNode[]): Map<string, DocumentationNode> {
@@ -316,32 +387,56 @@ function resolveFolderShareScope(node: DocumentationNode, map: Map<string, Docum
   };
 }
 
+function getNodeAncestry(node: DocumentationNode, map: Map<string, DocumentationNode>): DocumentationNode[] {
+  const ancestry: DocumentationNode[] = [];
+  let current: DocumentationNode | undefined = node;
+
+  while (current) {
+    ancestry.push(current);
+    if (!current.parentId) break;
+    current = map.get(current.parentId);
+  }
+
+  return ancestry;
+}
+
 function canReadNode(actor: DocumentationActorScope, node: DocumentationNode, map: Map<string, DocumentationNode>) {
-  if (node.isPublic) return true;
+  if (actor.role === "admin") return true;
+  if (node.ownerId === actor.id) return true;
+
+  const ancestry = getNodeAncestry(node, map);
+  const hasUserShare = ancestry.some((item) => item.sharedUserIds.includes(actor.id));
+  const hasGroupShare = actor.groupId
+    ? ancestry.some((item) => item.sharedGroupIds.includes(actor.groupId as string))
+    : false;
 
   if (node.isPrivate) {
-    return node.ownerId === actor.id;
+    return hasUserShare || hasGroupShare;
+  }
+
+  if (ancestry.some((item) => item.isPublic)) {
+    return true;
+  }
+
+  if (hasUserShare || hasGroupShare) {
+    return true;
   }
 
   const scope = resolveFolderShareScope(node, map);
   if (scope.folderVisibility === "public") return true;
-  if (actor.role === "admin") return true;
   if (!scope.groupId || !actor.groupId) return false;
   return scope.groupId === actor.groupId;
 }
 
 function canWriteNode(actor: DocumentationActorScope, node: DocumentationNode, map: Map<string, DocumentationNode>) {
-  if (node.isPrivate) {
-    return node.ownerId === actor.id;
-  }
+  if (actor.role === "admin") return true;
+  if (node.ownerId === actor.id) return true;
   return canReadNode(actor, node, map);
 }
 
 async function getNodeById(nodeId: string): Promise<DocumentationNode | null> {
-  await ensurePostgresReady();
-  const result = await pgPool.query("SELECT * FROM documentation_nodes WHERE id = $1", [nodeId]);
-  const row = result.rows[0] as DocumentationNodeRow | undefined;
-  return row ? mapNodeRow(row) : null;
+  const nodes = await getAllDocumentationNodes();
+  return nodes.find((node) => node.id === nodeId) ?? null;
 }
 
 async function getActorScope(input: { id: string; role: "admin" | "operator" }): Promise<DocumentationActorScope> {
@@ -361,6 +456,7 @@ export async function resolveDocumentationActorScope(input: {
 }
 
 export async function getAccessibleDocumentationTree(actor: DocumentationActorScope): Promise<DocumentationTreeItem[]> {
+  await ensureActorPrivateRoot(actor);
   const nodes = await getAllDocumentationNodes();
   const map = buildNodeMap(nodes);
 
@@ -420,6 +516,8 @@ export async function createDocumentationNode(
     subtitle?: string;
     coverMediaId?: string | null;
     isPublic?: boolean;
+    sharedGroupIds?: string[];
+    sharedUserIds?: string[];
     folderVisibility?: DocumentationFolderVisibility;
     groupId?: string | null;
     isPrivate?: boolean;
@@ -434,7 +532,7 @@ export async function createDocumentationNode(
     const nodes = await getAllDocumentationNodes();
     const map = buildNodeMap(nodes);
     const parentNode = map.get(input.parentId);
-    if (!parentNode || parentNode.kind !== "folder") return null;
+    if (!parentNode || (parentNode.kind !== "folder" && parentNode.kind !== "page")) return null;
     if (!canWriteNode(actor, parentNode, map)) return null;
   }
 
@@ -442,7 +540,7 @@ export async function createDocumentationNode(
   const now = nowIso();
   const folderVisibility = input.folderVisibility ?? "public";
   const groupId = folderVisibility === "group" ? (input.groupId ?? actor.groupId) : null;
-  const isPrivate = input.kind === "page" ? Boolean(input.isPrivate) : false;
+  const isPrivate = Boolean(input.isPrivate);
   const subtitle = String(input.subtitle ?? "").trim();
   const coverMediaId = input.kind === "page" ? input.coverMediaId ?? null : null;
   const isPublic = input.kind === "page" ? Boolean(input.isPublic) : false;
@@ -469,6 +567,8 @@ export async function createDocumentationNode(
     ]
   );
 
+  await syncNodeShares(id, input.sharedGroupIds, input.sharedUserIds);
+
   return getNodeById(id);
 }
 
@@ -480,6 +580,8 @@ export async function updateDocumentationNode(
     subtitle?: string;
     coverMediaId?: string | null;
     isPublic?: boolean;
+    sharedGroupIds?: string[];
+    sharedUserIds?: string[];
     isPrivate?: boolean;
     content?: DocumentationBlock[];
     folderVisibility?: DocumentationFolderVisibility;
@@ -543,6 +645,10 @@ export async function updateDocumentationNode(
     ]
   );
 
+  if (patch.sharedGroupIds !== undefined || patch.sharedUserIds !== undefined) {
+    await syncNodeShares(nodeId, patch.sharedGroupIds, patch.sharedUserIds);
+  }
+
   if (node.kind === "page" && patch.content !== undefined) {
     const referencedMediaIds = extractMediaIdsFromBlocks(nextBlocks);
     const nodeMediaRows = await listMediaRowsForNodeIds([nodeId]);
@@ -598,7 +704,7 @@ export async function moveDocumentationNode(
 
   if (nextParentId) {
     const parent = map.get(nextParentId);
-    if (!parent || parent.kind !== "folder") return null;
+    if (!parent || (parent.kind !== "folder" && parent.kind !== "page")) return null;
     if (!canWriteNode(actor, parent, map)) return null;
 
     const descendants = collectDescendantIds(nodeId, nodes);
@@ -682,6 +788,58 @@ export async function createDocumentationMediaRecord(
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function normalizeIds(values?: string[]): string[] {
+  if (!values) return [];
+  return Array.from(new Set(values.map((value) => String(value).trim()).filter(Boolean)));
+}
+
+async function syncNodeShares(nodeId: string, sharedGroupIds?: string[], sharedUserIds?: string[]) {
+  const now = nowIso();
+
+  if (sharedGroupIds !== undefined) {
+    const groups = normalizeIds(sharedGroupIds);
+    await pgPool.query("DELETE FROM documentation_node_group_shares WHERE nodeId = $1", [nodeId]);
+    for (const groupId of groups) {
+      await pgPool.query(
+        "INSERT INTO documentation_node_group_shares (nodeId, groupId, createdAt) VALUES ($1,$2,$3)",
+        [nodeId, groupId, now]
+      );
+    }
+  }
+
+  if (sharedUserIds !== undefined) {
+    const users = normalizeIds(sharedUserIds);
+    await pgPool.query("DELETE FROM documentation_node_user_shares WHERE nodeId = $1", [nodeId]);
+    for (const accountId of users) {
+      await pgPool.query(
+        "INSERT INTO documentation_node_user_shares (nodeId, accountId, createdAt) VALUES ($1,$2,$3)",
+        [nodeId, accountId, now]
+      );
+    }
+  }
+}
+
+async function ensureActorPrivateRoot(actor: DocumentationActorScope) {
+  await ensurePostgresReady();
+
+  const existing = await pgPool.query(
+    "SELECT id FROM documentation_nodes WHERE parentId IS NULL AND kind = 'folder' AND ownerId = $1 AND isPrivate = 1 LIMIT 1",
+    [actor.id]
+  );
+
+  if (existing.rows[0]?.id) return;
+
+  const now = nowIso();
+  const id = `doc_root_private_${actor.id}`;
+  await pgPool.query(
+    `INSERT INTO documentation_nodes
+      (id, parentId, kind, title, subtitle, coverMediaId, isPublic, ownerId, folderVisibility, groupId, isPrivate, contentJson, createdAt, updatedAt)
+     VALUES ($1,NULL,'folder',$2,'',NULL,0,$3,'group',$4,1,'[]',$5,$6)
+     ON CONFLICT (id) DO NOTHING`,
+    [id, "Private", actor.id, actor.groupId, now, now]
+  );
 }
 
 export async function getDocumentationMediaForActor(

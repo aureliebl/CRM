@@ -22,6 +22,8 @@ export async function POST(req: Request) {
         subtitle?: string;
         coverMediaId?: string | null;
         isPublic?: boolean;
+        sharedGroupIds?: string[];
+        sharedUserIds?: string[];
         folderVisibility?: "public" | "group";
         groupId?: string | null;
         isPrivate?: boolean;
@@ -44,6 +46,8 @@ export async function POST(req: Request) {
     subtitle: body.subtitle,
     coverMediaId: body.coverMediaId,
     isPublic: body.isPublic,
+    sharedGroupIds: body.sharedGroupIds,
+    sharedUserIds: body.sharedUserIds,
     folderVisibility: body.folderVisibility,
     groupId: body.groupId,
     isPrivate: body.isPrivate,

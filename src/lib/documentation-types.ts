@@ -35,6 +35,8 @@ export type DocumentationNode = {
   ownerId: string;
   folderVisibility: DocumentationFolderVisibility;
   groupId: string | null;
+  sharedGroupIds: string[];
+  sharedUserIds: string[];
   isPrivate: boolean;
   content: DocumentationBlock[];
   createdAt: string;
@@ -64,6 +66,8 @@ export type DocumentationTreeItem = {
   isPrivate: boolean;
   folderVisibility: DocumentationFolderVisibility;
   groupId: string | null;
+  sharedGroupIds: string[];
+  sharedUserIds: string[];
   ownerId: string;
   createdAt: string;
   updatedAt: string;

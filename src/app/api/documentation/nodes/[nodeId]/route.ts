@@ -50,6 +50,8 @@ export async function PUT(
         subtitle?: string;
         coverMediaId?: string | null;
         isPublic?: boolean;
+        sharedGroupIds?: string[];
+        sharedUserIds?: string[];
         isPrivate?: boolean;
         folderVisibility?: "public" | "group";
         groupId?: string | null;
@@ -70,6 +72,8 @@ export async function PUT(
     subtitle: body.subtitle,
     coverMediaId: body.coverMediaId,
     isPublic: body.isPublic,
+    sharedGroupIds: body.sharedGroupIds,
+    sharedUserIds: body.sharedUserIds,
     isPrivate: body.isPrivate,
     folderVisibility: body.folderVisibility,
     groupId: body.groupId,
