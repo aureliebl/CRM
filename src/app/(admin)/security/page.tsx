@@ -463,6 +463,7 @@ export default function SecurityPage() {
     if (!actor) return;
     setCreatingAccount(true);
     setAccountCreateError(null);
+    setAccountActionInfo(null);
     try {
       const res = await fetch(`/api/security/accounts`, {
         method: "POST",
@@ -479,6 +480,18 @@ export default function SecurityPage() {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         setAccountCreateError(body.error || labels.accountCreateError);
         return;
+      }
+
+      const body = (await res.json().catch(() => ({}))) as {
+        onboarding?: { mode?: "smtp" | "log"; resetUrl?: string; error?: string };
+      };
+
+      if (body.onboarding?.mode === "log" && body.onboarding.resetUrl) {
+        setAccountActionInfo(`${labels.resetEmailFallback} ${body.onboarding.resetUrl}`);
+      } else if (body.onboarding?.mode === "smtp") {
+        setAccountActionInfo(labels.resetEmailSent);
+      } else if (body.onboarding?.error) {
+        setAccountActionInfo(`${labels.resetPasswordError}: ${body.onboarding.error}`);
       }
 
       setNewAccountEmail("");
