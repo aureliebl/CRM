@@ -11,7 +11,8 @@ export type DocumentationBlockType =
   | "info"
   | "code"
   | "image"
-  | "link";
+  | "link"
+  | "graph";
 
 export type DocumentationBlock = {
   id: string;
@@ -21,6 +22,9 @@ export type DocumentationBlock = {
   mediaId?: string;
   targetNodeId?: string;
   targetLabel?: string;
+  graphId?: string;
+  infoIcon?: string;
+  infoTone?: "default" | "muted" | "accent";
   widthPct?: number;
 };
 

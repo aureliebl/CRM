@@ -698,20 +698,21 @@ button {
 
 .doc-editor-surface {
   display: grid;
-  gap: 0;
+  gap: 0.02rem;
   font-family: inherit;
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.5;
   letter-spacing: -0.01em;
+  min-height: 52vh;
 }
 
 .doc-editor-block {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
-  gap: 0.3rem;
+  gap: 0.14rem;
   border-radius: 0.5rem;
-  padding: 0.06rem 0.1rem;
+  padding: 0;
   transition: background-color 0.15s ease;
 }
 
@@ -735,7 +736,7 @@ button {
 .doc-editor-handle-col {
   display: flex;
   justify-content: center;
-  padding-top: 0.3rem;
+  padding-top: 0.08rem;
 }
 
 .doc-editor-handle {
@@ -776,8 +777,8 @@ button {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  min-height: 0.35rem;
-  margin-bottom: 0.02rem;
+  min-height: 0;
+  margin-bottom: 0;
 }
 
 .doc-editor-toolbar-actions {
@@ -812,19 +813,19 @@ button {
 .doc-editor-block textarea {
   outline: none;
   font-size: 1rem;
-  line-height: 1.5;
+  line-height: 1.42;
 }
 
 .doc-editor-inline-input {
   width: 100%;
   border: 1px solid transparent;
   border-radius: 0.45rem;
-  padding: 0.18rem 0.25rem;
+  padding: 0.04rem 0.14rem;
   background: transparent;
   color: var(--text-primary);
   font-family: inherit;
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.45;
   letter-spacing: -0.01em;
   outline: none;
   resize: none;
@@ -842,8 +843,8 @@ button {
   line-height: 1.25;
   letter-spacing: -0.02em;
   color: var(--text-primary);
-  padding-top: 0.34rem;
-  padding-bottom: 0.28rem;
+  padding-top: 0.12rem;
+  padding-bottom: 0.04rem;
 }
 
 .doc-editor-inline-input-heading2 {
@@ -852,8 +853,8 @@ button {
   line-height: 1.32;
   letter-spacing: -0.018em;
   color: var(--text-primary);
-  padding-top: 0.28rem;
-  padding-bottom: 0.22rem;
+  padding-top: 0.1rem;
+  padding-bottom: 0.04rem;
 }
 
 .doc-editor-inline-input-heading3 {
@@ -862,14 +863,14 @@ button {
   line-height: 1.35;
   letter-spacing: -0.014em;
   color: var(--text-primary);
-  padding-top: 0.22rem;
-  padding-bottom: 0.18rem;
+  padding-top: 0.08rem;
+  padding-bottom: 0.03rem;
 }
 
 .doc-editor-inline-input-subtitle {
   font-size: 1.02rem;
   font-weight: 500;
-  line-height: 1.5;
+  line-height: 1.38;
   letter-spacing: -0.006em;
   color: var(--text-secondary);
 }
@@ -877,12 +878,12 @@ button {
 .doc-editor-inline-input-info {
   font-size: 0.95rem;
   font-weight: 500;
-  line-height: 1.45;
+  line-height: 1.35;
   color: var(--text-primary);
   background: var(--bg-hover);
   border: 1px solid var(--border-color);
   border-radius: 0.5rem;
-  padding: 0.42rem 0.6rem;
+  padding: 0.16rem 0.3rem;
 }
 
 .doc-editor-inline-input-info:focus {
@@ -898,11 +899,12 @@ button {
   border: 1px solid var(--border-color);
   background: var(--card-bg, var(--bg-tertiary));
   border-radius: 0.6rem;
-  margin-top: 0.3rem;
+  margin-top: 0;
   padding: 0.25rem;
   display: grid;
   gap: 0.2rem;
   max-width: 240px;
+  box-shadow: 0 8px 22px var(--shadow-color);
 }
 
 .doc-editor-slash-item {

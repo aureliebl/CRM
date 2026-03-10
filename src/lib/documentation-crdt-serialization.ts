@@ -18,6 +18,12 @@ function sanitizeBlock(input: unknown): DocumentationBlock | null {
     mediaId: typeof candidate.mediaId === "string" ? candidate.mediaId : undefined,
     targetNodeId: typeof candidate.targetNodeId === "string" ? candidate.targetNodeId : undefined,
     targetLabel: typeof candidate.targetLabel === "string" ? candidate.targetLabel : undefined,
+    graphId: typeof candidate.graphId === "string" ? candidate.graphId : undefined,
+    infoIcon: typeof candidate.infoIcon === "string" ? candidate.infoIcon : undefined,
+    infoTone:
+      candidate.infoTone === "default" || candidate.infoTone === "muted" || candidate.infoTone === "accent"
+        ? candidate.infoTone
+        : undefined,
     widthPct: typeof candidate.widthPct === "number" ? candidate.widthPct : undefined,
   };
 }
@@ -31,6 +37,9 @@ function mapFromBlock(block: DocumentationBlock) {
   if (block.mediaId !== undefined) map.set("mediaId", block.mediaId);
   if (block.targetNodeId !== undefined) map.set("targetNodeId", block.targetNodeId);
   if (block.targetLabel !== undefined) map.set("targetLabel", block.targetLabel);
+  if (block.graphId !== undefined) map.set("graphId", block.graphId);
+  if (block.infoIcon !== undefined) map.set("infoIcon", block.infoIcon);
+  if (block.infoTone !== undefined) map.set("infoTone", block.infoTone);
   if (block.widthPct !== undefined) map.set("widthPct", block.widthPct);
   return map;
 }

@@ -6,12 +6,14 @@ import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { useLocale } from "@/lib/use-locale";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
 import type {
   DocumentationBlock,
   DocumentationBlockType,
   DocumentationNode,
   DocumentationTreeItem,
 } from "@/lib/documentation-types";
+import type { DashboardGraph, UserGroup } from "@/lib/types";
 import {
   createDocumentationCrdtSession,
   type DocumentationCrdtSession,
@@ -21,6 +23,14 @@ import {
 type TreePayload = {
   tree: DocumentationTreeItem[];
   pages: DocumentationTreeItem[];
+};
+
+type SafeAccount = {
+  id: string;
+  fullName: string;
+  email: string;
+  role: "admin" | "operator";
+  profileImage?: string | null;
 };
 
 const TEXT_BLOCK_TYPES: DocumentationBlockType[] = [
@@ -34,17 +44,15 @@ const TEXT_BLOCK_TYPES: DocumentationBlockType[] = [
   "link",
 ];
 
-const SLASH_BLOCK_TYPES: DocumentationBlockType[] = [
-  "paragraph",
-  "heading1",
-  "heading2",
-  "heading3",
-  "subtitle",
-  "info",
-  "code",
-  "link",
-  "image",
-];
+type SlashCommand = {
+  id: string;
+  label: string;
+  blockType?: DocumentationBlockType;
+  action?: "create-page";
+};
+
+const INFO_TONES = ["default", "muted", "accent"] as const;
+const INFO_ICONS = ["info", "lightbulb", "warning", "priority_high", "tips_and_updates"];
 
 function makeBlock(type: DocumentationBlockType): DocumentationBlock {
   const id = `blk_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -53,6 +61,9 @@ function makeBlock(type: DocumentationBlockType): DocumentationBlock {
   }
   if (type === "link") {
     return { id, type, targetLabel: "" };
+  }
+  if (type === "graph") {
+    return { id, type, graphId: "" };
   }
   if (type === "code") {
     return { id, type, text: "" };
@@ -74,8 +85,8 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
       fontWeight: 650,
       lineHeight: 1.25,
       letterSpacing: "-0.02em",
-      paddingTop: "0.34rem",
-      paddingBottom: "0.28rem",
+      paddingTop: "0.1rem",
+      paddingBottom: "0.02rem",
     };
   }
   if (type === "heading2") {
@@ -85,8 +96,8 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
       fontWeight: 620,
       lineHeight: 1.32,
       letterSpacing: "-0.018em",
-      paddingTop: "0.28rem",
-      paddingBottom: "0.22rem",
+      paddingTop: "0.08rem",
+      paddingBottom: "0.02rem",
     };
   }
   if (type === "heading3") {
@@ -96,8 +107,8 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
       fontWeight: 600,
       lineHeight: 1.35,
       letterSpacing: "-0.014em",
-      paddingTop: "0.22rem",
-      paddingBottom: "0.18rem",
+      paddingTop: "0.06rem",
+      paddingBottom: "0.01rem",
     };
   }
   if (type === "subtitle") {
@@ -119,7 +130,7 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
       background: "var(--bg-hover)",
       border: "1px solid var(--border-color)",
       borderRadius: "0.5rem",
-      padding: "0.42rem 0.6rem",
+      padding: "0.14rem 0.3rem",
     };
   }
   return {
@@ -171,6 +182,25 @@ export default function DocumentationPage() {
           unpublish: "Rendre privée",
           uploadCover: "Image de couverture",
           pageActions: "Actions page",
+          scopeRoot: "Racine affichée",
+          allRoots: "Toutes les racines",
+          sharedGroups: "Groupes autorisés",
+          sharedUsers: "Utilisateurs autorisés",
+          noGroups: "Aucun groupe",
+          noUsers: "Aucun utilisateur",
+          graphBlock: "Graphique dashboard",
+          selectGraph: "Sélectionner un graphique",
+          noGraphs: "Aucun graphique",
+          graphMissing: "Graphique introuvable",
+          openGraph: "Ouvrir le graphique",
+          quickPages: "Pages",
+          infoStyle: "Style info",
+          tone: "Ton",
+          icon: "Icône",
+          removeBlock: "Supprimer le bloc",
+          slashNewPage: "Créer une sous-page",
+          newPageDefaultTitle: "Nouvelle page",
+          openLinkedPage: "Ouvrir la page liée",
         }
       : {
           title: "Documentation",
@@ -208,16 +238,40 @@ export default function DocumentationPage() {
           unpublish: "Make private",
           uploadCover: "Cover image",
           pageActions: "Page actions",
+          scopeRoot: "Visible root",
+          allRoots: "All roots",
+          sharedGroups: "Shared groups",
+          sharedUsers: "Shared users",
+          noGroups: "No groups",
+          noUsers: "No users",
+          graphBlock: "Dashboard graph",
+          selectGraph: "Select a graph",
+          noGraphs: "No graphs",
+          graphMissing: "Graph not found",
+          openGraph: "Open graph",
+          quickPages: "Pages",
+          infoStyle: "Info style",
+          tone: "Tone",
+          icon: "Icon",
+          removeBlock: "Delete block",
+          slashNewPage: "Create sub-page",
+          newPageDefaultTitle: "New page",
+          openLinkedPage: "Open linked page",
         };
 
   const [tree, setTree] = useState<DocumentationTreeItem[]>([]);
   const [pages, setPages] = useState<DocumentationTreeItem[]>([]);
+  const [selectedRootId, setSelectedRootId] = useState<string>("__all__");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<DocumentationNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [showPageMenu, setShowPageMenu] = useState(false);
+  const [pageMenuOverlay, setPageMenuOverlay] = useState<{
+    kind: "page" | "folder";
+    x: number;
+    y: number;
+  } | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
@@ -232,9 +286,17 @@ export default function DocumentationPage() {
     x: number;
     y: number;
   } | null>(null);
+  const [blockContextMenu, setBlockContextMenu] = useState<{
+    blockId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
   const [dragOverPosition, setDragOverPosition] = useState<"before" | "after" | null>(null);
+  const [groupOptions, setGroupOptions] = useState<UserGroup[]>([]);
+  const [userOptions, setUserOptions] = useState<SafeAccount[]>([]);
+  const [graphOptions, setGraphOptions] = useState<DashboardGraphWithData[]>([]);
   const crdtSessionRef = useRef<DocumentationCrdtSession | null>(null);
   const initialBlocksRef = useRef<DocumentationBlock[]>([]);
   const lastSavedSnapshotRef = useRef("");
@@ -251,6 +313,8 @@ export default function DocumentationPage() {
       isPrivate: node.isPrivate,
       folderVisibility: node.folderVisibility,
       groupId: node.groupId,
+      sharedGroupIds: [...node.sharedGroupIds].sort(),
+      sharedUserIds: [...node.sharedUserIds].sort(),
       content: node.kind === "page" ? node.content : [],
     });
   }, []);
@@ -310,10 +374,55 @@ export default function DocumentationPage() {
 
   useEffect(() => {
     let mounted = true;
+
+    const loadSharingOptions = async () => {
+      const res = await fetch("/api/security/overview", { cache: "no-store" });
+      if (!res.ok || !mounted) return;
+      const payload = (await res.json()) as {
+        groups?: UserGroup[];
+        accounts?: SafeAccount[];
+      };
+      if (!mounted) return;
+      setGroupOptions(payload.groups ?? []);
+      setUserOptions(payload.accounts ?? []);
+    };
+
+    const loadGraphOptions = async () => {
+      const res = await fetch("/api/dashboard/graphs?includeShared=1", { cache: "no-store" });
+      if (!res.ok || !mounted) return;
+
+      const payload = (await res.json()) as
+        | DashboardGraphWithData[]
+        | { own?: DashboardGraphWithData[]; shared?: DashboardGraphWithData[] };
+
+      if (!mounted) return;
+
+      if (Array.isArray(payload)) {
+        setGraphOptions(payload);
+        return;
+      }
+
+      const combined = [...(payload.own ?? []), ...(payload.shared ?? [])];
+      const unique = new Map<string, DashboardGraphWithData>();
+      for (const graph of combined) {
+        unique.set(graph.id, graph);
+      }
+      setGraphOptions(Array.from(unique.values()));
+    };
+
+    void Promise.allSettled([loadSharingOptions(), loadGraphOptions()]);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
     const run = async () => {
       if (!mounted) return;
       setSelectedNode(null);
-      setShowPageMenu(false);
+      setPageMenuOverlay(null);
       setEditingTitle(false);
       setEditingSubtitle(false);
       setSaveStatus("idle");
@@ -428,10 +537,137 @@ export default function DocumentationPage() {
     return map;
   }, [tree, locale]);
 
+  const graphById = useMemo(() => {
+    const map = new Map<string, DashboardGraphWithData>();
+    for (const graph of graphOptions) {
+      map.set(graph.id, graph);
+    }
+    return map;
+  }, [graphOptions]);
+
+  const slashCommands = useMemo<SlashCommand[]>(
+    () => [
+      { id: "new-page", label: labels.slashNewPage, action: "create-page" },
+      { id: "paragraph", label: "paragraph", blockType: "paragraph" },
+      { id: "heading1", label: "heading1", blockType: "heading1" },
+      { id: "heading2", label: "heading2", blockType: "heading2" },
+      { id: "heading3", label: "heading3", blockType: "heading3" },
+      { id: "subtitle", label: "subtitle", blockType: "subtitle" },
+      { id: "info", label: "info", blockType: "info" },
+      { id: "code", label: "code", blockType: "code" },
+      { id: "link", label: "link", blockType: "link" },
+      { id: "image", label: "image", blockType: "image" },
+      { id: "graph", label: "graph", blockType: "graph" },
+    ],
+    [labels.slashNewPage]
+  );
+
+  const visiblePeers = useMemo(() => {
+    if (crdtPeers.length > 0) return crdtPeers;
+    if (!localActorId) return [] as DocumentationPeer[];
+    return [
+      {
+        id: localActorId,
+        name: locale === "fr" ? "Vous" : "You",
+        role: "operator",
+        color: "var(--accent-primary)",
+      },
+    ] as DocumentationPeer[];
+  }, [crdtPeers, localActorId, locale]);
+
+  const accountById = useMemo(() => {
+    const map = new Map<string, SafeAccount>();
+    for (const account of userOptions) {
+      map.set(account.id, account);
+    }
+    return map;
+  }, [userOptions]);
+
   const folderOptions = useMemo(
     () => [{ id: "", title: labels.root }, ...tree.filter((node) => node.kind === "folder").map((node) => ({ id: node.id, title: node.title }))],
     [tree, labels.root]
   );
+
+  const treeById = useMemo(() => {
+    const map = new Map<string, DocumentationTreeItem>();
+    for (const node of tree) {
+      map.set(node.id, node);
+    }
+    return map;
+  }, [tree]);
+
+  const rootNodes = useMemo(() => childrenByParent.get(null) ?? [], [childrenByParent]);
+
+  const selectedPath = useMemo(() => {
+    if (!selectedNode) return [] as DocumentationTreeItem[];
+
+    const path: DocumentationTreeItem[] = [];
+    let cursor = treeById.get(selectedNode.id);
+
+    while (cursor) {
+      path.unshift(cursor);
+      cursor = cursor.parentId ? treeById.get(cursor.parentId) : undefined;
+    }
+
+    if (path.length === 0) {
+      path.push({
+        id: selectedNode.id,
+        parentId: selectedNode.parentId,
+        kind: selectedNode.kind,
+        title: selectedNode.title,
+        subtitle: selectedNode.subtitle,
+        coverMediaId: selectedNode.coverMediaId,
+        isPublic: selectedNode.isPublic,
+        isPrivate: selectedNode.isPrivate,
+        folderVisibility: selectedNode.folderVisibility,
+        groupId: selectedNode.groupId,
+        sharedGroupIds: selectedNode.sharedGroupIds,
+        sharedUserIds: selectedNode.sharedUserIds,
+        ownerId: selectedNode.ownerId,
+        createdAt: selectedNode.createdAt,
+        updatedAt: selectedNode.updatedAt,
+      });
+    }
+
+    return path;
+  }, [selectedNode, treeById]);
+
+  const isNodeWithinRoot = useCallback(
+    (nodeId: string, rootId: string) => {
+      let cursor = treeById.get(nodeId);
+      while (cursor) {
+        if (cursor.id === rootId) return true;
+        cursor = cursor.parentId ? treeById.get(cursor.parentId) : undefined;
+      }
+      return false;
+    },
+    [treeById]
+  );
+
+  const activeRootId = useMemo(() => {
+    if (selectedRootId !== "__all__") return selectedRootId;
+    return selectedPath[0]?.id ?? rootNodes[0]?.id ?? "";
+  }, [selectedRootId, selectedPath, rootNodes]);
+
+  const quickNavItems = useMemo(() => {
+    if (!activeRootId) return [] as DocumentationTreeItem[];
+    const children = childrenByParent.get(activeRootId) ?? [];
+    return children.filter((node) => node.kind === "page");
+  }, [activeRootId, childrenByParent]);
+
+  useEffect(() => {
+    if (selectedRootId === "__all__") return;
+    if (!treeById.has(selectedRootId)) {
+      setSelectedRootId("__all__");
+    }
+  }, [selectedRootId, treeById]);
+
+  useEffect(() => {
+    if (!selectedNodeId || selectedRootId === "__all__") return;
+    if (!isNodeWithinRoot(selectedNodeId, selectedRootId)) {
+      setSelectedNodeId(selectedRootId);
+    }
+  }, [selectedNodeId, selectedRootId, isNodeWithinRoot]);
 
   const handleCreateNode = async (kind: "folder" | "page") => {
     const title = window.prompt(kind === "folder" ? labels.newFolder : labels.newPage);
@@ -507,6 +743,8 @@ export default function DocumentationPage() {
         subtitle: selectedNode.subtitle,
         coverMediaId: selectedNode.coverMediaId,
         isPublic: selectedNode.kind === "page" ? selectedNode.isPublic : undefined,
+        sharedGroupIds: selectedNode.sharedGroupIds,
+        sharedUserIds: selectedNode.sharedUserIds,
         isPrivate: selectedNode.kind === "page" ? selectedNode.isPrivate : undefined,
         folderVisibility:
           selectedNode.kind === "folder" ? selectedNode.folderVisibility : undefined,
@@ -578,6 +816,19 @@ export default function DocumentationPage() {
       window.clearTimeout(timeout);
     };
   }, [selectedNode, nodeSnapshot]);
+
+  useEffect(() => {
+    const closeOverlays = () => {
+      setSlashMenu(null);
+      setBlockContextMenu(null);
+      setPageMenuOverlay(null);
+    };
+
+    window.addEventListener("pointerdown", closeOverlays);
+    return () => {
+      window.removeEventListener("pointerdown", closeOverlays);
+    };
+  }, []);
 
   const updateSelectedBlock = (blockId: string, patch: Partial<DocumentationBlock>) => {
     if (selectedNode?.kind === "page" && crdtSessionRef.current) {
@@ -732,6 +983,99 @@ export default function DocumentationPage() {
     crdtSessionRef.current?.setCursorBlockId(blockId);
   };
 
+  const createSubPageFromSlash = async (blockId: string) => {
+    if (!selectedNode || selectedNode.kind !== "page") return;
+
+    const sourceBlock = selectedNode.content.find((item) => item.id === blockId);
+    const rawTitle = (sourceBlock?.text ?? "").trim();
+    const promptedTitle =
+      rawTitle.length === 0
+        ? window.prompt(labels.slashNewPage, labels.newPageDefaultTitle)?.trim()
+        : rawTitle;
+    const title = promptedTitle || labels.newPageDefaultTitle;
+
+    if (!promptedTitle && rawTitle.length === 0) {
+      return;
+    }
+
+    const res = await fetch("/api/documentation/nodes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "page",
+        title,
+        parentId: selectedNode.id,
+      }),
+    });
+
+    if (!res.ok) {
+      alert("Creation failed");
+      return;
+    }
+
+    const created = (await res.json()) as DocumentationNode;
+
+    const nextContent = selectedNode.content.map((block) =>
+      block.id === blockId
+        ? {
+            ...block,
+            type: "link" as const,
+            targetNodeId: created.id,
+            targetLabel: title,
+            text: undefined,
+            language: undefined,
+            mediaId: undefined,
+            graphId: undefined,
+            infoTone: undefined,
+            infoIcon: undefined,
+          }
+        : block
+    );
+
+    setSelectedNode((current) =>
+      current && current.kind === "page" && current.id === selectedNode.id
+        ? { ...current, content: nextContent }
+        : current
+    );
+
+    if (crdtSessionRef.current && crdtCanWrite) {
+      crdtSessionRef.current.updateBlock(blockId, {
+        type: "link",
+        targetNodeId: created.id,
+        targetLabel: title,
+        text: undefined,
+        language: undefined,
+        mediaId: undefined,
+        graphId: undefined,
+        infoTone: undefined,
+        infoIcon: undefined,
+      });
+    }
+
+    const saveRes = await fetch(`/api/documentation/nodes/${selectedNode.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: selectedNode.title,
+        subtitle: selectedNode.subtitle,
+        coverMediaId: selectedNode.coverMediaId,
+        isPublic: selectedNode.isPublic,
+        sharedGroupIds: selectedNode.sharedGroupIds,
+        sharedUserIds: selectedNode.sharedUserIds,
+        isPrivate: selectedNode.isPrivate,
+        content: nextContent,
+      }),
+    });
+
+    if (!saveRes.ok) {
+      alert("Save failed");
+      return;
+    }
+
+    await refreshTree();
+    setSelectedNodeId(created.id);
+  };
+
   const applySlashCommand = (blockId: string, type: DocumentationBlockType) => {
     setSlashMenu(null);
 
@@ -742,28 +1086,88 @@ export default function DocumentationPage() {
 
     updateSelectedBlock(blockId, {
       type,
+      infoTone: type === "info" ? "default" : undefined,
+      infoIcon: type === "info" ? "info" : undefined,
     });
-    focusBlockInput(blockId);
+
+    if (type !== "graph") {
+      focusBlockInput(blockId);
+    }
+  };
+
+  const applySlashMenuItem = async (blockId: string, command: SlashCommand) => {
+    setSlashMenu(null);
+
+    if (command.action === "create-page") {
+      await createSubPageFromSlash(blockId);
+      return;
+    }
+
+    if (command.blockType) {
+      applySlashCommand(blockId, command.blockType);
+    }
+  };
+
+  const getOverlayPosition = (
+    anchor: DOMRect,
+    dimensions: { width: number; height: number },
+    gap = 8
+  ) => {
+    let x = anchor.left;
+    let y = anchor.bottom + gap;
+
+    if (x + dimensions.width > window.innerWidth - gap) {
+      x = Math.max(gap, window.innerWidth - dimensions.width - gap);
+    }
+
+    if (y + dimensions.height > window.innerHeight - gap) {
+      y = Math.max(gap, anchor.top - dimensions.height - gap);
+    }
+
+    return { x, y };
   };
 
   const openSlashMenu = (blockId: string, target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
-    const menuWidth = 240;
-    const menuHeight = 280;
-    const gap = 8;
-
-    let x = rect.left;
-    let y = rect.bottom + gap;
-
-    if (x + menuWidth > window.innerWidth - gap) {
-      x = Math.max(gap, window.innerWidth - menuWidth - gap);
-    }
-
-    if (y + menuHeight > window.innerHeight - gap) {
-      y = Math.max(gap, rect.top - menuHeight - gap);
-    }
+    const { x, y } = getOverlayPosition(rect, { width: 240, height: 280 });
 
     setSlashMenu({ blockId, selectedIndex: 0, x, y });
+    setBlockContextMenu(null);
+  };
+
+  const openBlockContextMenu = (blockId: string, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const { x, y } = getOverlayPosition(rect, { width: 260, height: 220 });
+    setBlockContextMenu({ blockId, x, y });
+    setSlashMenu(null);
+  };
+
+  const openPageActionsOverlay = (kind: "page" | "folder", target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const { x, y } = getOverlayPosition(rect, { width: 260, height: 360 });
+    setPageMenuOverlay({ kind, x, y });
+    setSlashMenu(null);
+    setBlockContextMenu(null);
+  };
+
+  const getInfoVisualStyle = (block: DocumentationBlock): React.CSSProperties => {
+    const tone = block.infoTone ?? "default";
+    if (tone === "muted") {
+      return {
+        background: "var(--card-bg)",
+        border: "1px solid var(--border-color)",
+      };
+    }
+    if (tone === "accent") {
+      return {
+        background: "var(--bg-hover)",
+        border: "1px solid var(--accent-primary)",
+      };
+    }
+    return {
+      background: "var(--bg-hover)",
+      border: "1px solid var(--border-color)",
+    };
   };
 
   const handleTextBlockKeyDown = (
@@ -786,7 +1190,7 @@ export default function DocumentationPage() {
           if (!current || current.blockId !== block.id) return current;
           return {
             ...current,
-            selectedIndex: (current.selectedIndex + 1) % SLASH_BLOCK_TYPES.length,
+            selectedIndex: (current.selectedIndex + 1) % slashCommands.length,
           };
         });
         return;
@@ -799,7 +1203,7 @@ export default function DocumentationPage() {
           return {
             ...current,
             selectedIndex:
-              (current.selectedIndex - 1 + SLASH_BLOCK_TYPES.length) % SLASH_BLOCK_TYPES.length,
+              (current.selectedIndex - 1 + slashCommands.length) % slashCommands.length,
           };
         });
         return;
@@ -807,8 +1211,9 @@ export default function DocumentationPage() {
 
       if (event.key === "Enter") {
         event.preventDefault();
-        const selectedType = SLASH_BLOCK_TYPES[slashMenu.selectedIndex] ?? "paragraph";
-        applySlashCommand(block.id, selectedType);
+        const selectedCommand = slashCommands[slashMenu.selectedIndex] ?? slashCommands[0];
+        if (!selectedCommand) return;
+        void applySlashMenuItem(block.id, selectedCommand);
         return;
       }
     }
@@ -902,81 +1307,48 @@ export default function DocumentationPage() {
   };
 
   const handleImageInputChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const input = event.currentTarget;
     const file = event.target.files?.[0];
     if (!file) return;
     await uploadImage(file);
-    event.currentTarget.value = "";
+    input.value = "";
   };
 
   const handleCoverInputChange: React.ChangeEventHandler<HTMLInputElement> = async (event) => {
+    const input = event.currentTarget;
     const file = event.target.files?.[0];
     if (!file) return;
     await uploadCoverImage(file);
-    event.currentTarget.value = "";
-  };
-
-  const renderTree = (parentId: string | null, depth = 0): React.ReactNode => {
-    const items = childrenByParent.get(parentId) ?? [];
-    if (items.length === 0) return null;
-
-    return items.map((node) => {
-      const isSelected = node.id === selectedNodeId;
-      return (
-        <div key={node.id}>
-          <button
-            type="button"
-            onClick={() => setSelectedNodeId(node.id)}
-            style={{
-              width: "100%",
-              textAlign: "left",
-              border: "1px solid var(--border-color)",
-              borderRadius: "0.5rem",
-              background: isSelected ? "var(--bg-hover)" : "var(--button-bg)",
-              color: "var(--text-primary)",
-              padding: "0.35rem 0.5rem",
-              marginBottom: "0.25rem",
-              marginLeft: `${depth * 12}px`,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.35rem",
-            }}
-          >
-            <MaterialSymbol
-              name={node.kind === "folder" ? "folder" : "description"}
-              size={16}
-              weight={500}
-              opticalSize={20}
-            />
-            <span>{node.title || labels.untitled}</span>
-            {node.isPrivate && (
-              <span style={{ fontSize: "0.68rem", color: "var(--text-secondary)", marginLeft: "auto" }}>
-                private
-              </span>
-            )}
-          </button>
-          {renderTree(node.id, depth + 1)}
-        </div>
-      );
-    });
+    input.value = "";
   };
 
   return (
     <div>
-      <h1 className="admin-page-title">{labels.title}</h1>
-      <p className="admin-page-description">{labels.description}</p>
+      <div style={{ minHeight: "78vh", width: "100%" }}>
+        {selectedNode?.kind !== "page" && (
+        <div style={{ display: "grid", gap: "0.45rem", marginBottom: "0.85rem" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+              <select
+                value={selectedRootId}
+                onChange={(e) => setSelectedRootId(e.target.value)}
+                style={{
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "0.55rem",
+                  padding: "0.38rem 0.48rem",
+                  background: "var(--input-bg)",
+                  color: "var(--text-primary)",
+                  fontSize: "0.8rem",
+                }}
+              >
+                <option value="__all__">{labels.allRoots}</option>
+                {rootNodes.map((node) => (
+                  <option key={node.id} value={node.id}>
+                    {node.title || labels.untitled}
+                  </option>
+                ))}
+              </select>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(260px, 360px) minmax(0, 1fr)",
-          gap: "1rem",
-        }}
-      >
-        <section className="admin-placeholder-card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
-            <div className="admin-placeholder-title">{labels.treeTitle}</div>
-            <div style={{ display: "flex", gap: "0.35rem" }}>
               <button className="admin-btn admin-btn-secondary" type="button" onClick={() => handleCreateNode("folder")}>
                 {labels.newFolder}
               </button>
@@ -986,41 +1358,95 @@ export default function DocumentationPage() {
             </div>
           </div>
 
-          <div style={{ maxHeight: "65vh", overflowY: "auto" }}>
-            {loading ? (
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{labels.loading}</div>
-            ) : tree.length === 0 ? (
-              <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>{labels.emptyTree}</div>
-            ) : (
-              renderTree(null)
-            )}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>{labels.quickPages}</span>
+            {quickNavItems.map((node) => (
+              <button
+                key={`quick_${node.id}`}
+                type="button"
+                onClick={() => setSelectedNodeId(node.id)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  color: node.id === selectedNodeId ? "var(--text-primary)" : "var(--text-secondary)",
+                  cursor: "pointer",
+                  fontSize: "0.78rem",
+                  padding: "0.1rem 0.2rem",
+                }}
+              >
+                {node.title || labels.untitled}
+              </button>
+            ))}
           </div>
-        </section>
+        </div>
+        )}
 
-        <section className="admin-placeholder-card">
           {!selectedNode ? (
             <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>{labels.noSelection}</p>
           ) : (
             <div style={{ display: "grid", gap: "0.75rem" }}>
+
               {selectedNode.kind === "page" && (
                 <div style={{ display: "grid", gap: "0.5rem" }}>
                   <div
                     style={{
-                      minHeight: "140px",
-                      borderRadius: "0.75rem",
+                      minHeight: "210px",
+                      borderRadius: "0.2rem",
                       border: "1px solid var(--border-color)",
                       background: selectedNode.coverMediaId ? "transparent" : "var(--bg-hover)",
                       position: "relative",
                       overflow: "hidden",
+                      margin: "-0.2rem -0.2rem 0.65rem",
                     }}
                   >
                     {selectedNode.coverMediaId && (
                       <img
                         src={`/api/documentation/media/${selectedNode.coverMediaId}`}
                         alt="Cover"
-                        style={{ width: "100%", height: "160px", objectFit: "cover", display: "block" }}
+                        style={{ width: "100%", height: "230px", objectFit: "cover", display: "block" }}
                       />
                     )}
+
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "0.55rem",
+                        left: "0.55rem",
+                        display: "grid",
+                        gap: "0.35rem",
+                        maxWidth: "65%",
+                        background: "var(--card-bg)",
+                        border: "1px solid var(--border-color)",
+                        borderRadius: "0.6rem",
+                        padding: "0.45rem 0.55rem",
+                        backdropFilter: "blur(4px)",
+                      }}
+                    >
+                      {selectedPath.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.2rem", flexWrap: "wrap" }}>
+                          {selectedPath.map((item, index) => (
+                            <div key={`cover_path_${item.id}_${index}`} style={{ display: "inline-flex", alignItems: "center", gap: "0.22rem" }}>
+                              {index > 0 && <MaterialSymbol name="chevron_right" size={14} weight={500} opticalSize={20} />}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedNodeId(item.id)}
+                                style={{
+                                  border: "none",
+                                  background: "transparent",
+                                  color: item.id === selectedNode.id ? "var(--text-primary)" : "var(--text-secondary)",
+                                  padding: 0,
+                                  cursor: "pointer",
+                                  fontSize: "0.76rem",
+                                  fontWeight: item.id === selectedNode.id ? 600 : 500,
+                                }}
+                              >
+                                {item.title || labels.untitled}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
 
                     <div style={{ position: "absolute", top: "0.55rem", right: "0.55rem", display: "flex", gap: "0.4rem" }}>
                       <label className="admin-btn admin-btn-secondary" style={{ cursor: "pointer" }}>
@@ -1036,17 +1462,19 @@ export default function DocumentationPage() {
                         <button
                           type="button"
                           className="admin-btn admin-btn-secondary"
-                          onClick={() => setShowPageMenu((current) => !current)}
+                          onClick={(event) => {
+                            openPageActionsOverlay("page", event.currentTarget);
+                          }}
                         >
                           <MaterialSymbol name="more_horiz" size={16} weight={500} opticalSize={20} />
                         </button>
-                        {showPageMenu && (
+                        {pageMenuOverlay?.kind === "page" && (
                           <div
                             style={{
-                              position: "absolute",
-                              right: 0,
-                              top: "2.2rem",
-                              zIndex: 20,
+                              position: "fixed",
+                              left: `${pageMenuOverlay.x}px`,
+                              top: `${pageMenuOverlay.y}px`,
+                              zIndex: 1250,
                               minWidth: "210px",
                               background: "var(--card-bg)",
                               border: "1px solid var(--border-color)",
@@ -1055,6 +1483,7 @@ export default function DocumentationPage() {
                               display: "grid",
                               gap: "0.25rem",
                             }}
+                            onPointerDown={(event) => event.stopPropagation()}
                           >
                             <button
                               type="button"
@@ -1063,7 +1492,7 @@ export default function DocumentationPage() {
                                 setSelectedNode((current) =>
                                   current && current.kind === "page" ? { ...current, isPublic: !current.isPublic } : current
                                 );
-                                setShowPageMenu(false);
+                                setPageMenuOverlay(null);
                               }}
                             >
                               {selectedNode.isPublic ? labels.unpublish : labels.publish}
@@ -1072,7 +1501,7 @@ export default function DocumentationPage() {
                               type="button"
                               className="admin-btn admin-btn-secondary"
                               onClick={() => {
-                                setShowPageMenu(false);
+                                setPageMenuOverlay(null);
                                 void handleExportNode("pdf");
                               }}
                             >
@@ -1082,7 +1511,7 @@ export default function DocumentationPage() {
                               type="button"
                               className="admin-btn admin-btn-secondary"
                               onClick={() => {
-                                setShowPageMenu(false);
+                                setPageMenuOverlay(null);
                                 void handleExportNode("doc");
                               }}
                             >
@@ -1092,12 +1521,113 @@ export default function DocumentationPage() {
                               type="button"
                               className="admin-btn admin-btn-secondary"
                               onClick={() => {
-                                setShowPageMenu(false);
+                                setPageMenuOverlay(null);
                                 void handleDeleteNode();
                               }}
                             >
                               {labels.delete}
                             </button>
+
+                            <div style={{ borderTop: "1px solid var(--border-color)", margin: "0.2rem 0", opacity: 0.7 }} />
+
+                            <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", padding: "0.2rem 0.2rem" }}>
+                              <input
+                                type="checkbox"
+                                checked={selectedNode.isPrivate}
+                                onChange={(e) =>
+                                  setSelectedNode((current) =>
+                                    current && current.kind === "page"
+                                      ? { ...current, isPrivate: e.target.checked }
+                                      : current
+                                  )
+                                }
+                              />
+                              <span style={{ fontSize: "0.76rem", color: "var(--text-secondary)" }}>
+                                {labels.privatePage}
+                              </span>
+                            </label>
+
+                            <select
+                              value={selectedNode.parentId ?? ""}
+                              onChange={(e) => {
+                                void handleMoveNode(e.target.value || null);
+                              }}
+                              style={{
+                                width: "100%",
+                                border: "1px solid var(--border-color)",
+                                borderRadius: "0.5rem",
+                                padding: "0.35rem 0.45rem",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                                fontSize: "0.78rem",
+                              }}
+                            >
+                              {folderOptions
+                                .filter((option) => option.id !== selectedNode.id)
+                                .map((option) => (
+                                  <option key={option.id || "root"} value={option.id}>
+                                    {option.title}
+                                  </option>
+                                ))}
+                            </select>
+
+                            <select
+                              multiple
+                              value={selectedNode.sharedGroupIds}
+                              onChange={(e) => {
+                                const nextIds = Array.from(e.target.selectedOptions).map((option) => option.value);
+                                setSelectedNode((current) =>
+                                  current && current.kind === "page"
+                                    ? { ...current, sharedGroupIds: nextIds }
+                                    : current
+                                );
+                              }}
+                              style={{
+                                width: "100%",
+                                minHeight: "4.2rem",
+                                border: "1px solid var(--border-color)",
+                                borderRadius: "0.5rem",
+                                padding: "0.25rem 0.35rem",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                                fontSize: "0.75rem",
+                              }}
+                            >
+                              {groupOptions.map((group) => (
+                                <option key={group.id} value={group.id}>
+                                  {group.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              multiple
+                              value={selectedNode.sharedUserIds}
+                              onChange={(e) => {
+                                const nextIds = Array.from(e.target.selectedOptions).map((option) => option.value);
+                                setSelectedNode((current) =>
+                                  current && current.kind === "page"
+                                    ? { ...current, sharedUserIds: nextIds }
+                                    : current
+                                );
+                              }}
+                              style={{
+                                width: "100%",
+                                minHeight: "4.2rem",
+                                border: "1px solid var(--border-color)",
+                                borderRadius: "0.5rem",
+                                padding: "0.25rem 0.35rem",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                                fontSize: "0.75rem",
+                              }}
+                            >
+                              {userOptions.map((account) => (
+                                <option key={account.id} value={account.id}>
+                                  {account.fullName || account.email}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         )}
                       </div>
@@ -1187,27 +1717,38 @@ export default function DocumentationPage() {
                             reconnect
                           </button>
                         )}
-                        {crdtPeers.map((peer) => (
+                        {visiblePeers.map((peer) => {
+                          const profileImage = accountById.get(peer.id)?.profileImage;
+                          return (
                           <span
                             key={peer.id}
                             title={peer.name}
                             style={{
-                              width: "28px",
-                              height: "28px",
+                              width: "30px",
+                              height: "30px",
                               borderRadius: "999px",
-                              border: "1px solid var(--border-color)",
+                              border: "2px solid var(--card-bg)",
                               display: "inline-flex",
                               alignItems: "center",
                               justifyContent: "center",
                               fontSize: "0.72rem",
                               fontWeight: 600,
-                              color: "var(--text-primary)",
+                              color: "#ffffff",
                               background: peer.color,
+                              overflow: "hidden",
                             }}
                           >
-                            {peer.name.slice(0, 1).toUpperCase()}
+                            {profileImage ? (
+                              <img
+                                src={profileImage}
+                                alt={peer.name}
+                                style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                              />
+                            ) : (
+                              peer.name.slice(0, 1).toUpperCase()
+                            )}
                           </span>
-                        ))}
+                        )})}
                       </div>
                     </div>
                   </div>
@@ -1216,7 +1757,158 @@ export default function DocumentationPage() {
 
               {selectedNode.kind === "folder" && (
                 <div style={{ display: "grid", gap: "0.4rem" }}>
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{labels.folderSettings}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{labels.folderSettings}</div>
+                    <div style={{ position: "relative" }}>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-secondary"
+                        onClick={(event) => {
+                          openPageActionsOverlay("folder", event.currentTarget);
+                        }}
+                      >
+                        <MaterialSymbol name="more_horiz" size={16} weight={500} opticalSize={20} />
+                      </button>
+
+                      {pageMenuOverlay?.kind === "folder" && (
+                        <div
+                          style={{
+                            position: "fixed",
+                            left: `${pageMenuOverlay.x}px`,
+                            top: `${pageMenuOverlay.y}px`,
+                            zIndex: 1250,
+                            minWidth: "230px",
+                            background: "var(--card-bg)",
+                            border: "1px solid var(--border-color)",
+                            borderRadius: "0.65rem",
+                            padding: "0.35rem",
+                            display: "grid",
+                            gap: "0.25rem",
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-secondary"
+                            onClick={() => {
+                              setPageMenuOverlay(null);
+                              void handleDeleteNode();
+                            }}
+                          >
+                            {labels.delete}
+                          </button>
+
+                          <select
+                            value={selectedNode.folderVisibility}
+                            onChange={(e) =>
+                              setSelectedNode((current) =>
+                                current && current.kind === "folder"
+                                  ? {
+                                      ...current,
+                                      folderVisibility: e.target.value as "public" | "group",
+                                    }
+                                  : current
+                              )
+                            }
+                            style={{
+                              width: "100%",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "0.5rem",
+                              padding: "0.35rem 0.45rem",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            <option value="public">{labels.folderPublic}</option>
+                            <option value="group">{labels.folderGroup}</option>
+                          </select>
+
+                          <select
+                            value={selectedNode.parentId ?? ""}
+                            onChange={(e) => {
+                              void handleMoveNode(e.target.value || null);
+                            }}
+                            style={{
+                              width: "100%",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "0.5rem",
+                              padding: "0.35rem 0.45rem",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              fontSize: "0.78rem",
+                            }}
+                          >
+                            {folderOptions
+                              .filter((option) => option.id !== selectedNode.id)
+                              .map((option) => (
+                                <option key={option.id || "root"} value={option.id}>
+                                  {option.title}
+                                </option>
+                              ))}
+                          </select>
+
+                          <select
+                            multiple
+                            value={selectedNode.sharedGroupIds}
+                            onChange={(e) => {
+                              const nextIds = Array.from(e.target.selectedOptions).map((option) => option.value);
+                              setSelectedNode((current) =>
+                                current && current.kind === "folder"
+                                  ? { ...current, sharedGroupIds: nextIds }
+                                  : current
+                              );
+                            }}
+                            style={{
+                              width: "100%",
+                              minHeight: "4.2rem",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "0.5rem",
+                              padding: "0.25rem 0.35rem",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            {groupOptions.map((group) => (
+                              <option key={group.id} value={group.id}>
+                                {group.name}
+                              </option>
+                            ))}
+                          </select>
+
+                          <select
+                            multiple
+                            value={selectedNode.sharedUserIds}
+                            onChange={(e) => {
+                              const nextIds = Array.from(e.target.selectedOptions).map((option) => option.value);
+                              setSelectedNode((current) =>
+                                current && current.kind === "folder"
+                                  ? { ...current, sharedUserIds: nextIds }
+                                  : current
+                              );
+                            }}
+                            style={{
+                              width: "100%",
+                              minHeight: "4.2rem",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "0.5rem",
+                              padding: "0.25rem 0.35rem",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              fontSize: "0.75rem",
+                            }}
+                          >
+                            {userOptions.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.fullName || account.email}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <input
                     value={selectedNode.title}
                     onChange={(e) =>
@@ -1236,124 +1928,18 @@ export default function DocumentationPage() {
                 </div>
               )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                <div>
-                  <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>
-                    {labels.move}
-                  </div>
-                  <select
-                    value={selectedNode.parentId ?? ""}
-                    onChange={(e) => handleMoveNode(e.target.value || null)}
-                    style={{
-                      width: "100%",
-                      border: "1px solid var(--border-color)",
-                      borderRadius: "0.55rem",
-                      padding: "0.4rem 0.5rem",
-                      background: "var(--input-bg)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {folderOptions
-                      .filter((option) => option.id !== selectedNode.id)
-                      .map((option) => (
-                        <option key={option.id || "root"} value={option.id}>
-                          {option.title}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                {selectedNode.kind === "folder" ? (
-                  <div>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginBottom: "0.25rem" }}>
-                      {labels.access}
-                    </div>
-                    <select
-                      value={selectedNode.folderVisibility}
-                      onChange={(e) =>
-                        setSelectedNode((current) =>
-                          current && current.kind === "folder"
-                            ? {
-                                ...current,
-                                folderVisibility: e.target.value as "public" | "group",
-                              }
-                            : current
-                        )
-                      }
-                      style={{
-                        width: "100%",
-                        border: "1px solid var(--border-color)",
-                        borderRadius: "0.55rem",
-                        padding: "0.4rem 0.5rem",
-                        background: "var(--input-bg)",
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      <option value="public">{labels.folderPublic}</option>
-                      <option value="group">{labels.folderGroup}</option>
-                    </select>
-                  </div>
-                ) : (
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "1.35rem" }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedNode.isPrivate}
-                      onChange={(e) =>
-                        setSelectedNode((current) =>
-                          current && current.kind === "page"
-                            ? { ...current, isPrivate: e.target.checked }
-                            : current
-                        )
-                      }
-                    />
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                      {labels.privatePage}
-                    </span>
-                  </label>
-                )}
-              </div>
-
               {selectedNode.kind === "page" && (
                 <>
                   <div
+                    className="doc-editor-surface"
                     onDrop={handleDropImage}
                     onDragOver={(e) => e.preventDefault()}
-                    style={{
-                      border: "1px dashed var(--border-color)",
-                      borderRadius: "0.7rem",
-                      padding: "0.8rem",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: "0.7rem",
+                    onClick={() => {
+                      if (!crdtCanWrite || selectedNode.content.length > 0) return;
+                      const newId = insertBlockAfter(null, "paragraph");
+                      focusBlockInput(newId);
                     }}
                   >
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{labels.dropImage}</span>
-                    <label className="admin-btn admin-btn-secondary" style={{ cursor: "pointer" }}>
-                      {labels.importImage}
-                      <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden onChange={handleImageInputChange} />
-                    </label>
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginBottom: "0.45rem" }}>
-                      {labels.addBlock}
-                    </div>
-                    <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
-                      {[...TEXT_BLOCK_TYPES, "image"].map((type) => (
-                        <button
-                          key={type}
-                          type="button"
-                          className="admin-btn admin-btn-secondary"
-                          onClick={() => addBlock(type as DocumentationBlockType)}
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="doc-editor-surface">
                     {selectedNode.content.map((block) => {
                       const blockPeers = crdtPeers.filter(
                         (peer) => peer.id !== localActorId && peer.cursorBlockId === block.id
@@ -1404,6 +1990,10 @@ export default function DocumentationPage() {
                             title="Block actions"
                             draggable={crdtCanWrite}
                             onClick={() => publishCursorBlock(block.id)}
+                            onContextMenu={(event) => {
+                              event.preventDefault();
+                              openBlockContextMenu(block.id, event.currentTarget);
+                            }}
                             onDragStart={(event) => {
                               if (!crdtCanWrite) return;
                               event.dataTransfer.effectAllowed = "move";
@@ -1460,25 +2050,44 @@ export default function DocumentationPage() {
                           </div>
                           ) : block.type === "link" ? (
                           <div style={{ display: "grid", gap: "0.35rem" }}>
-                            <input
-                              value={block.targetLabel ?? ""}
-                              disabled={!crdtCanWrite}
+                            <button
+                              type="button"
                               onFocus={() => publishCursorBlock(block.id)}
-                              onChange={(e) => updateSelectedBlock(block.id, { targetLabel: e.target.value })}
-                              placeholder={labels.linkLabel}
-                              style={{
-                                border: "1px solid var(--border-color)",
-                                borderRadius: "0.5rem",
-                                padding: "0.4rem",
-                                background: "var(--input-bg)",
-                                color: "var(--text-primary)",
+                              onClick={() => {
+                                if (block.targetNodeId) {
+                                  setSelectedNodeId(block.targetNodeId);
+                                }
                               }}
-                            />
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "0.28rem",
+                                border: "none",
+                                background: "transparent",
+                                color: "var(--text-primary)",
+                                cursor: block.targetNodeId ? "pointer" : "default",
+                                width: "fit-content",
+                                textDecoration: "underline",
+                                textDecorationColor: "var(--text-secondary)",
+                                fontSize: "0.95rem",
+                                padding: 0,
+                              }}
+                              title={labels.openLinkedPage}
+                            >
+                              <MaterialSymbol name="subdirectory_arrow_right" size={16} weight={500} opticalSize={20} />
+                              <span>{block.targetLabel || labels.linkToPage}</span>
+                            </button>
+                            {pages.length === 0 && (
+                              <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>{labels.noPages}</div>
+                            )}
+                          </div>
+                          ) : block.type === "graph" ? (
+                          <div style={{ display: "grid", gap: "0.35rem" }}>
                             <select
-                              value={block.targetNodeId ?? ""}
+                              value={block.graphId ?? ""}
                               disabled={!crdtCanWrite}
                               onFocus={() => publishCursorBlock(block.id)}
-                              onChange={(e) => updateSelectedBlock(block.id, { targetNodeId: e.target.value || undefined })}
+                              onChange={(e) => updateSelectedBlock(block.id, { graphId: e.target.value || undefined })}
                               style={{
                                 border: "1px solid var(--border-color)",
                                 borderRadius: "0.5rem",
@@ -1487,13 +2096,39 @@ export default function DocumentationPage() {
                                 color: "var(--text-primary)",
                               }}
                             >
-                              <option value="">{labels.linkToPage}</option>
-                              {pages.map((page) => (
-                                <option key={page.id} value={page.id}>{page.title || labels.untitled}</option>
+                              <option value="">{labels.selectGraph}</option>
+                              {graphOptions.map((graph) => (
+                                <option key={graph.id} value={graph.id}>
+                                  {graph.title}
+                                </option>
                               ))}
                             </select>
-                            {pages.length === 0 && (
-                              <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>{labels.noPages}</div>
+                            {block.graphId && graphById.get(block.graphId) && (
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gap: "0.3rem",
+                                }}
+                              >
+                                <DashboardGraphCard
+                                  graph={graphById.get(block.graphId)!}
+                                  locale={locale === "fr" ? "fr" : "en"}
+                                  showActions={false}
+                                />
+                                <a
+                                  href={`/dashboard/graphs/${block.graphId}/edit`}
+                                  className="admin-btn admin-btn-secondary"
+                                  style={{ width: "fit-content" }}
+                                >
+                                  {labels.openGraph}
+                                </a>
+                              </div>
+                            )}
+                            {block.graphId && !graphById.get(block.graphId) && (
+                              <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>{labels.graphMissing}</div>
+                            )}
+                            {graphOptions.length === 0 && (
+                              <div style={{ fontSize: "0.73rem", color: "var(--text-secondary)" }}>{labels.noGraphs}</div>
                             )}
                           </div>
                           ) : block.type === "code" ? (
@@ -1518,7 +2153,7 @@ export default function DocumentationPage() {
                                 width: "100%",
                                 border: "1px solid var(--border-color)",
                                 borderRadius: "0.55rem",
-                                padding: "0.55rem",
+                                padding: "0.35rem 0.45rem",
                                 background: "var(--input-bg)",
                                 color: "var(--text-primary)",
                                 resize: "vertical",
@@ -1538,6 +2173,48 @@ export default function DocumentationPage() {
                               </SyntaxHighlighter>
                             </div>
                           </>
+                          ) : block.type === "info" ? (
+                            <div
+                              style={{
+                                ...getInfoVisualStyle(block),
+                                borderRadius: "0.5rem",
+                                padding: "0.14rem 0.2rem",
+                                display: "grid",
+                                gridTemplateColumns: "22px minmax(0, 1fr)",
+                                alignItems: "start",
+                                gap: "0.22rem",
+                              }}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                openBlockContextMenu(block.id, event.currentTarget);
+                              }}
+                            >
+                              <span style={{ color: "var(--text-secondary)", paddingTop: "0.28rem" }}>
+                                <MaterialSymbol name={block.infoIcon ?? "info"} size={16} weight={500} opticalSize={20} />
+                              </span>
+                              <textarea
+                                ref={(element) => {
+                                  blockInputRefs.current[block.id] = element;
+                                  autoResizeTextarea(element);
+                                }}
+                                value={block.text ?? ""}
+                                readOnly={!crdtCanWrite}
+                                onFocus={() => publishCursorBlock(block.id)}
+                                onKeyDown={(event) => handleTextBlockKeyDown(block, event)}
+                                onChange={(e) => {
+                                  autoResizeTextarea(e.currentTarget);
+                                  updateSelectedBlock(block.id, { text: e.target.value });
+                                }}
+                                className="doc-editor-inline-input doc-editor-inline-input-info"
+                                rows={1}
+                                style={{
+                                  background: "transparent",
+                                  border: "none",
+                                  padding: "0.06rem 0",
+                                  minHeight: "1.2rem",
+                                }}
+                              />
+                            </div>
                           ) : (
                             <textarea
                               ref={(element) => {
@@ -1558,45 +2235,118 @@ export default function DocumentationPage() {
                             />
                           )}
 
-                          {slashMenu?.blockId === block.id && (
-                            <div
-                              className="doc-editor-slash-menu"
-                              style={{
-                                position: "fixed",
-                                left: `${slashMenu.x}px`,
-                                top: `${slashMenu.y}px`,
-                                width: "240px",
-                                maxHeight: "280px",
-                                overflowY: "auto",
-                                zIndex: 1200,
-                              }}
-                            >
-                              {SLASH_BLOCK_TYPES.map((type, index) => (
-                                <button
-                                  key={`${block.id}_${type}`}
-                                  type="button"
-                                  className={[
-                                    "doc-editor-slash-item",
-                                    slashMenu.selectedIndex === index ? "doc-editor-slash-item-active" : "",
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" ")}
-                                  onClick={() => applySlashCommand(block.id, type)}
-                                >
-                                  / {type}
-                                </button>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       </div>
                     )})}
                   </div>
+
+                  {slashMenu && (
+                    <div
+                      className="doc-editor-slash-menu"
+                      style={{
+                        position: "fixed",
+                        left: `${slashMenu.x}px`,
+                        top: `${slashMenu.y}px`,
+                        width: "240px",
+                        maxHeight: "280px",
+                        overflowY: "auto",
+                        zIndex: 1200,
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {slashCommands.map((command, index) => (
+                        <button
+                          key={`slash_${command.id}`}
+                          type="button"
+                          className={[
+                            "doc-editor-slash-item",
+                            slashMenu.selectedIndex === index ? "doc-editor-slash-item-active" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" ")}
+                          onClick={() => {
+                            void applySlashMenuItem(slashMenu.blockId, command);
+                          }}
+                        >
+                          / {command.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {blockContextMenu && selectedNode.content.some((block) => block.id === blockContextMenu.blockId) && (
+                    <div
+                      className="doc-editor-slash-menu"
+                      style={{
+                        position: "fixed",
+                        left: `${blockContextMenu.x}px`,
+                        top: `${blockContextMenu.y}px`,
+                        width: "260px",
+                        zIndex: 1250,
+                      }}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      {selectedNode.content.find((block) => block.id === blockContextMenu.blockId)?.type === "info" && (
+                        <>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", padding: "0.2rem 0.3rem 0.1rem" }}>
+                            {labels.infoStyle}
+                          </div>
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
+                            {labels.tone}
+                          </div>
+                          <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
+                            {INFO_TONES.map((tone) => (
+                              <button
+                                key={`tone_${tone}`}
+                                type="button"
+                                className="doc-editor-slash-item"
+                                onClick={() => {
+                                  updateSelectedBlock(blockContextMenu.blockId, { infoTone: tone });
+                                  setBlockContextMenu(null);
+                                }}
+                              >
+                                {tone}
+                              </button>
+                            ))}
+                          </div>
+
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
+                            {labels.icon}
+                          </div>
+                          <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
+                            {INFO_ICONS.map((iconName) => (
+                              <button
+                                key={`icon_${iconName}`}
+                                type="button"
+                                className="doc-editor-slash-item"
+                                onClick={() => {
+                                  updateSelectedBlock(blockContextMenu.blockId, { infoIcon: iconName });
+                                  setBlockContextMenu(null);
+                                }}
+                              >
+                                <MaterialSymbol name={iconName} size={14} weight={500} opticalSize={20} />
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+
+                      <button
+                        type="button"
+                        className="doc-editor-slash-item"
+                        onClick={() => {
+                          removeBlock(blockContextMenu.blockId);
+                          setBlockContextMenu(null);
+                        }}
+                      >
+                        {labels.removeBlock}
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
           )}
-        </section>
       </div>
     </div>
   );
