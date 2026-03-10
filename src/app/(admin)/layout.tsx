@@ -470,7 +470,7 @@ function AdminTopbar({
                         width: 32,
                         height: 32,
                         borderRadius: 999,
-                        background: "linear-gradient(135deg,#64748b,#0ea5a9)",
+                        background: "var(--avatar-gradient)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -637,4 +637,3 @@ export default function AdminLayout({
     </RightPanelProvider>
   );
 }
-
