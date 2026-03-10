@@ -41,6 +41,9 @@ export default function SettingsPage() {
           passwordMismatch: "Les mots de passe ne correspondent pas",
           passwordMinLength: "Le mot de passe doit contenir au moins 8 caractères",
           imageSaveError: "Erreur lors de l'enregistrement de l'image",
+          imageTooLarge:
+            "Image trop volumineuse. Choisis une image plus légère (max 2 Mo) ou recadre-la.",
+          imageReadError: "Impossible de lire l'image sélectionnée",
           accountSaveError: "Erreur lors de l'enregistrement du compte",
           connectedAs: "Connecté en tant que",
         }
@@ -59,6 +62,9 @@ export default function SettingsPage() {
           passwordMismatch: "Passwords do not match",
           passwordMinLength: "Password must be at least 8 characters",
           imageSaveError: "Failed to save profile image",
+          imageTooLarge:
+            "Image too large. Please choose a lighter file (max 2 MB) or crop it first.",
+          imageReadError: "Unable to read selected image",
           accountSaveError: "Failed to save account information",
           connectedAs: "Connected as",
         };
@@ -147,7 +153,11 @@ export default function SettingsPage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || "SAVE_FAILED");
+      const apiError =
+        typeof body?.error === "string" && body.error.trim().length > 0
+          ? body.error.trim()
+          : "SAVE_FAILED";
+      throw new Error(`${apiError}|HTTP_${res.status}`);
     }
 
     const row = (await res.json()) as LocalUser;
@@ -171,13 +181,79 @@ export default function SettingsPage() {
     return synced;
   };
 
-  const handleFile = (file?: File) => {
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error("FILE_READ_ERROR"));
+      reader.readAsDataURL(file);
+    });
+
+  const compressImageToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const source = String(reader.result ?? "");
+        if (!source) {
+          reject(new Error("FILE_READ_ERROR"));
+          return;
+        }
+
+        const img = new Image();
+        img.onload = () => {
+          const maxSide = 512;
+          const ratio = Math.min(1, maxSide / Math.max(img.width || 1, img.height || 1));
+          const width = Math.max(1, Math.round((img.width || 1) * ratio));
+          const height = Math.max(1, Math.round((img.height || 1) * ratio));
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            reject(new Error("CANVAS_CONTEXT_ERROR"));
+            return;
+          }
+
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressed = canvas.toDataURL("image/jpeg", 0.82);
+          resolve(compressed);
+        };
+        img.onerror = () => reject(new Error("IMAGE_PARSE_ERROR"));
+        img.src = source;
+      };
+      reader.onerror = () => reject(new Error("FILE_READ_ERROR"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleFile = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPreview(String(reader.result ?? null));
-    };
-    reader.readAsDataURL(file);
+    setErrorMessage(null);
+
+    try {
+      if (file.size > 2 * 1024 * 1024) {
+        setErrorMessage(labels.imageTooLarge);
+        return;
+      }
+
+      let nextPreview = await readFileAsDataUrl(file);
+      if (file.size > 500 * 1024) {
+        nextPreview = await compressImageToDataUrl(file);
+      }
+
+      if (nextPreview.length > 1_200_000) {
+        setErrorMessage(labels.imageTooLarge);
+        return;
+      }
+
+      setPreview(nextPreview);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(labels.imageReadError);
+    }
   };
 
   const handleSave = async () => {
@@ -198,7 +274,11 @@ export default function SettingsPage() {
     } catch (err) {
       console.error(err);
       setSavingImage(false);
-      setErrorMessage(labels.imageSaveError);
+      const message =
+        err instanceof Error && /413|PAYLOAD|TOO_LARGE/i.test(err.message)
+          ? labels.imageTooLarge
+          : labels.imageSaveError;
+      setErrorMessage(message);
     }
   };
 
