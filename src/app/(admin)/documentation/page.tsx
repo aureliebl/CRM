@@ -302,6 +302,19 @@ export default function DocumentationPage() {
   const lastSavedSnapshotRef = useRef("");
   const blockInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
+  const readApiErrorMessage = useCallback(async (res: Response, fallback: string) => {
+    const jsonPayload = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (jsonPayload?.error) return jsonPayload.error;
+
+    const raw = await res.text().catch(() => "");
+    const compactRaw = raw.replace(/\s+/g, " ").trim();
+    if (compactRaw) {
+      return `${fallback} (${res.status}): ${compactRaw.slice(0, 180)}`;
+    }
+
+    return `${fallback} (${res.status})`;
+  }, []);
+
   const nodeSnapshot = useCallback((node: DocumentationNode | null) => {
     if (!node) return "";
     return JSON.stringify({
@@ -687,8 +700,7 @@ export default function DocumentationPage() {
     });
 
     if (!res.ok) {
-      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
-      alert(payload?.error || "Creation failed");
+      alert(await readApiErrorMessage(res, "Creation failed"));
       return;
     }
 
@@ -1018,8 +1030,7 @@ export default function DocumentationPage() {
     });
 
     if (!res.ok) {
-      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
-      alert(payload?.error || "Creation failed");
+      alert(await readApiErrorMessage(res, "Creation failed"));
       return;
     }
 
