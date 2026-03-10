@@ -42,6 +42,13 @@ export type DocumentationNodeAccess = {
   canWrite: boolean;
 };
 
+export class DocumentationCreateNodeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DocumentationCreateNodeError";
+  }
+}
+
 type DocumentationNodeRow = {
   id: string;
   parentid: string | null;
@@ -522,18 +529,27 @@ export async function createDocumentationNode(
     groupId?: string | null;
     isPrivate?: boolean;
   }
-): Promise<DocumentationNode | null> {
+): Promise<DocumentationNode> {
   await ensurePostgresReady();
 
   const title = input.title.trim();
-  if (!title) return null;
+  if (!title) {
+    throw new DocumentationCreateNodeError("Title is required");
+  }
 
   if (input.parentId) {
     const nodes = await getAllDocumentationNodes();
     const map = buildNodeMap(nodes);
     const parentNode = map.get(input.parentId);
-    if (!parentNode || (parentNode.kind !== "folder" && parentNode.kind !== "page")) return null;
-    if (!canWriteNode(actor, parentNode, map)) return null;
+    if (!parentNode) {
+      throw new DocumentationCreateNodeError("Parent not found");
+    }
+    if (parentNode.kind !== "folder" && parentNode.kind !== "page") {
+      throw new DocumentationCreateNodeError("Invalid parent kind");
+    }
+    if (!canWriteNode(actor, parentNode, map)) {
+      throw new DocumentationCreateNodeError("You cannot create under this parent");
+    }
   }
 
   const id = `doc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -569,7 +585,12 @@ export async function createDocumentationNode(
 
   await syncNodeShares(id, input.sharedGroupIds, input.sharedUserIds);
 
-  return getNodeById(id);
+  const created = await getNodeById(id);
+  if (!created) {
+    throw new DocumentationCreateNodeError("Node created but not readable");
+  }
+
+  return created;
 }
 
 export async function updateDocumentationNode(

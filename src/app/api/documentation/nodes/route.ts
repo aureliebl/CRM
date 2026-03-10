@@ -3,6 +3,7 @@ import { addLog } from "@/lib/account-store";
 import { getActorFromRequest } from "@/lib/server-permissions";
 import {
   createDocumentationNode,
+  DocumentationCreateNodeError,
   resolveDocumentationActorScope,
 } from "@/lib/documentation-store";
 
@@ -39,22 +40,26 @@ export async function POST(req: Request) {
     role: actor.role === "admin" ? "admin" : "operator",
   });
 
-  const created = await createDocumentationNode(scope, {
-    parentId: body.parentId ?? null,
-    kind: body.kind,
-    title: body.title,
-    subtitle: body.subtitle,
-    coverMediaId: body.coverMediaId,
-    isPublic: body.isPublic,
-    sharedGroupIds: body.sharedGroupIds,
-    sharedUserIds: body.sharedUserIds,
-    folderVisibility: body.folderVisibility,
-    groupId: body.groupId,
-    isPrivate: body.isPrivate,
-  });
-
-  if (!created) {
-    return NextResponse.json({ error: "Unable to create node" }, { status: 400 });
+  let created;
+  try {
+    created = await createDocumentationNode(scope, {
+      parentId: body.parentId ?? null,
+      kind: body.kind,
+      title: body.title,
+      subtitle: body.subtitle,
+      coverMediaId: body.coverMediaId,
+      isPublic: body.isPublic,
+      sharedGroupIds: body.sharedGroupIds,
+      sharedUserIds: body.sharedUserIds,
+      folderVisibility: body.folderVisibility,
+      groupId: body.groupId,
+      isPrivate: body.isPrivate,
+    });
+  } catch (error) {
+    if (error instanceof DocumentationCreateNodeError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Unable to create node" }, { status: 500 });
   }
 
   await addLog(actor.id, "documentation.node.created", `Node ${created.id} created (${created.kind})`);
