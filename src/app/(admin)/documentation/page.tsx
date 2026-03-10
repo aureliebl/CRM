@@ -673,7 +673,7 @@ export default function DocumentationPage() {
     const title = window.prompt(kind === "folder" ? labels.newFolder : labels.newPage);
     if (!title) return;
 
-    const parentId = selectedNode?.kind === "folder" ? selectedNode.id : selectedNode?.parentId ?? null;
+    const parentId = selectedNode ? selectedNode.id : null;
 
     const res = await fetch("/api/documentation/nodes", {
       method: "POST",
@@ -687,7 +687,8 @@ export default function DocumentationPage() {
     });
 
     if (!res.ok) {
-      alert("Creation failed");
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert(payload?.error || "Creation failed");
       return;
     }
 
@@ -1017,7 +1018,8 @@ export default function DocumentationPage() {
     });
 
     if (!res.ok) {
-      alert("Creation failed");
+      const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+      alert(payload?.error || "Creation failed");
       return;
     }
 
