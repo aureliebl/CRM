@@ -463,6 +463,7 @@ button {
   justify-content: space-between;
   gap: 1.5rem;
   transition: background-color 0.3s ease, border-color 0.3s ease;
+  animation: subtleFadeIn 0.24s ease-out;
 }
 
 .admin-sidebar-toggle {
@@ -608,7 +609,8 @@ button {
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease,
+    transform 0.16s ease;
 }
 
 .admin-btn:disabled {
@@ -625,6 +627,7 @@ button {
 .admin-btn-secondary:hover:not(:disabled) {
   background: var(--bg-hover);
   border-color: var(--border-hover);
+  transform: translateY(-1px);
 }
 
 .admin-btn-primary {
@@ -635,6 +638,7 @@ button {
 
 .admin-btn-primary:hover:not(:disabled) {
   filter: brightness(1.05);
+  transform: translateY(-1px);
 }
 
 .admin-btn-spinner {
@@ -655,11 +659,12 @@ button {
 }
 
 .admin-table-row {
-  transition: background-color 0.14s ease;
+  transition: background-color 0.14s ease, transform 0.14s ease;
 }
 
 .admin-table-row:hover {
   background-color: var(--bg-hover) !important;
+  transform: translateY(-0.5px);
 }
 
 .admin-placeholder-card {
@@ -669,7 +674,13 @@ button {
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   font-size: 0.9rem;
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease,
+    transform 0.2s ease;
+  animation: subtleFadeUp 0.28s ease-out;
+}
+
+.admin-placeholder-card:hover {
+  transform: translateY(-1px);
 }
 
 [data-theme="dark"] .admin-placeholder-card {
@@ -969,6 +980,63 @@ button {
   }
 }
 
+@keyframes subtleFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes subtleFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-sidebar {
+  animation: subtleFadeIn 0.24s ease-out;
+}
+
+.admin-main-inner > * {
+  animation: subtleFadeUp 0.24s ease-out both;
+}
+
+.admin-main-inner > *:nth-child(2) {
+  animation-delay: 0.03s;
+}
+
+.admin-main-inner > *:nth-child(3) {
+  animation-delay: 0.06s;
+}
+
+.admin-main-inner > *:nth-child(4) {
+  animation-delay: 0.09s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-sidebar,
+  .admin-topbar,
+  .admin-main-inner > *,
+  .admin-placeholder-card {
+    animation: none;
+  }
+
+  .admin-btn-secondary:hover:not(:disabled),
+  .admin-btn-primary:hover:not(:disabled),
+  .admin-table-row:hover,
+  .admin-placeholder-card:hover,
+  .admin-nav-link:hover {
+    transform: none !important;
+  }
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     flex-direction: column;
@@ -1018,4 +1086,3 @@ button {
     justify-content: flex-end;
   }
 }
-
