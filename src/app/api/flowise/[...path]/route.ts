@@ -5,6 +5,25 @@ export const runtime = "nodejs";
 
 const DEFAULT_UPSTREAM = "https://flowise.costockage.fr";
 
+const FLOWISE_TIMEOUT_MS = Math.max(2000, Number(process.env.FLOWISE_TIMEOUT_MS || 20000));
+const FLOWISE_RETRY_ATTEMPTS = Math.max(1, Number(process.env.FLOWISE_RETRY_ATTEMPTS || 2));
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = "message" in error ? String(error.message ?? "") : "";
+  return (
+    message.includes("fetch failed") ||
+    message.includes("ECONNRESET") ||
+    message.includes("ETIMEDOUT") ||
+    message.includes("ENOTFOUND") ||
+    message.includes("socket hang up")
+  );
+}
+
 function buildUpstreamUrl(pathSegments: string[] | undefined, search: string) {
   const baseUrl = (process.env.FLOWISE_API_HOST || DEFAULT_UPSTREAM).replace(/\/$/, "");
   const normalizedPath = (pathSegments ?? []).join("/");
@@ -36,12 +55,44 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const body = hasBody ? await req.arrayBuffer() : undefined;
 
-  const upstreamRes = await fetch(upstreamUrl, {
-    method: req.method,
-    headers,
-    body,
-    redirect: "follow",
-  });
+  let upstreamRes: Response | null = null;
+
+  for (let attempt = 1; attempt <= FLOWISE_RETRY_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FLOWISE_TIMEOUT_MS);
+    try {
+      upstreamRes = await fetch(upstreamUrl, {
+        method: req.method,
+        headers,
+        body,
+        redirect: "follow",
+        signal: controller.signal,
+      });
+
+      if (upstreamRes.status >= 500 && attempt < FLOWISE_RETRY_ATTEMPTS) {
+        await sleep(120 * attempt);
+        continue;
+      }
+
+      break;
+    } catch (error) {
+      const retriable = isTransientError(error);
+      const isLast = attempt === FLOWISE_RETRY_ATTEMPTS;
+      if (!retriable || isLast) {
+        break;
+      }
+      await sleep(120 * attempt);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  if (!upstreamRes) {
+    return NextResponse.json(
+      { error: "Flowise upstream unavailable" },
+      { status: 502 }
+    );
+  }
 
   const responseHeaders = new Headers(upstreamRes.headers);
   responseHeaders.delete("content-encoding");
