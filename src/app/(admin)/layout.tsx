@@ -305,8 +305,12 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
 
 function AdminTopbar({
   user,
+  isSidebarCollapsed,
+  onToggleSidebar,
 }: {
   user: LocalUser;
+  isSidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }) {
   const [showBugModal, setShowBugModal] = useState(false);
   const { locale, t, setLocale } = useLocale();
@@ -357,110 +361,117 @@ function AdminTopbar({
   return (
     <>
       <header className="admin-topbar">
-        <div className="admin-topbar-left" style={{ flex: 1 }}>
+        {isSidebarCollapsed && (
+          <button
+            type="button"
+            className="admin-topbar-toggle-btn"
+            onClick={onToggleSidebar}
+            title={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
+            aria-label={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
+          >
+            <MaterialSymbol name="menu" size={20} weight={500} opticalSize={24} />
+          </button>
+        )}
+        <div className="admin-topbar-search">
           <ClientSearch inputId="client-search-input" placeholder={t.search_placeholder} maxWidth="100%" />
         </div>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          <div style={{ flex: 1 }} />
-          {/* center removed; search moved to the left */}
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginLeft: "auto" }}>
-            <AircallButton />
-            <button
-              type="button"
-              onClick={toggleLocale}
-              aria-label={labels.languageAria}
-              title={locale === "fr" ? "Français" : "English"}
-              style={{
-                padding: "0.4rem 0.75rem",
-                borderRadius: "999px",
-                border: "1px solid var(--border-hover)",
-                background: "var(--button-bg)",
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "1.1rem",
-                lineHeight: 1,
-                color: "var(--text-primary)",
-                minWidth: "3.2rem",
-              }}
-            >
-              <MaterialSymbol
-                name={APP_MATERIAL_SYMBOLS.actions.language}
-                size={17}
-                weight={500}
-                opticalSize={20}
-                style={{ marginRight: "0.3rem" }}
-              />
-              {locale === "fr" ? "FR" : "EN"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowBugModal(true)}
-              style={{
-                padding: "0.4rem 0.75rem",
-                borderRadius: "999px",
-                border: "1px solid var(--border-hover)",
-                background: "var(--button-bg)",
-                color: "var(--text-primary)",
-                cursor: "pointer",
-                fontSize: "0.8rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.4rem",
-              }}
-              title={t.report_bug}
-            >
-              <MaterialSymbol
-                name={APP_MATERIAL_SYMBOLS.actions.bug}
-                size={16}
-                weight={500}
-                opticalSize={20}
-              />
-              {t.bug}
-            </button>
-            {user && (
-              <Link href="/settings" title={t.settings_title}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "0.5rem",
-                    color: "var(--text-primary, #e5e7eb)",
-                    fontSize: "0.9rem",
-                  }}
-                    title={`${labels.connectedAs} ${resolvedDisplayName} (${user.role})`}
-                >
-                  <span style={{ fontWeight: 600 }}>{firstName}</span>
-                  {user.profileImage ? (
-                    <img
-                      src={user.profileImage}
-                      alt={resolvedDisplayName}
-                      style={{ width: 32, height: 32, borderRadius: 999, objectFit: "cover" }}
-                    />
-                  ) : (
-                    <div
-                      aria-hidden
-                      style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 999,
-                        background: "var(--avatar-gradient)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "white",
-                        fontSize: "0.8rem",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {initials}
-                    </div>
-                  )}
-                </div>
-              </Link>
-            )}
-          </div>
+        <div className="admin-topbar-controls">
+          <AircallButton />
+          <button
+            type="button"
+            onClick={toggleLocale}
+            aria-label={labels.languageAria}
+            title={locale === "fr" ? "Français" : "English"}
+            style={{
+              padding: "0.4rem 0.75rem",
+              borderRadius: "999px",
+              border: "1px solid var(--border-hover)",
+              background: "var(--button-bg)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "1.1rem",
+              lineHeight: 1,
+              color: "var(--text-primary)",
+              minWidth: "3.2rem",
+            }}
+          >
+            <MaterialSymbol
+              name={APP_MATERIAL_SYMBOLS.actions.language}
+              size={17}
+              weight={500}
+              opticalSize={20}
+              style={{ marginRight: "0.3rem" }}
+            />
+            {locale === "fr" ? "FR" : "EN"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowBugModal(true)}
+            style={{
+              padding: "0.4rem 0.75rem",
+              borderRadius: "999px",
+              border: "1px solid var(--border-hover)",
+              background: "var(--button-bg)",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+              fontSize: "0.8rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}
+            title={t.report_bug}
+          >
+            <MaterialSymbol
+              name={APP_MATERIAL_SYMBOLS.actions.bug}
+              size={16}
+              weight={500}
+              opticalSize={20}
+            />
+            {t.bug}
+          </button>
+          {user && (
+            <Link href="/settings" title={t.settings_title}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  color: "var(--text-primary, #e5e7eb)",
+                  fontSize: "0.9rem",
+                }}
+                title={`${labels.connectedAs} ${resolvedDisplayName} (${user.role})`}
+              >
+                <span style={{ fontWeight: 600 }}>{firstName}</span>
+                {user.profileImage ? (
+                  <img
+                    src={user.profileImage}
+                    alt={resolvedDisplayName}
+                    style={{ width: 32, height: 32, borderRadius: 999, objectFit: "cover" }}
+                  />
+                ) : (
+                  <div
+                    aria-hidden
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 999,
+                      background: "var(--avatar-gradient)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "white",
+                      fontSize: "0.8rem",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {initials}
+                  </div>
+                )}
+              </div>
+            </Link>
+          )}
         </div>
       </header>
       <BugReportModal
@@ -597,20 +608,11 @@ export default function AdminLayout({
     <RightPanelProvider>
       <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
         <AdminSidebar user={user} onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)} />
-        {isSidebarCollapsed && (
-          <button
-            type="button"
-            className="admin-sidebar-float-btn"
-            onClick={() => setIsSidebarCollapsed(false)}
-            title={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
-            aria-label={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
-          >
-            <MaterialSymbol name="menu" size={20} weight={500} opticalSize={24} />
-          </button>
-        )}
         <div className="admin-content-shell">
           <AdminTopbar
             user={user}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed(false)}
           />
           <Breadcrumb />
           <main className="admin-main">
