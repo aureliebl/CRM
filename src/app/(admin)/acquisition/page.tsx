@@ -9,6 +9,7 @@ import { useLocale } from "@/lib/use-locale";
 
 type AcqTab = "unfinished" | "quotes" | "abandoned";
 type ViewMode = "table" | "kanban";
+type QuoteStatus = "new" | "sent" | "accepted" | "expired" | "abandoned";
 
 type OperatorAccount = {
   id: string;
@@ -25,6 +26,21 @@ type UnfinishedBookingRow = ReturnType<typeof getUnfinishedBookings>[number] & {
   stoppedLabel: string;
   contactLabel: string;
   assignedOperatorId?: string;
+};
+
+type QuoteRow = ReturnType<typeof getQuoteRequests>[number] & {
+  centerName: string;
+  sizeLabel: string;
+  createdLabel: string;
+  sentLabel: string;
+  statusLabel: string;
+  assignedOperatorId?: string;
+};
+
+type AcquisitionBoardState = {
+  unfinished: Record<string, { step?: number; assignedOperatorId?: string | null }>;
+  quotes: Record<string, { status?: QuoteStatus; assignedOperatorId?: string | null }>;
+  operatorAbsences: Record<string, string[]>;
 };
 
 const STORAGE_KEY = "acquisition_settings_v1";
@@ -74,6 +90,34 @@ function getInitialUnfinishedRows() {
   }));
 }
 
+function getStatusLabel(status: QuoteStatus, fr: boolean) {
+  if (status === "new") return fr ? "Nouveau" : "New";
+  if (status === "sent") return fr ? "Envoyé" : "Sent";
+  if (status === "accepted") return fr ? "Accepté" : "Accepted";
+  if (status === "expired") return fr ? "Expiré" : "Expired";
+  return fr ? "Abandonné" : "Abandoned";
+}
+
+function getInitialQuoteRows(fr: boolean): QuoteRow[] {
+  const centerMap = Object.fromEntries(centers.map((c) => [c.id, c]));
+  return getQuoteRequests().map((q) => {
+    const normalizedStatus = (q.status || "new") as QuoteStatus;
+    return {
+      ...q,
+      status: normalizedStatus,
+      centerName: centerMap[q.centerId]?.name ?? q.centerId,
+      sizeLabel: `${q.boxSizeWanted} m²`,
+      createdLabel: new Date(q.createdAt).toLocaleDateString("fr-FR", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+      sentLabel: q.sentAt ? new Date(q.sentAt).toLocaleDateString("fr-FR") : "—",
+      statusLabel: getStatusLabel(normalizedStatus, fr),
+    };
+  });
+}
+
 export default function AcquisitionPage() {
   const { locale } = useLocale();
   const fr = locale === "fr";
@@ -83,6 +127,7 @@ export default function AcquisitionPage() {
   const [unfinishedRows, setUnfinishedRows] = useState<UnfinishedBookingRow[]>(() =>
     getInitialUnfinishedRows()
   );
+  const [quoteRows, setQuoteRows] = useState<QuoteRow[]>(() => getInitialQuoteRows(fr));
   const [operators, setOperators] = useState<OperatorAccount[]>([]);
   const [operatorsLoading, setOperatorsLoading] = useState(true);
   const [operatorAbsences, setOperatorAbsences] = useState<Record<string, string[]>>({});
@@ -92,6 +137,7 @@ export default function AcquisitionPage() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
+  const [boardReady, setBoardReady] = useState(false);
   const balanceCursorRef = useRef(0);
 
   useEffect(() => {
@@ -101,8 +147,6 @@ export default function AcquisitionPage() {
       const parsed = JSON.parse(raw) as {
         viewMode?: ViewMode;
         autoAssignEnabled?: boolean;
-        unfinishedAssignments?: Record<string, string>;
-        operatorAbsences?: Record<string, string[]>;
       };
 
       if (parsed.viewMode === "kanban" || parsed.viewMode === "table") {
@@ -111,40 +155,117 @@ export default function AcquisitionPage() {
       if (typeof parsed.autoAssignEnabled === "boolean") {
         setAutoAssignEnabled(parsed.autoAssignEnabled);
       }
-      if (parsed.unfinishedAssignments) {
-        setUnfinishedRows((current) =>
-          current.map((row) => ({
-            ...row,
-            assignedOperatorId: parsed.unfinishedAssignments?.[row.id] || row.assignedOperatorId,
-          }))
-        );
-      }
-      if (parsed.operatorAbsences && typeof parsed.operatorAbsences === "object") {
-        setOperatorAbsences(parsed.operatorAbsences);
-      }
     } catch {
       // Ignore localStorage parsing issues.
     }
   }, []);
 
   useEffect(() => {
-    const unfinishedAssignments: Record<string, string> = {};
-    unfinishedRows.forEach((row) => {
-      if (row.assignedOperatorId) {
-        unfinishedAssignments[row.id] = row.assignedOperatorId;
-      }
-    });
-
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
         viewMode,
         autoAssignEnabled,
-        unfinishedAssignments,
-        operatorAbsences,
       })
     );
-  }, [viewMode, autoAssignEnabled, unfinishedRows, operatorAbsences]);
+  }, [viewMode, autoAssignEnabled]);
+
+  useEffect(() => {
+    setQuoteRows(getInitialQuoteRows(fr));
+  }, [fr]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const applySharedState = (payload: AcquisitionBoardState) => {
+      setUnfinishedRows((current) =>
+        current.map((row) => {
+          const override = payload.unfinished[row.id];
+          if (!override) return row;
+          return {
+            ...row,
+            step:
+              typeof override.step === "number"
+                ? Math.max(1, Math.min(override.step, row.totalSteps))
+                : row.step,
+            assignedOperatorId: override.assignedOperatorId ?? undefined,
+          };
+        })
+      );
+
+      setQuoteRows((current) =>
+        current.map((row) => {
+          const override = payload.quotes[row.id];
+          if (!override) return row;
+          const status = (override.status ?? row.status) as QuoteStatus;
+          return {
+            ...row,
+            status,
+            statusLabel: getStatusLabel(status, fr),
+            assignedOperatorId: override.assignedOperatorId ?? undefined,
+          };
+        })
+      );
+
+      setOperatorAbsences(payload.operatorAbsences || {});
+    };
+
+    const loadBoard = async () => {
+      try {
+        const res = await fetch("/api/acquisition/board", { cache: "no-store" });
+        if (!res.ok || !mounted) return;
+        const payload = (await res.json()) as AcquisitionBoardState;
+        if (!mounted) return;
+        applySharedState(payload);
+      } finally {
+        if (mounted) setBoardReady(true);
+      }
+    };
+
+    void loadBoard();
+    const interval = window.setInterval(() => {
+      void loadBoard();
+    }, 10000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, [fr]);
+
+  useEffect(() => {
+    if (!boardReady) return;
+
+    const unfinished: AcquisitionBoardState["unfinished"] = {};
+    unfinishedRows.forEach((row) => {
+      unfinished[row.id] = {
+        step: row.step,
+        assignedOperatorId: row.assignedOperatorId ?? null,
+      };
+    });
+
+    const quotes: AcquisitionBoardState["quotes"] = {};
+    quoteRows.forEach((row) => {
+      quotes[row.id] = {
+        status: row.status as QuoteStatus,
+        assignedOperatorId: row.assignedOperatorId ?? null,
+      };
+    });
+
+    const timeout = window.setTimeout(() => {
+      void fetch("/api/acquisition/board", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          unfinished,
+          quotes,
+          operatorAbsences,
+        } satisfies AcquisitionBoardState),
+      });
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [boardReady, unfinishedRows, quoteRows, operatorAbsences]);
 
   useEffect(() => {
     let mounted = true;
@@ -404,8 +525,22 @@ export default function AcquisitionPage() {
           operatorsLoading={operatorsLoading}
         />
       )}
-      {activeTab === "quotes" && <QuoteRequestsTab fr={fr} />}
-      {activeTab === "abandoned" && <AbandonedQuotesTab fr={fr} />}
+      {activeTab === "quotes" && (
+        <QuoteRequestsTab
+          fr={fr}
+          rows={quoteRows}
+          setRows={setQuoteRows}
+          viewMode={viewMode}
+        />
+      )}
+      {activeTab === "abandoned" && (
+        <AbandonedQuotesTab
+          fr={fr}
+          rows={quoteRows}
+          setRows={setQuoteRows}
+          viewMode={viewMode}
+        />
+      )}
 
       {presenceModalOpen && (
         <div
@@ -959,9 +1094,19 @@ function UnfinishedBookingsTab({
 // QUOTE REQUESTS
 // ──────────────────────────────────────────
 
-function QuoteRequestsTab({ fr }: { fr: boolean }) {
-  const quotes = useMemo(() => getQuoteRequests(), []);
-  const centerMap = Object.fromEntries(centers.map((c) => [c.id, c]));
+function QuoteRequestsTab({
+  fr,
+  rows,
+  setRows,
+  viewMode,
+}: {
+  fr: boolean;
+  rows: QuoteRow[];
+  setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
+  viewMode: ViewMode;
+}) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const statusOrder: QuoteStatus[] = ["new", "sent", "accepted", "expired", "abandoned"];
 
   const statusBadge = (status: string) => {
     const colors: Record<string, { bg: string; text: string }> = {
@@ -975,13 +1120,103 @@ function QuoteRequestsTab({ fr }: { fr: boolean }) {
     return <span style={{ display: "inline-block", padding: "2px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600, background: c.bg, color: c.text }}>{status}</span>;
   };
 
-  const rows = quotes.map((q) => ({
-    ...q,
-    centerName: centerMap[q.centerId]?.name ?? q.centerId,
-    sizeLabel: `${q.boxSizeWanted} m²`,
-    createdLabel: new Date(q.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }),
-    sentLabel: q.sentAt ? new Date(q.sentAt).toLocaleDateString("fr-FR") : "—",
-  }));
+  const moveToStatus = (quoteId: string, nextStatus: QuoteStatus) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.id === quoteId
+          ? {
+              ...row,
+              status: nextStatus,
+              statusLabel: getStatusLabel(nextStatus, fr),
+            }
+          : row
+      )
+    );
+  };
+
+  if (viewMode === "kanban") {
+    return (
+      <div style={{ display: "grid", gap: "0.7rem" }}>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          {fr
+            ? "Kanban basé sur le statut: glisse une carte d'une colonne à l'autre."
+            : "Status-based Kanban: drag a card from one status column to another."}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${statusOrder.length}, minmax(220px, 1fr))`,
+            gap: "0.6rem",
+            overflowX: "auto",
+            paddingBottom: "0.3rem",
+          }}
+        >
+          {statusOrder.map((status) => {
+            const statusRows = rows.filter((row) => row.status === status);
+            return (
+              <div
+                key={`quote_col_${status}`}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  if (!draggingId) return;
+                  moveToStatus(draggingId, status);
+                  setDraggingId(null);
+                }}
+                style={{
+                  border: "1px solid var(--border-color)",
+                  borderRadius: 10,
+                  background: "var(--card-bg)",
+                  minHeight: 260,
+                  display: "grid",
+                  gridTemplateRows: "auto 1fr",
+                }}
+              >
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--border-color)",
+                    padding: "0.55rem 0.7rem",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{getStatusLabel(status, fr)}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{statusRows.length}</span>
+                </div>
+
+                <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
+                  {statusRows.map((row) => (
+                    <div
+                      key={row.id}
+                      draggable
+                      onDragStart={() => setDraggingId(row.id)}
+                      onDragEnd={() => setDraggingId(null)}
+                      style={{
+                        border: "1px solid var(--border-color)",
+                        borderRadius: 8,
+                        background: "var(--surface-secondary, rgba(255,255,255,0.02))",
+                        padding: "0.5rem",
+                        cursor: "grab",
+                        display: "grid",
+                        gap: "0.3rem",
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {row.centerName}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <TableWithColumnFilters
@@ -1044,19 +1279,37 @@ function QuoteRequestsTab({ fr }: { fr: boolean }) {
 // ABANDONED QUOTES
 // ──────────────────────────────────────────
 
-function AbandonedQuotesTab({ fr }: { fr: boolean }) {
-  const quotes = useMemo(() => getQuoteRequests().filter((q) => q.status === "abandoned" || q.status === "expired"), []);
-  const centerMap = Object.fromEntries(centers.map((c) => [c.id, c]));
+function AbandonedQuotesTab({
+  fr,
+  rows,
+  setRows,
+  viewMode,
+}: {
+  fr: boolean;
+  rows: QuoteRow[];
+  setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
+  viewMode: ViewMode;
+}) {
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const filteredRows = rows.filter((q) => q.status === "abandoned" || q.status === "expired");
+  const statusOrder: QuoteStatus[] = ["expired", "abandoned"];
 
-  const rows = quotes.map((q) => ({
-    ...q,
-    centerName: centerMap[q.centerId]?.name ?? q.centerId,
-    sizeLabel: `${q.boxSizeWanted} m²`,
-    createdLabel: new Date(q.createdAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }),
-    statusLabel: q.status === "abandoned" ? (fr ? "Abandonné" : "Abandoned") : (fr ? "Expiré" : "Expired"),
-  }));
+  const moveToStatus = (quoteId: string, nextStatus: QuoteStatus) => {
+    if (nextStatus !== "expired" && nextStatus !== "abandoned") return;
+    setRows((current) =>
+      current.map((row) =>
+        row.id === quoteId
+          ? {
+              ...row,
+              status: nextStatus,
+              statusLabel: getStatusLabel(nextStatus, fr),
+            }
+          : row
+      )
+    );
+  };
 
-  if (rows.length === 0) {
+  if (filteredRows.length === 0) {
     return (
       <div className="admin-placeholder-card" style={{ padding: 20, textAlign: "center" }}>
         <MaterialSymbol name="check_circle" style={{ fontSize: 40, color: "var(--color-success, #16a34a)", marginBottom: 8 }} />
@@ -1065,11 +1318,95 @@ function AbandonedQuotesTab({ fr }: { fr: boolean }) {
     );
   }
 
+  if (viewMode === "kanban") {
+    return (
+      <div style={{ display: "grid", gap: "0.7rem" }}>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+          {fr
+            ? "Kanban basé sur la colonne statut (Expiré / Abandonné)."
+            : "Kanban based on status column (Expired / Abandoned)."}
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(240px, 1fr))",
+            gap: "0.6rem",
+            overflowX: "auto",
+            paddingBottom: "0.3rem",
+          }}
+        >
+          {statusOrder.map((status) => {
+            const statusRows = filteredRows.filter((row) => row.status === status);
+            return (
+              <div
+                key={`abandoned_col_${status}`}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={() => {
+                  if (!draggingId) return;
+                  moveToStatus(draggingId, status);
+                  setDraggingId(null);
+                }}
+                style={{
+                  border: "1px solid var(--border-color)",
+                  borderRadius: 10,
+                  background: "var(--card-bg)",
+                  minHeight: 260,
+                  display: "grid",
+                  gridTemplateRows: "auto 1fr",
+                }}
+              >
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--border-color)",
+                    padding: "0.55rem 0.7rem",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 600 }}>{getStatusLabel(status, fr)}</span>
+                  <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{statusRows.length}</span>
+                </div>
+
+                <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
+                  {statusRows.map((row) => (
+                    <div
+                      key={row.id}
+                      draggable
+                      onDragStart={() => setDraggingId(row.id)}
+                      onDragEnd={() => setDraggingId(null)}
+                      style={{
+                        border: "1px solid var(--border-color)",
+                        borderRadius: 8,
+                        background: "var(--surface-secondary, rgba(255,255,255,0.02))",
+                        padding: "0.5rem",
+                        cursor: "grab",
+                        display: "grid",
+                        gap: "0.3rem",
+                      }}
+                    >
+                      <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {row.centerName}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <TableWithColumnFilters
       title={fr ? "Devis non finalisés" : "Unfinished Quotes"}
       description={fr ? "Devis expirés ou abandonnés nécessitant un suivi." : "Expired or abandoned quotes needing follow-up."}
-      data={rows}
+      data={filteredRows}
       columns={[
         { key: "fullName", label: fr ? "Nom" : "Name", filterType: "text" },
         { key: "email", label: "Email", filterType: "text" },
