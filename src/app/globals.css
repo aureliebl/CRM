@@ -80,7 +80,7 @@
     #fff7e7 0%,
     #f3f8e8 52%,
     #deebd1 90%,
-    #2a6340 150%
+    #2a6340 100%
   );
   --gradient-surface: linear-gradient(125deg, #fffdf2 0%, #f0f6e2 58%, #deebd1 100%);
   --avatar-gradient: linear-gradient(135deg, #2a6340, #4f8b66);
