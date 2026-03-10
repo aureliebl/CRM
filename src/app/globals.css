@@ -455,7 +455,20 @@ button {
   position: sticky;
   top: 0.75rem;
   z-index: 10;
-  padding: 0.85rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  animation: subtleFadeIn 0.24s ease-out;
+}
+
+.admin-topbar-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-topbar-controls {
+  padding: 0.6rem 1.25rem;
   border: 1px solid var(--border-color);
   border-radius: 1.25rem;
   background: var(--bg-tertiary);
@@ -463,11 +476,32 @@ button {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
-  margin-bottom: 0.5rem;
+  gap: 1rem;
+  flex-shrink: 0;
   transition: background-color 0.3s ease, border-color 0.3s ease;
-  animation: subtleFadeIn 0.24s ease-out;
+}
+
+.admin-topbar-toggle-btn {
+  padding: 0.6rem 0.75rem;
+  border-radius: 1.25rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  backdrop-filter: blur(14px);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  animation: subtleFadeIn 0.2s ease-out;
+}
+
+.admin-topbar-toggle-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
 }
 
 .admin-sidebar-toggle {
@@ -549,13 +583,24 @@ button {
 /* Centre the search input horizontally in the topbar */
 /* removed centered search; search is placed on the left inside the topbar */
 
-[data-theme="dark"] .admin-topbar {
+[data-theme="dark"] .admin-topbar-controls {
   background: var(--gradient-surface);
   border-color: rgba(144, 137, 166, 0.3);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
 }
 
-[data-theme="light"] .admin-topbar {
+[data-theme="light"] .admin-topbar-controls {
+  background: var(--bg-tertiary);
+  box-shadow: 0 4px 16px var(--shadow-color);
+}
+
+[data-theme="dark"] .admin-topbar-toggle-btn {
+  background: linear-gradient(135deg, rgba(19, 13, 46, 0.97), rgba(12, 10, 26, 0.99));
+  border-color: rgba(144, 137, 166, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.28);
+}
+
+[data-theme="light"] .admin-topbar-toggle-btn {
   background: var(--bg-tertiary);
   box-shadow: 0 4px 16px var(--shadow-color);
 }
@@ -1120,6 +1165,7 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .admin-sidebar,
   .admin-topbar,
+  .admin-topbar-toggle-btn,
   .admin-main-inner > *,
   .admin-placeholder-card {
     animation: none;
@@ -1166,13 +1212,14 @@ button {
     box-shadow: none;
   }
 
-  .admin-sidebar-float-btn {
-    top: 0.75rem;
-    left: 0.75rem;
-  }
-
   .admin-topbar {
     top: 0.5rem;
+  }
+
+  .admin-topbar-controls {
+    flex-shrink: 1;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
   }
 
   .admin-nav-section-label {
