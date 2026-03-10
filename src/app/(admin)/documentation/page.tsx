@@ -142,6 +142,105 @@ function getInlineTextBlockStyle(type: DocumentationBlockType): React.CSSPropert
   };
 }
 
+function isLikelyMarkdown(text: string) {
+  if (!text.includes("\n")) return false;
+  return /(^|\n)#{1,6}\s|(^|\n)(-|\*)\s|(^|\n)>\s|```|\|.+\|/.test(text);
+}
+
+function mapMarkdownLineToBlock(line: string): DocumentationBlock | null {
+  const headingMatch = line.match(/^(#{1,3})\s+(.+)$/);
+  if (headingMatch) {
+    const level = headingMatch[1].length;
+    const type = level === 1 ? "heading1" : level === 2 ? "heading2" : "heading3";
+    return { ...makeBlock(type), text: headingMatch[2].trim() };
+  }
+
+  const listMatch = line.match(/^[-*]\s+(.+)$/);
+  if (listMatch) {
+    return { ...makeBlock("paragraph"), text: `• ${listMatch[1].trim()}` };
+  }
+
+  if (line.trim().length === 0) return null;
+  return { ...makeBlock("paragraph"), text: line.trim() };
+}
+
+function parseMarkdownToBlocks(markdown: string): DocumentationBlock[] {
+  const normalized = markdown.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n");
+  const result: DocumentationBlock[] = [];
+
+  let index = 0;
+  while (index < lines.length) {
+    const rawLine = lines[index] ?? "";
+    const line = rawLine.trimEnd();
+
+    if (line.trim().length === 0) {
+      index += 1;
+      continue;
+    }
+
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !(lines[index] ?? "").trim().startsWith("```")) {
+        codeLines.push(lines[index] ?? "");
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const codeText = codeLines.join("\n");
+      result.push({ ...makeBlock("code"), text: codeText, language: detectLanguage(codeText) });
+      continue;
+    }
+
+    if (line.trim() === "<aside>") {
+      const infoLines: string[] = [];
+      index += 1;
+      while (index < lines.length && (lines[index] ?? "").trim() !== "</aside>") {
+        const value = (lines[index] ?? "").trim();
+        if (value) infoLines.push(value);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      if (infoLines.length > 0) {
+        result.push({ ...makeBlock("info"), text: infoLines.join("\n") });
+      }
+      continue;
+    }
+
+    if (line.startsWith(">")) {
+      const quotedLines: string[] = [];
+      while (index < lines.length && (lines[index] ?? "").trim().startsWith(">")) {
+        quotedLines.push((lines[index] ?? "").replace(/^>\s?/, "").trim());
+        index += 1;
+      }
+      result.push({ ...makeBlock("info"), text: quotedLines.join("\n") });
+      continue;
+    }
+
+    if (line.startsWith("|")) {
+      const tableLines: string[] = [];
+      while (index < lines.length && (lines[index] ?? "").trim().startsWith("|")) {
+        tableLines.push((lines[index] ?? "").trimEnd());
+        index += 1;
+      }
+      const tableText = tableLines.join("\n");
+      result.push({ ...makeBlock("code"), text: tableText, language: "plaintext" });
+      continue;
+    }
+
+    const mapped = mapMarkdownLineToBlock(line);
+    if (mapped) {
+      result.push(mapped);
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return result;
+}
+
 export default function DocumentationPage() {
   const { locale } = useLocale();
   const labels =
@@ -301,6 +400,8 @@ export default function DocumentationPage() {
   const initialBlocksRef = useRef<DocumentationBlock[]>([]);
   const lastSavedSnapshotRef = useRef("");
   const blockInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const saveAbortRef = useRef<AbortController | null>(null);
+  const pendingEditTitleNodeIdRef = useRef<string | null>(null);
 
   const readApiErrorMessage = useCallback(async (res: Response, fallback: string) => {
     const jsonPayload = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -683,8 +784,8 @@ export default function DocumentationPage() {
   }, [selectedNodeId, selectedRootId, isNodeWithinRoot]);
 
   const handleCreateNode = async (kind: "folder" | "page") => {
-    const title = window.prompt(kind === "folder" ? labels.newFolder : labels.newPage);
-    if (!title) return;
+    const title =
+      kind === "folder" ? labels.newFolder : labels.newPageDefaultTitle;
 
     const parentId = selectedNode ? selectedNode.id : null;
 
@@ -705,8 +806,9 @@ export default function DocumentationPage() {
     }
 
     const created = (await res.json()) as DocumentationNode;
-    await refreshTree();
+    pendingEditTitleNodeIdRef.current = created.id;
     setSelectedNodeId(created.id);
+    void refreshTree();
   };
 
   const handleDeleteNode = async () => {
@@ -745,33 +847,60 @@ export default function DocumentationPage() {
 
   const handleSaveNode = async (options?: { silent?: boolean }) => {
     if (!selectedNode) return;
+    if (!selectedNode.title.trim()) {
+      setSaveStatus("idle");
+      return;
+    }
+
+    saveAbortRef.current?.abort();
+    const controller = new AbortController();
+    saveAbortRef.current = controller;
+
     setSaving(true);
     setSaveStatus("saving");
 
-    const res = await fetch(`/api/documentation/nodes/${selectedNode.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: selectedNode.title,
-        subtitle: selectedNode.subtitle,
-        coverMediaId: selectedNode.coverMediaId,
-        isPublic: selectedNode.kind === "page" ? selectedNode.isPublic : undefined,
-        sharedGroupIds: selectedNode.sharedGroupIds,
-        sharedUserIds: selectedNode.sharedUserIds,
-        isPrivate: selectedNode.kind === "page" ? selectedNode.isPrivate : undefined,
-        folderVisibility:
-          selectedNode.kind === "folder" ? selectedNode.folderVisibility : undefined,
-        groupId: selectedNode.kind === "folder" ? selectedNode.groupId : undefined,
-        content: selectedNode.kind === "page" ? selectedNode.content : undefined,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`/api/documentation/nodes/${selectedNode.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          title: selectedNode.title,
+          subtitle: selectedNode.subtitle,
+          coverMediaId: selectedNode.coverMediaId,
+          isPublic: selectedNode.kind === "page" ? selectedNode.isPublic : undefined,
+          sharedGroupIds: selectedNode.sharedGroupIds,
+          sharedUserIds: selectedNode.sharedUserIds,
+          isPrivate: selectedNode.kind === "page" ? selectedNode.isPrivate : undefined,
+          folderVisibility:
+            selectedNode.kind === "folder" ? selectedNode.folderVisibility : undefined,
+          groupId: selectedNode.kind === "folder" ? selectedNode.groupId : undefined,
+          content: selectedNode.kind === "page" ? selectedNode.content : undefined,
+        }),
+      });
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        return;
+      }
+      setSaving(false);
+      setSaveStatus("error");
+      if (!options?.silent) {
+        alert("Save failed");
+      }
+      return;
+    } finally {
+      if (saveAbortRef.current === controller) {
+        saveAbortRef.current = null;
+      }
+    }
 
     setSaving(false);
 
     if (!res.ok) {
       setSaveStatus("error");
       if (!options?.silent) {
-        alert("Save failed");
+        alert(await readApiErrorMessage(res, "Save failed"));
       }
       return;
     }
@@ -816,6 +945,7 @@ export default function DocumentationPage() {
 
   useEffect(() => {
     if (!selectedNode) return;
+    if (!selectedNode.title.trim()) return;
 
     const snapshot = nodeSnapshot(selectedNode);
     if (!snapshot || snapshot === lastSavedSnapshotRef.current) return;
@@ -829,6 +959,16 @@ export default function DocumentationPage() {
       window.clearTimeout(timeout);
     };
   }, [selectedNode, nodeSnapshot]);
+
+  useEffect(() => {
+    if (!selectedNode) return;
+    if (pendingEditTitleNodeIdRef.current !== selectedNode.id) return;
+
+    if (selectedNode.kind === "page") {
+      setEditingTitle(true);
+    }
+    pendingEditTitleNodeIdRef.current = null;
+  }, [selectedNode]);
 
   useEffect(() => {
     const closeOverlays = () => {
@@ -1002,6 +1142,46 @@ export default function DocumentationPage() {
       setCrdtReconnectTick((current) => current + 1);
     }
     crdtSessionRef.current?.setCursorBlockId(blockId);
+  };
+
+  const applyPastedMarkdown = (targetBlockId: string, markdown: string) => {
+    const parsedBlocks = parseMarkdownToBlocks(markdown);
+    if (parsedBlocks.length === 0) return;
+
+    const [firstBlock, ...rest] = parsedBlocks;
+    if (!firstBlock) return;
+
+    updateSelectedBlock(targetBlockId, {
+      type: firstBlock.type,
+      text: firstBlock.text,
+      language: firstBlock.language,
+      mediaId: firstBlock.mediaId,
+      targetNodeId: firstBlock.targetNodeId,
+      targetLabel: firstBlock.targetLabel,
+      graphId: firstBlock.graphId,
+      infoTone: firstBlock.infoTone,
+      infoIcon: firstBlock.infoIcon,
+      widthPct: firstBlock.widthPct,
+    });
+
+    let previousBlockId = targetBlockId;
+    for (const item of rest) {
+      previousBlockId = insertBlockAfter(previousBlockId, item.type, {
+        text: item.text,
+        language: item.language,
+        mediaId: item.mediaId,
+        targetNodeId: item.targetNodeId,
+        targetLabel: item.targetLabel,
+        graphId: item.graphId,
+        infoTone: item.infoTone,
+        infoIcon: item.infoIcon,
+        widthPct: item.widthPct,
+      });
+    }
+
+    if (previousBlockId) {
+      focusBlockInput(previousBlockId);
+    }
   };
 
   const createSubPageFromSlash = async (blockId: string) => {
@@ -2175,6 +2355,13 @@ export default function DocumentationPage() {
                               value={block.text ?? ""}
                               readOnly={!crdtCanWrite}
                               onFocus={() => publishCursorBlock(block.id)}
+                              onPaste={(event) => {
+                                if (!crdtCanWrite) return;
+                                const text = event.clipboardData.getData("text/plain");
+                                if (!text || !isLikelyMarkdown(text)) return;
+                                event.preventDefault();
+                                applyPastedMarkdown(block.id, text);
+                              }}
                               onKeyDown={(event) => handleTextBlockKeyDown(block, event)}
                               onChange={(e) => {
                                 const nextText = e.target.value;
@@ -2235,6 +2422,13 @@ export default function DocumentationPage() {
                                 value={block.text ?? ""}
                                 readOnly={!crdtCanWrite}
                                 onFocus={() => publishCursorBlock(block.id)}
+                                onPaste={(event) => {
+                                  if (!crdtCanWrite) return;
+                                  const text = event.clipboardData.getData("text/plain");
+                                  if (!text || !isLikelyMarkdown(text)) return;
+                                  event.preventDefault();
+                                  applyPastedMarkdown(block.id, text);
+                                }}
                                 onKeyDown={(event) => handleTextBlockKeyDown(block, event)}
                                 onChange={(e) => {
                                   autoResizeTextarea(e.currentTarget);
@@ -2259,6 +2453,13 @@ export default function DocumentationPage() {
                               value={block.text ?? ""}
                               readOnly={!crdtCanWrite}
                               onFocus={() => publishCursorBlock(block.id)}
+                              onPaste={(event) => {
+                                if (!crdtCanWrite) return;
+                                const text = event.clipboardData.getData("text/plain");
+                                if (!text || !isLikelyMarkdown(text)) return;
+                                event.preventDefault();
+                                applyPastedMarkdown(block.id, text);
+                              }}
                               onKeyDown={(event) => handleTextBlockKeyDown(block, event)}
                               onChange={(e) => {
                                 autoResizeTextarea(e.currentTarget);
