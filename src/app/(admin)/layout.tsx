@@ -33,7 +33,7 @@ type LocalUser = {
   totpEnabled?: number;
 };
 
-function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: LocalUser; isSidebarCollapsed: boolean; onExpandSidebar: () => void }) {
+function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSidebar: () => void }) {
   const pathname = usePathname() || "/dashboard";
   const { t, locale } = useLocale();
   const isAdmin = user?.role === "admin";
@@ -132,28 +132,33 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
   }, [isTestSectionActive]);
 
   const handleGroupToggle = (setter: React.Dispatch<React.SetStateAction<boolean>>) => {
-    if (isSidebarCollapsed) {
-      onExpandSidebar();
-      // After expanding, open the group
-      setTimeout(() => setter(true), 50);
-    } else {
-      setter((current) => !current);
-    }
+    setter((current) => !current);
   };
 
   return (
     <aside className="admin-sidebar">
-      <div className="admin-logo">
-        <div className="admin-logo-mark" style={{ background: 'transparent', padding: 0, boxShadow: 'none' }}>
-          <Image
-            src="/logo.svg"
-            alt="CostOP Logo"
-            width={28}
-            height={28}
-            style={{ borderRadius: '0.75rem' }}
-          />
+      <div className="admin-sidebar-header-row">
+        <div className="admin-logo">
+          <div className="admin-logo-mark" style={{ background: 'transparent', padding: 0, boxShadow: 'none' }}>
+            <Image
+              src="/logo.svg"
+              alt="CostOP Logo"
+              width={28}
+              height={28}
+              style={{ borderRadius: '0.75rem' }}
+            />
+          </div>
+          <span>{t.costockage_admin}</span>
         </div>
-        <span>{t.costockage_admin}</span>
+        <button
+          type="button"
+          className="admin-sidebar-inner-toggle"
+          onClick={onToggleSidebar}
+          title={locale === "fr" ? "Réduire la barre latérale" : "Collapse sidebar"}
+          aria-label={locale === "fr" ? "Réduire la barre latérale" : "Collapse sidebar"}
+        >
+          <MaterialSymbol name="chevron_left" size={18} weight={500} opticalSize={20} />
+        </button>
       </div>
       <div className="admin-sidebar-nav-area">
         <div className="admin-nav-section-label">
@@ -300,12 +305,8 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
 
 function AdminTopbar({
   user,
-  isSidebarCollapsed,
-  onToggleSidebar,
 }: {
   user: LocalUser;
-  isSidebarCollapsed: boolean;
-  onToggleSidebar: () => void;
 }) {
   const [showBugModal, setShowBugModal] = useState(false);
   const { locale, t, setLocale } = useLocale();
@@ -314,14 +315,10 @@ function AdminTopbar({
       ? {
           languageAria: "Changer la langue",
           connectedAs: "Connecté en tant que",
-          collapseSidebar: "Réduire la barre latérale",
-          expandSidebar: "Déployer la barre latérale",
         }
       : {
           languageAria: "Change language",
           connectedAs: "Connected as",
-          collapseSidebar: "Collapse sidebar",
-          expandSidebar: "Expand sidebar",
         };
 
   const toggleLocale = async () => {
@@ -361,29 +358,7 @@ function AdminTopbar({
     <>
       <header className="admin-topbar">
         <div className="admin-topbar-left" style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", width: "100%" }}>
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              aria-label={isSidebarCollapsed ? labels.expandSidebar : labels.collapseSidebar}
-              title={isSidebarCollapsed ? labels.expandSidebar : labels.collapseSidebar}
-              className="admin-sidebar-toggle"
-            >
-              <MaterialSymbol
-                name={
-                  isSidebarCollapsed
-                    ? APP_MATERIAL_SYMBOLS.actions.chevronRight
-                    : APP_MATERIAL_SYMBOLS.actions.chevronLeft
-                }
-                size={18}
-                weight={500}
-                opticalSize={20}
-              />
-            </button>
-            <div style={{ flex: 1 }}>
-              <ClientSearch inputId="client-search-input" placeholder={t.search_placeholder} maxWidth="100%" />
-            </div>
-          </div>
+          <ClientSearch inputId="client-search-input" placeholder={t.search_placeholder} maxWidth="100%" />
         </div>
         <div style={{ display: "flex", alignItems: "center" }}>
           <div style={{ flex: 1 }} />
@@ -503,6 +478,7 @@ export default function AdminLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname() || "/dashboard";
+  const { locale } = useLocale();
   const [user, setUser] = useState<LocalUser | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -620,12 +596,21 @@ export default function AdminLayout({
   return (
     <RightPanelProvider>
       <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
-        <AdminSidebar user={user} isSidebarCollapsed={isSidebarCollapsed} onExpandSidebar={() => setIsSidebarCollapsed(false)} />
+        <AdminSidebar user={user} onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)} />
+        {isSidebarCollapsed && (
+          <button
+            type="button"
+            className="admin-sidebar-float-btn"
+            onClick={() => setIsSidebarCollapsed(false)}
+            title={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
+            aria-label={locale === "fr" ? "Déployer la barre latérale" : "Expand sidebar"}
+          >
+            <MaterialSymbol name="menu" size={20} weight={500} opticalSize={24} />
+          </button>
+        )}
         <div className="admin-content-shell">
           <AdminTopbar
             user={user}
-            isSidebarCollapsed={isSidebarCollapsed}
-            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
           />
           <Breadcrumb />
           <main className="admin-main">
