@@ -3,11 +3,11 @@
 import { createContext, useContext, useMemo, useState } from "react";
 import { RightPanelHost } from "./RightPanelHost";
 
-type RightPanelEntity = Record<string, unknown>;
+type RightPanelEntity = unknown;
 
 type OpenRightPanelInput = {
   panelId: string;
-  entity: RightPanelEntity;
+  entity: unknown;
   contextKey: string;
 };
 

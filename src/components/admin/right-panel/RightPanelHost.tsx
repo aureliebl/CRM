@@ -42,6 +42,11 @@ export function RightPanelHost() {
   const [config, setConfig] = useState<RightPanelConfig | null>(null);
   const [relations, setRelations] = useState<Record<string, unknown>>({});
 
+  const entityRecord = useMemo<Record<string, unknown>>(() => {
+    if (!entity || typeof entity !== "object") return {};
+    return entity as Record<string, unknown>;
+  }, [entity]);
+
   useEffect(() => {
     if (!panelId) {
       setConfig(null);
@@ -69,7 +74,7 @@ export function RightPanelHost() {
   }, [panelId]);
 
   useEffect(() => {
-    if (!config || !entity || !Array.isArray(config.relations) || config.relations.length === 0) {
+    if (!config || !entityRecord || !Array.isArray(config.relations) || config.relations.length === 0) {
       setRelations({});
       return;
     }
@@ -82,7 +87,7 @@ export function RightPanelHost() {
         if (!resolver) continue;
 
         const idPath = typeof relation.params?.idPath === "string" ? relation.params.idPath : "id";
-        const id = getByPath(entity, idPath);
+        const id = getByPath(entityRecord, idPath);
         const query = new URLSearchParams({
           resolver,
           id: String(id ?? ""),
@@ -104,15 +109,15 @@ export function RightPanelHost() {
     return () => {
       mounted = false;
     };
-  }, [config, entity]);
+  }, [config, entityRecord]);
 
   const scoped = useMemo(() => {
     return {
-      ...(entity || {}),
+      ...entityRecord,
       relations,
       contextKey,
     };
-  }, [entity, relations, contextKey]);
+  }, [entityRecord, relations, contextKey]);
 
   const formulaMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -141,7 +146,7 @@ export function RightPanelHost() {
     return null;
   };
 
-  if (!panelId || !entity || !config) return null;
+  if (!panelId || !entityRecord || !config) return null;
 
   const title = renderTemplate(config.titleTemplate || config.displayName, scoped);
   const subtitle = config.subtitleTemplate ? renderTemplate(config.subtitleTemplate, scoped) : "";
