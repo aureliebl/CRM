@@ -248,9 +248,11 @@ export default function SecurityPage() {
     loadActor();
   }, []);
 
-  const loadOverview = async () => {
+  const loadOverview = async (options?: { silent?: boolean }) => {
     if (!actor) return;
-    setLoading(true);
+    if (!options?.silent) {
+      setLoading(true);
+    }
     try {
       const res = await fetch(`/api/security/overview`, {
         cache: "no-store",
@@ -262,7 +264,9 @@ export default function SecurityPage() {
       const data = (await res.json()) as SecurityOverview;
       setOverview(data);
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -273,7 +277,7 @@ export default function SecurityPage() {
   useEffect(() => {
     if (!actor || actor.role !== "admin") return;
     const interval = window.setInterval(() => {
-      loadOverview();
+      loadOverview({ silent: true });
     }, 15000);
 
     return () => {
@@ -461,6 +465,12 @@ export default function SecurityPage() {
 
   const createUserAccount = async () => {
     if (!actor) return;
+
+    if (newAccountPassword.length < 8) {
+      setAccountCreateError("Password must be at least 8 characters");
+      return;
+    }
+
     setCreatingAccount(true);
     setAccountCreateError(null);
     setAccountActionInfo(null);
@@ -743,7 +753,7 @@ export default function SecurityPage() {
               <AsyncButton
                 type="button"
                 onClick={createUserAccount}
-                disabled={!newAccountEmail.trim() || !newAccountFullName.trim() || newAccountPassword.length < 8}
+                disabled={!newAccountEmail.trim() || !newAccountFullName.trim()}
                 isLoading={creatingAccount}
                 isSuccess={accountCreated}
                 loadingLabel={labels.add}
