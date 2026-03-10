@@ -9,6 +9,21 @@ import {
 
 export const dynamic = "force-dynamic";
 
+function isTransientDatabaseError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code ?? "") : "";
+  const message = "message" in error ? String(error.message ?? "") : "";
+  return (
+    code === "XX000" ||
+    code === "53300" ||
+    code === "57P03" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNRESET" ||
+    message.includes("MaxClientsInSessionMode") ||
+    message.toLowerCase().includes("too many clients")
+  );
+}
+
 export async function POST(req: Request) {
   const actor = await getActorFromRequest(req);
   if (!actor) {
@@ -58,6 +73,12 @@ export async function POST(req: Request) {
   } catch (error) {
     if (error instanceof DocumentationCreateNodeError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json(
+        { error: "Database temporarily unavailable, please retry in a few seconds" },
+        { status: 503 }
+      );
     }
     return NextResponse.json({ error: "Unable to create node" }, { status: 500 });
   }
