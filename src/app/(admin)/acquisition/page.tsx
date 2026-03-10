@@ -1215,7 +1215,12 @@ function QuoteRequestsTab({
             return (
               <div
                 key={`quote_col_${status}`}
-                onDragOver={(event) => { event.preventDefault(); setDragOverColumn(status); }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (dragOverColumn !== status) {
+                    setDragOverColumn(status);
+                  }
+                }}
                 onDragLeave={(event) => { if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
                 onDrop={() => {
                   if (!draggingId) return;
