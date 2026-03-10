@@ -6,8 +6,13 @@ import {
   DocumentationCreateNodeError,
   resolveDocumentationActorScope,
 } from "@/lib/documentation-store";
+import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isTransientDatabaseError(error: unknown) {
   if (!error || typeof error !== "object") return false;
@@ -56,32 +61,49 @@ export async function POST(req: Request) {
   });
 
   let created;
-  try {
-    created = await createDocumentationNode(scope, {
-      parentId: body.parentId ?? null,
-      kind: body.kind,
-      title: body.title,
-      subtitle: body.subtitle,
-      coverMediaId: body.coverMediaId,
-      isPublic: body.isPublic,
-      sharedGroupIds: body.sharedGroupIds,
-      sharedUserIds: body.sharedUserIds,
-      folderVisibility: body.folderVisibility,
-      groupId: body.groupId,
-      isPrivate: body.isPrivate,
-    });
-  } catch (error) {
-    if (error instanceof DocumentationCreateNodeError) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      created = await createDocumentationNode(scope, {
+        parentId: body.parentId ?? null,
+        kind: body.kind,
+        title: body.title,
+        subtitle: body.subtitle,
+        coverMediaId: body.coverMediaId,
+        isPublic: body.isPublic,
+        sharedGroupIds: body.sharedGroupIds,
+        sharedUserIds: body.sharedUserIds,
+        folderVisibility: body.folderVisibility,
+        groupId: body.groupId,
+        isPrivate: body.isPrivate,
+      });
+      break;
+    } catch (error) {
+      if (error instanceof DocumentationCreateNodeError) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      if (!isTransientDatabaseError(error)) {
+        return NextResponse.json({ error: "Unable to create node" }, { status: 500 });
+      }
+
+      const isLast = attempt === maxAttempts;
+      if (isLast) {
+        return NextResponse.json(
+          { error: "Database temporarily unavailable, please retry in a few seconds" },
+          { status: 503 }
+        );
+      }
+
+      await sleep(200 * attempt);
     }
-    if (isTransientDatabaseError(error)) {
-      return NextResponse.json(
-        { error: "Database temporarily unavailable, please retry in a few seconds" },
-        { status: 503 }
-      );
-    }
+  }
+
+  if (!created) {
     return NextResponse.json({ error: "Unable to create node" }, { status: 500 });
   }
+
+  clearMemoryCacheByPrefix("docs:tree:");
 
   try {
     await addLog(actor.id, "documentation.node.created", `Node ${created.id} created (${created.kind})`);

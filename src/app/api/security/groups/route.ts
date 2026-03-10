@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { createUserGroup, getUserGroups } from "@/lib/security-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ export async function POST(req: Request) {
   if (!created) {
     return NextResponse.json({ error: "Unable to create group" }, { status: 500 });
   }
+
+  clearMemoryCacheByPrefix("security:overview");
 
   if (actorId) {
     await addLog(actorId, "security.group.created", `Group ${created.id} created by ${actorId}`);

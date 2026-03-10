@@ -3,6 +3,7 @@ import { addLog } from "@/lib/account-store";
 import { isActorAdmin, getActorIdFromRequest } from "@/lib/server-permissions";
 import { createTab, getAllTabs, getGroupIdsForTab, getTabsForGroup } from "@/lib/tabs-store";
 import { getGroupIdForAccount } from "@/lib/security-store";
+import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -14,22 +15,30 @@ export async function GET(req: Request) {
 
   const adminMode = await isActorAdmin(req);
   if (adminMode) {
-    const allTabs = await getAllTabs();
-    const tabs = await Promise.all(allTabs.map(async (tab) => ({
-      ...tab,
-      groupIds: await getGroupIdsForTab(tab.id),
-    })));
+    const tabs = await getOrSetMemoryCache(`tabs:admin:${actorId}`, 3000, async () => {
+      const allTabs = await getAllTabs();
+      return Promise.all(
+        allTabs.map(async (tab) => ({
+          ...tab,
+          groupIds: await getGroupIdsForTab(tab.id),
+        }))
+      );
+    });
     return NextResponse.json(tabs);
   }
 
   const groupId = await getGroupIdForAccount(actorId);
   if (!groupId) return NextResponse.json([]);
 
-  const groupTabs = await getTabsForGroup(groupId);
-  const tabs = await Promise.all(groupTabs.map(async (tab) => ({
-    ...tab,
-    groupIds: await getGroupIdsForTab(tab.id),
-  })));
+  const tabs = await getOrSetMemoryCache(`tabs:group:${groupId}`, 3000, async () => {
+    const groupTabs = await getTabsForGroup(groupId);
+    return Promise.all(
+      groupTabs.map(async (tab) => ({
+        ...tab,
+        groupIds: await getGroupIdsForTab(tab.id),
+      }))
+    );
+  });
   return NextResponse.json(tabs);
 }
 
@@ -59,6 +68,7 @@ export async function POST(req: Request) {
   });
 
   if (created) {
+    clearMemoryCacheByPrefix("tabs:");
     await addLog(actorId, "tab.created", `Tab ${created.id} created by ${actorId}`);
   }
 

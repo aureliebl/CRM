@@ -5,6 +5,7 @@ import {
   listAccessibleDocumentationPages,
   resolveDocumentationActorScope,
 } from "@/lib/documentation-store";
+import { getOrSetMemoryCache } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -19,10 +20,14 @@ export async function GET(req: Request) {
     role: actor.role === "admin" ? "admin" : "operator",
   });
 
-  const [tree, pages] = await Promise.all([
-    getAccessibleDocumentationTree(scope),
-    listAccessibleDocumentationPages(scope),
-  ]);
+  const cacheKey = `docs:tree:${scope.id}:${scope.role}`;
+  const payload = await getOrSetMemoryCache(cacheKey, 2000, async () => {
+    const [tree, pages] = await Promise.all([
+      getAccessibleDocumentationTree(scope),
+      listAccessibleDocumentationPages(scope),
+    ]);
+    return { tree, pages };
+  });
 
-  return NextResponse.json({ tree, pages });
+  return NextResponse.json(payload);
 }

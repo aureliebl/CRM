@@ -8,6 +8,7 @@ import {
   updateDocumentationNode,
 } from "@/lib/documentation-store";
 import type { DocumentationBlock } from "@/lib/documentation-types";
+import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export async function PUT(
     return NextResponse.json({ error: "Unable to update node" }, { status: 400 });
   }
 
+  clearMemoryCacheByPrefix("docs:tree:");
+
   await addLog(actor.id, "documentation.node.updated", `Node ${updated.id} updated`);
   return NextResponse.json(updated);
 }
@@ -107,6 +110,8 @@ export async function DELETE(
   if (!deleted) {
     return NextResponse.json({ error: "Unable to delete node" }, { status: 400 });
   }
+
+  clearMemoryCacheByPrefix("docs:tree:");
 
   await addLog(actor.id, "documentation.node.deleted", `Node ${nodeId} deleted`);
   return NextResponse.json({ deleted: true });

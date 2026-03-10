@@ -3,6 +3,7 @@ import { addLog } from "@/lib/account-store";
 import { deleteTab, getGroupIdsForTab, getTabById, updateTab } from "@/lib/tabs-store";
 import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
 import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
+import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   });
 
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  clearMemoryCacheByPrefix("tabs:");
   if (actorId) {
     await addLog(actorId, "tab.updated", `Tab ${id} updated by ${actorId}`);
   }
@@ -58,6 +60,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   const actorId = await getActorIdFromRequest(req);
   const { id } = await params;
   await deleteTab(id);
+  clearMemoryCacheByPrefix("tabs:");
   if (actorId) {
     await addLog(actorId, "tab.deleted", `Tab ${id} deleted by ${actorId}`);
   }

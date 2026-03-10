@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { getActorFromRequest } from "@/lib/server-permissions";
 import { moveDocumentationNode, resolveDocumentationActorScope } from "@/lib/documentation-store";
+import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,8 @@ export async function POST(
   if (!moved) {
     return NextResponse.json({ error: "Unable to move node" }, { status: 400 });
   }
+
+  clearMemoryCacheByPrefix("docs:tree:");
 
   await addLog(actor.id, "documentation.node.moved", `Node ${nodeId} moved to ${parentId ?? "root"}`);
   return NextResponse.json(moved);
