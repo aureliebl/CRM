@@ -57,10 +57,8 @@ type SessionActor = {
   fullName?: string;
 };
 
-type RightPanelLite = Pick<
-  RightPanelConfig,
-  "panelId" | "displayName" | "contexts" | "titleTemplate" | "subtitleTemplate"
->;
+type RightPanelEditorMode = "guided" | "json";
+type RightPanelOverride = Record<string, unknown>;
 
 export default function SecurityPage() {
   const { locale } = useLocale();
@@ -100,9 +98,10 @@ export default function SecurityPage() {
   const [connectorAdded, setConnectorAdded] = useState(false);
   const [actor, setActor] = useState<SessionActor | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
-  const [rightPanels, setRightPanels] = useState<RightPanelLite[]>([]);
+  const [rightPanels, setRightPanels] = useState<RightPanelConfig[]>([]);
   const [selectedPanelId, setSelectedPanelId] = useState("");
   const [panelEditorText, setPanelEditorText] = useState("{}");
+  const [panelEditorMode, setPanelEditorMode] = useState<RightPanelEditorMode>("guided");
   const [savingPanelConfig, setSavingPanelConfig] = useState(false);
   const [panelConfigSaved, setPanelConfigSaved] = useState(false);
   const [panelConfigError, setPanelConfigError] = useState<string | null>(null);
@@ -180,6 +179,17 @@ export default function SecurityPage() {
           panelName: "Nom",
           panelContexts: "Contextes",
           panelEditor: "Override JSON",
+          panelEditorGuided: "Editeur guide",
+          panelEditorJson: "JSON brut",
+          panelDisplayName: "Nom affiche",
+          panelTitleTemplate: "Template titre",
+          panelSubtitleTemplate: "Template sous-titre",
+          panelSections: "Sections",
+          panelFields: "Champs",
+          panelAddSection: "Ajouter section",
+          panelRemoveSection: "Supprimer section",
+          panelAddField: "Ajouter champ",
+          panelRemoveField: "Supprimer champ",
           panelSave: "Enregistrer la configuration",
           panelSaved: "Configuration enregistree",
           panelSaveError: "Configuration invalide ou non enregistrable",
@@ -255,6 +265,17 @@ export default function SecurityPage() {
           panelName: "Name",
           panelContexts: "Contexts",
           panelEditor: "JSON override",
+          panelEditorGuided: "Guided editor",
+          panelEditorJson: "Raw JSON",
+          panelDisplayName: "Display name",
+          panelTitleTemplate: "Title template",
+          panelSubtitleTemplate: "Subtitle template",
+          panelSections: "Sections",
+          panelFields: "Fields",
+          panelAddSection: "Add section",
+          panelRemoveSection: "Remove section",
+          panelAddField: "Add field",
+          panelRemoveField: "Remove field",
           panelSave: "Save configuration",
           panelSaved: "Configuration saved",
           panelSaveError: "Invalid or non-saveable configuration",
@@ -373,7 +394,7 @@ export default function SecurityPage() {
       return;
     }
 
-    const data = (await res.json()) as RightPanelLite[];
+    const data = (await res.json()) as RightPanelConfig[];
     setRightPanels(data);
     if (!selectedPanelId && data.length > 0) {
       setSelectedPanelId(data[0].panelId);
@@ -384,6 +405,139 @@ export default function SecurityPage() {
     void loadRightPanels();
   }, [actor?.id]);
 
+  const parsePanelEditor = (): RightPanelOverride | null => {
+    try {
+      const parsed = JSON.parse(panelEditorText) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return null;
+      }
+      return parsed as RightPanelOverride;
+    } catch {
+      return null;
+    }
+  };
+
+  const updatePanelEditor = (updater: (current: RightPanelOverride) => RightPanelOverride) => {
+    const current = parsePanelEditor() || {};
+    const next = updater(current);
+    setPanelEditorText(JSON.stringify(next, null, 2));
+  };
+
+  const updateSection = (sectionIndex: number, patch: Record<string, unknown>) => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      const section = sections[sectionIndex];
+      if (!section) return current;
+      sections[sectionIndex] = {
+        ...section,
+        ...patch,
+      };
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
+  const addSection = () => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      sections.push({
+        key: `section_${sections.length + 1}`,
+        title: "",
+        fields: [],
+      });
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
+  const removeSection = (sectionIndex: number) => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      sections.splice(sectionIndex, 1);
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
+  const addField = (sectionIndex: number) => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      const section = (sections[sectionIndex] || { key: "", title: "", fields: [] }) as Record<string, unknown>;
+      const fields = Array.isArray(section.fields) ? [...(section.fields as unknown[])] : [];
+      fields.push({
+        key: `field_${fields.length + 1}`,
+        label: "",
+        source: "raw",
+        path: "",
+        renderer: "text",
+      });
+      sections[sectionIndex] = {
+        ...section,
+        fields,
+      };
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
+  const removeField = (sectionIndex: number, fieldIndex: number) => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      const section = (sections[sectionIndex] || { fields: [] }) as Record<string, unknown>;
+      const fields = Array.isArray(section.fields) ? [...(section.fields as unknown[])] : [];
+      fields.splice(fieldIndex, 1);
+      sections[sectionIndex] = {
+        ...section,
+        fields,
+      };
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
+  const updateField = (sectionIndex: number, fieldIndex: number, patch: Record<string, unknown>) => {
+    updatePanelEditor((current) => {
+      const sections = (
+        Array.isArray(current.sections) ? [...(current.sections as unknown[])] : []
+      ) as Array<Record<string, unknown>>;
+      const section = (sections[sectionIndex] || { fields: [] }) as Record<string, unknown>;
+      const fields = Array.isArray(section.fields) ? [...(section.fields as unknown[])] : [];
+      const field = (fields[fieldIndex] || {}) as Record<string, unknown>;
+      fields[fieldIndex] = {
+        ...field,
+        ...patch,
+      };
+      sections[sectionIndex] = {
+        ...section,
+        fields,
+      };
+      return {
+        ...current,
+        sections,
+      };
+    });
+  };
+
   useEffect(() => {
     const selected = rightPanels.find((item) => item.panelId === selectedPanelId);
     if (!selected) {
@@ -391,12 +545,17 @@ export default function SecurityPage() {
       return;
     }
 
-    // Start from current merged shape; admin can keep only fields to override.
-    const initial = {
+    const initial: RightPanelOverride = {
       displayName: selected.displayName,
       titleTemplate: selected.titleTemplate,
       subtitleTemplate: selected.subtitleTemplate,
       contexts: selected.contexts,
+      sections: selected.sections,
+      relations: selected.relations,
+      formulas: selected.formulas,
+      globalActions: selected.globalActions,
+      localActions: selected.localActions,
+      uiOptions: selected.uiOptions,
     };
     setPanelEditorText(JSON.stringify(initial, null, 2));
   }, [selectedPanelId, rightPanels]);
@@ -1177,6 +1336,39 @@ export default function SecurityPage() {
               </div>
 
               <div style={{ display: "grid", gap: "0.55rem" }}>
+                <div style={{ display: "inline-flex", border: "1px solid var(--border-color)", borderRadius: 999, padding: 2, width: "fit-content" }}>
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => setPanelEditorMode("guided")}
+                    style={{
+                      padding: "0.25rem 0.7rem",
+                      borderRadius: 999,
+                      border: "none",
+                      fontSize: 12,
+                      background: panelEditorMode === "guided" ? "var(--accent-primary)" : "transparent",
+                      color: panelEditorMode === "guided" ? "#fff" : "var(--text-secondary)",
+                    }}
+                  >
+                    {labels.panelEditorGuided}
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => setPanelEditorMode("json")}
+                    style={{
+                      padding: "0.25rem 0.7rem",
+                      borderRadius: 999,
+                      border: "none",
+                      fontSize: 12,
+                      background: panelEditorMode === "json" ? "var(--accent-primary)" : "transparent",
+                      color: panelEditorMode === "json" ? "#fff" : "var(--text-secondary)",
+                    }}
+                  >
+                    {labels.panelEditorJson}
+                  </button>
+                </div>
+
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.45rem" }}>
                   <label style={{ display: "grid", gap: "0.2rem" }}>
                     <span>{labels.panelId}</span>
@@ -1208,25 +1400,241 @@ export default function SecurityPage() {
                   </label>
                 </div>
 
-                <label style={{ display: "grid", gap: "0.3rem" }}>
-                  <span>{labels.panelEditor}</span>
-                  <textarea
-                    value={panelEditorText}
-                    onChange={(event) => setPanelEditorText(event.target.value)}
-                    rows={14}
-                    style={{
-                      width: "100%",
-                      resize: "vertical",
-                      padding: "0.55rem 0.65rem",
-                      borderRadius: "0.45rem",
-                      border: "1px solid var(--border-color)",
-                      background: "var(--input-bg)",
-                      color: "var(--text-primary)",
-                      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-                      fontSize: "0.78rem",
-                    }}
-                  />
-                </label>
+                {panelEditorMode === "guided" ? (
+                  <div style={{ display: "grid", gap: "0.55rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.45rem" }}>
+                      <label style={{ display: "grid", gap: "0.2rem" }}>
+                        <span>{labels.panelDisplayName}</span>
+                        <input
+                          value={parsePanelEditor()?.displayName ? String(parsePanelEditor()?.displayName) : ""}
+                          onChange={(event) =>
+                            updatePanelEditor((current) => ({ ...current, displayName: event.target.value }))
+                          }
+                          style={{
+                            padding: "0.45rem 0.65rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.2rem" }}>
+                        <span>{labels.panelTitleTemplate}</span>
+                        <input
+                          value={parsePanelEditor()?.titleTemplate ? String(parsePanelEditor()?.titleTemplate) : ""}
+                          onChange={(event) =>
+                            updatePanelEditor((current) => ({ ...current, titleTemplate: event.target.value }))
+                          }
+                          style={{
+                            padding: "0.45rem 0.65rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.2rem" }}>
+                        <span>{labels.panelSubtitleTemplate}</span>
+                        <input
+                          value={parsePanelEditor()?.subtitleTemplate ? String(parsePanelEditor()?.subtitleTemplate) : ""}
+                          onChange={(event) =>
+                            updatePanelEditor((current) => ({ ...current, subtitleTemplate: event.target.value }))
+                          }
+                          style={{
+                            padding: "0.45rem 0.65rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        />
+                      </label>
+                      <label style={{ display: "grid", gap: "0.2rem" }}>
+                        <span>{labels.panelContexts}</span>
+                        <input
+                          value={Array.isArray(parsePanelEditor()?.contexts) ? (parsePanelEditor()?.contexts as string[]).join(", ") : ""}
+                          onChange={(event) =>
+                            updatePanelEditor((current) => ({
+                              ...current,
+                              contexts: event.target.value
+                                .split(",")
+                                .map((item) => item.trim())
+                                .filter(Boolean),
+                            }))
+                          }
+                          style={{
+                            padding: "0.45rem 0.65rem",
+                            borderRadius: "0.45rem",
+                            border: "1px solid var(--border-color)",
+                            background: "var(--input-bg)",
+                            color: "var(--text-primary)",
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div style={{ display: "grid", gap: "0.45rem" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <strong style={{ fontSize: "0.82rem" }}>{labels.panelSections}</strong>
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn-secondary"
+                          style={{ fontSize: "0.75rem" }}
+                          onClick={addSection}
+                        >
+                          {labels.panelAddSection}
+                        </button>
+                      </div>
+
+                      {(Array.isArray(parsePanelEditor()?.sections)
+                        ? (parsePanelEditor()?.sections as Array<Record<string, unknown>>)
+                        : []
+                      ).map((section, sectionIndex) => (
+                        <div key={`section_editor_${sectionIndex}`} style={{ border: "1px solid var(--border-color)", borderRadius: "0.55rem", padding: "0.55rem", display: "grid", gap: "0.45rem" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: "0.35rem" }}>
+                            <input
+                              value={String(section.key || "")}
+                              placeholder="section key"
+                              onChange={(event) => updateSection(sectionIndex, { key: event.target.value })}
+                              style={{
+                                padding: "0.42rem 0.6rem",
+                                borderRadius: "0.45rem",
+                                border: "1px solid var(--border-color)",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                            <input
+                              value={String(section.title || "")}
+                              placeholder="section title"
+                              onChange={(event) => updateSection(sectionIndex, { title: event.target.value })}
+                              style={{
+                                padding: "0.42rem 0.6rem",
+                                borderRadius: "0.45rem",
+                                border: "1px solid var(--border-color)",
+                                background: "var(--input-bg)",
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              style={{ fontSize: "0.75rem" }}
+                              onClick={() => removeSection(sectionIndex)}
+                            >
+                              {labels.panelRemoveSection}
+                            </button>
+                          </div>
+
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                            <strong style={{ fontSize: "0.78rem" }}>{labels.panelFields}</strong>
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              style={{ fontSize: "0.75rem" }}
+                              onClick={() => addField(sectionIndex)}
+                            >
+                              {labels.panelAddField}
+                            </button>
+                          </div>
+
+                          {(Array.isArray(section.fields) ? (section.fields as Array<Record<string, unknown>>) : []).map((field, fieldIndex) => (
+                            <div key={`field_editor_${sectionIndex}_${fieldIndex}`} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 0.9fr 0.9fr auto", gap: "0.3rem" }}>
+                              <input
+                                value={String(field.key || "")}
+                                placeholder="field key"
+                                onChange={(event) => updateField(sectionIndex, fieldIndex, { key: event.target.value })}
+                                style={{
+                                  padding: "0.38rem 0.55rem",
+                                  borderRadius: "0.45rem",
+                                  border: "1px solid var(--border-color)",
+                                  background: "var(--input-bg)",
+                                  color: "var(--text-primary)",
+                                }}
+                              />
+                              <input
+                                value={String(field.label || "")}
+                                placeholder="label"
+                                onChange={(event) => updateField(sectionIndex, fieldIndex, { label: event.target.value })}
+                                style={{
+                                  padding: "0.38rem 0.55rem",
+                                  borderRadius: "0.45rem",
+                                  border: "1px solid var(--border-color)",
+                                  background: "var(--input-bg)",
+                                  color: "var(--text-primary)",
+                                }}
+                              />
+                              <select
+                                value={String(field.source || "raw")}
+                                onChange={(event) => updateField(sectionIndex, fieldIndex, { source: event.target.value })}
+                                style={{
+                                  padding: "0.38rem 0.55rem",
+                                  borderRadius: "0.45rem",
+                                  border: "1px solid var(--border-color)",
+                                  background: "var(--input-bg)",
+                                  color: "var(--text-primary)",
+                                }}
+                              >
+                                <option value="raw">raw</option>
+                                <option value="computed">computed</option>
+                                <option value="relation">relation</option>
+                                <option value="external">external</option>
+                              </select>
+                              <select
+                                value={String(field.renderer || "text")}
+                                onChange={(event) => updateField(sectionIndex, fieldIndex, { renderer: event.target.value })}
+                                style={{
+                                  padding: "0.38rem 0.55rem",
+                                  borderRadius: "0.45rem",
+                                  border: "1px solid var(--border-color)",
+                                  background: "var(--input-bg)",
+                                  color: "var(--text-primary)",
+                                }}
+                              >
+                                <option value="text">text</option>
+                                <option value="formatted">formatted</option>
+                                <option value="badge">badge</option>
+                                <option value="progress">progress</option>
+                                <option value="donut">donut</option>
+                                <option value="link">link</option>
+                              </select>
+                              <button
+                                type="button"
+                                className="admin-btn admin-btn-secondary"
+                                style={{ fontSize: "0.75rem" }}
+                                onClick={() => removeField(sectionIndex, fieldIndex)}
+                              >
+                                {labels.panelRemoveField}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <label style={{ display: "grid", gap: "0.3rem" }}>
+                    <span>{labels.panelEditor}</span>
+                    <textarea
+                      value={panelEditorText}
+                      onChange={(event) => setPanelEditorText(event.target.value)}
+                      rows={14}
+                      style={{
+                        width: "100%",
+                        resize: "vertical",
+                        padding: "0.55rem 0.65rem",
+                        borderRadius: "0.45rem",
+                        border: "1px solid var(--border-color)",
+                        background: "var(--input-bg)",
+                        color: "var(--text-primary)",
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                        fontSize: "0.78rem",
+                      }}
+                    />
+                  </label>
+                )}
 
                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
                   <AsyncButton
