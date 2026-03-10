@@ -44,46 +44,46 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg-primary: #f8f1e3;
-  --bg-secondary: #f3e9d6;
-  --bg-tertiary: #fffaf0;
-  --bg-hover: #f6eddc;
-  --accent-primary: #8b6a3e;
-  --accent-rgb: 139, 106, 62;
-  --text-primary: #3f3120;
-  --text-secondary: #6a5336;
-  --text-muted: #8a7355;
+  --bg-primary: #f4f2ee;
+  --bg-secondary: #eeebe5;
+  --bg-tertiary: #fbfaf7;
+  --bg-hover: #f1efea;
+  --accent-primary: #756044;
+  --accent-rgb: 117, 96, 68;
+  --text-primary: #352f25;
+  --text-secondary: #585142;
+  --text-muted: #77705f;
   --text-tertiary: var(--text-muted);
-  --border-color: #e0cfb2;
+  --border-color: #d6d0c4;
   --border-primary: var(--border-color);
-  --border-secondary: #d4bea0;
-  --border-hover: #c8af8f;
-  --search-bg: #fffaf2;
-  --dropdown-bg: #fffaf2;
-  --modal-bg: #fffaf2;
-  --input-bg: #fff6e8;
-  --button-bg: #f7eddc;
-  --card-bg: #fcf6ea;
-  --surface-primary: #fffaf2;
-  --surface-secondary: #f7ecda;
-  --shadow-color: rgba(56, 38, 16, 0.12);
+  --border-secondary: #c8c1b4;
+  --border-hover: #b6ae9f;
+  --search-bg: #fcfbf8;
+  --dropdown-bg: #fcfbf8;
+  --modal-bg: #fcfbf8;
+  --input-bg: #f8f6f2;
+  --button-bg: #efebe4;
+  --card-bg: #f6f3ed;
+  --surface-primary: #fcfbf8;
+  --surface-secondary: #efeae2;
+  --shadow-color: rgba(43, 34, 18, 0.1);
   --overlay-bg: rgba(0, 0, 0, 0.4);
   --success-bg: rgba(34, 197, 94, 0.15);
   --success-text: rgb(22, 163, 74);
   --error-bg: rgba(239, 68, 68, 0.15);
   --error-text: rgb(220, 38, 38);
-  --scrollbar-track: #efdfc7;
-  --scrollbar-thumb: #ceb38e;
-  --scrollbar-thumb-hover: #b89466;
+  --scrollbar-track: #e8e3d9;
+  --scrollbar-thumb: #b8ad99;
+  --scrollbar-thumb-hover: #9f917b;
   --gradient-shell: linear-gradient(
     145deg,
-    #fff6e8 0%,
-    #f5ead7 52%,
-    #ecdabf 90%,
-    #dfc29c 100%
+    #faf8f3 0%,
+    #f1eee8 52%,
+    #e6e2d8 90%,
+    #d8d1c4 100%
   );
-  --gradient-surface: linear-gradient(125deg, #fffbf3 0%, #f8efdf 58%, #eedcc1 100%);
-  --avatar-gradient: linear-gradient(135deg, #a27d4f, #d1b07d);
+  --gradient-surface: linear-gradient(125deg, #fcfbf8 0%, #f2efe9 58%, #e4ddd1 100%);
+  --avatar-gradient: linear-gradient(135deg, #8a7354, #b59e82);
 }
 
 html,
