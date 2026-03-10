@@ -824,9 +824,17 @@ export default function DocumentationPage() {
       setPageMenuOverlay(null);
     };
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeOverlays();
+      }
+    };
+
     window.addEventListener("pointerdown", closeOverlays);
+    window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("pointerdown", closeOverlays);
+      window.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
@@ -1144,8 +1152,18 @@ export default function DocumentationPage() {
 
   const openPageActionsOverlay = (kind: "page" | "folder", target: HTMLElement) => {
     const rect = target.getBoundingClientRect();
-    const { x, y } = getOverlayPosition(rect, { width: 260, height: 360 });
-    setPageMenuOverlay({ kind, x, y });
+    const { x, y } = getOverlayPosition(rect, { width: 280, height: 420 });
+
+    setPageMenuOverlay((current) => {
+      if (current?.kind === kind) {
+        const sameSpot = Math.abs(current.x - x) < 4 && Math.abs(current.y - y) < 4;
+        if (sameSpot) {
+          return null;
+        }
+      }
+      return { kind, x, y };
+    });
+
     setSlashMenu(null);
     setBlockContextMenu(null);
   };
@@ -1475,7 +1493,9 @@ export default function DocumentationPage() {
                               left: `${pageMenuOverlay.x}px`,
                               top: `${pageMenuOverlay.y}px`,
                               zIndex: 1250,
-                              minWidth: "210px",
+                              width: "280px",
+                              maxHeight: "70vh",
+                              overflowY: "auto",
                               background: "var(--card-bg)",
                               border: "1px solid var(--border-color)",
                               borderRadius: "0.65rem",
@@ -1777,7 +1797,9 @@ export default function DocumentationPage() {
                             left: `${pageMenuOverlay.x}px`,
                             top: `${pageMenuOverlay.y}px`,
                             zIndex: 1250,
-                            minWidth: "230px",
+                            width: "280px",
+                            maxHeight: "70vh",
+                            overflowY: "auto",
                             background: "var(--card-bg)",
                             border: "1px solid var(--border-color)",
                             borderRadius: "0.65rem",
