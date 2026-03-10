@@ -74,6 +74,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     ok: true,
     delivered: emailResult.delivered,
     mode: emailResult.mode,
+    error: emailResult.error,
     expiresAt,
     resetUrl: emailResult.mode === "log" ? resetUrl : undefined,
   });

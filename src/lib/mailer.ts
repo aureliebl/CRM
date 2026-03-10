@@ -9,6 +9,7 @@ type SendResetParams = {
 export type ResetEmailResult = {
   delivered: boolean;
   mode: "smtp" | "log";
+  error?: string;
 };
 
 function buildTransport() {
@@ -59,13 +60,25 @@ export async function sendPasswordResetEmail({ to, fullName, resetUrl }: SendRes
     return { delivered: false, mode: "log" };
   }
 
-  await transport.sendMail({
-    from,
-    to,
-    subject,
-    text,
-    html,
-  });
+  try {
+    await transport.sendMail({
+      from,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "SMTP send failed";
+    console.error("[password-reset][smtp] send failed", {
+      to,
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      secure: process.env.SMTP_SECURE,
+      message,
+    });
+    return { delivered: false, mode: "log", error: message };
+  }
 
   return { delivered: true, mode: "smtp" };
 }
