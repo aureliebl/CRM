@@ -17,7 +17,7 @@ export default function LiveUsersPage() {
         title: t.live_users_title ?? "Utilisateurs en ligne",
         subtitle:
           t.live_users_description ??
-          "Suivi (mock) des visiteurs actuellement sur le site Costockage.",
+          "Suivi (mock) des visiteurs actuellement sur le site CostOP.",
         tableTitle: t.sessions_active ?? "Sessions actives",
         session: "Session",
         client: "Client",
@@ -33,7 +33,7 @@ export default function LiveUsersPage() {
         title: t.live_users_title ?? "Live users",
         subtitle:
           t.live_users_description ??
-          "Mock tracking of visitors currently on Costockage.",
+          "Mock tracking of visitors currently on CostOP.",
         tableTitle: t.sessions_active ?? "Active sessions",
         session: "Session",
         client: "Client",

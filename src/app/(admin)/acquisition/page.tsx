@@ -11,6 +11,7 @@ import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider
 type AcqTab = "unfinished" | "quotes" | "abandoned";
 type ViewMode = "table" | "kanban";
 type QuoteStatus = "new" | "sent" | "accepted" | "expired" | "abandoned";
+type OperatorFilter = "all" | "unassigned" | string;
 
 type OperatorAccount = {
   id: string;
@@ -139,6 +140,7 @@ export default function AcquisitionPage() {
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
+  const [operatorFilter, setOperatorFilter] = useState<OperatorFilter>("all");
   const [boardReady, setBoardReady] = useState(false);
   const balanceCursorRef = useRef(0);
 
@@ -311,49 +313,56 @@ export default function AcquisitionPage() {
     if (availableOperators.length === 0) return;
 
     setUnfinishedRows((current) => {
-      const hasUnassigned = current.some((row) => !row.assignedOperatorId);
-      if (!hasUnassigned) return current;
-
       const loads = new Map<string, number>();
       availableOperators.forEach((operator) => loads.set(operator.id, 0));
 
-      current.forEach((row) => {
-        if (!row.assignedOperatorId) return;
-        if (!loads.has(row.assignedOperatorId)) return;
-        loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
+      let didChange = false;
+      const normalized = current.map((row) => {
+        if (!row.assignedOperatorId) return row;
+        if (loads.has(row.assignedOperatorId)) {
+          loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
+          return row;
+        }
+        didChange = true;
+        return {
+          ...row,
+          assignedOperatorId: undefined,
+        };
       });
 
-      const orderedOperators = [...availableOperators];
-      const cursor = balanceCursorRef.current % orderedOperators.length;
-      const rotated = [...orderedOperators.slice(cursor), ...orderedOperators.slice(0, cursor)];
+      const cursor = balanceCursorRef.current % availableOperators.length;
+      const rotated = [...availableOperators.slice(cursor), ...availableOperators.slice(0, cursor)];
 
       let assignedCount = 0;
-      const next = current.map((row) => {
+      const next = normalized.map((row) => {
         if (row.assignedOperatorId) return row;
 
         let chosen = rotated[0];
         for (const candidate of rotated) {
           const candidateLoad = loads.get(candidate.id) || 0;
-          const currentChosenLoad = loads.get(chosen.id) || 0;
-          if (candidateLoad < currentChosenLoad) {
+          const chosenLoad = loads.get(chosen.id) || 0;
+          if (candidateLoad < chosenLoad) {
             chosen = candidate;
           }
         }
 
         loads.set(chosen.id, (loads.get(chosen.id) || 0) + 1);
         assignedCount += 1;
+        didChange = true;
         return {
           ...row,
           assignedOperatorId: chosen.id,
         };
       });
 
+      if (!didChange) return current;
+
       if (assignedCount > 0) {
         balanceCursorRef.current = (balanceCursorRef.current + assignedCount) % availableOperators.length;
       }
       return next;
     });
-  }, [autoAssignEnabled, operators, operatorAbsences, unfinishedRows]);
+  }, [autoAssignEnabled, operators, operatorAbsences]);
 
   const operatorById = useMemo(() => {
     const map = new Map<string, OperatorAccount>();
@@ -386,7 +395,7 @@ export default function AcquisitionPage() {
 
   return (
     <div>
-      <h1 className="admin-page-title">{fr ? "Acquisition" : "Acquisition"}</h1>
+      <h1 className="admin-page-title">{fr ? "Lead" : "Lead"}</h1>
       <p className="admin-page-description">
         {fr
           ? "Suivi des leads en acquisition : bookings interrompus, demandes de devis et devis abandonnés."
@@ -402,15 +411,36 @@ export default function AcquisitionPage() {
           marginBottom: "0.75rem",
         }}
       >
-        <button
+          <button
           type="button"
           className="admin-btn admin-btn-secondary"
           onClick={() => setPresenceModalOpen(true)}
           style={{ padding: "0.3rem 0.6rem", display: "inline-flex", alignItems: "center", gap: 6 }}
         >
           <MaterialSymbol name="calendar_month" style={{ fontSize: 15 }} />
-          {fr ? "Présences" : "Availability"}
+          {fr ? "Absences" : "Absences"}
         </button>
+
+        <select
+          value={operatorFilter}
+          onChange={(event) => setOperatorFilter(event.target.value)}
+          style={{
+            padding: "0.3rem 0.55rem",
+            borderRadius: "0.45rem",
+            border: "1px solid var(--border-color)",
+            background: "var(--input-bg)",
+            color: "var(--text-primary)",
+            fontSize: 12,
+          }}
+        >
+          <option value="all">{fr ? "Tous les opérateurs" : "All operators"}</option>
+          <option value="unassigned">{fr ? "Non attribués" : "Unassigned"}</option>
+          {operators.map((operator) => (
+            <option key={`filter_op_${operator.id}`} value={operator.id}>
+              {operator.fullName || operator.email}
+            </option>
+          ))}
+        </select>
 
         <div style={{ display: "inline-flex", border: "1px solid var(--border-color)", borderRadius: 999, padding: 2 }}>
           <button
@@ -522,6 +552,7 @@ export default function AcquisitionPage() {
           rows={unfinishedRows}
           setRows={setUnfinishedRows}
           viewMode={viewMode}
+          operatorFilter={operatorFilter}
           operators={operators}
           operatorById={operatorById}
           operatorsLoading={operatorsLoading}
@@ -540,6 +571,7 @@ export default function AcquisitionPage() {
           rows={quoteRows}
           setRows={setQuoteRows}
           viewMode={viewMode}
+          operatorFilter={operatorFilter}
           onOpenDetails={(row) =>
             openPanel({
               panelId: "acquisition.quoteRequest",
@@ -555,6 +587,7 @@ export default function AcquisitionPage() {
           rows={quoteRows}
           setRows={setQuoteRows}
           viewMode={viewMode}
+          operatorFilter={operatorFilter}
           onOpenDetails={(row) =>
             openPanel({
               panelId: "acquisition.quoteRequest",
@@ -594,10 +627,10 @@ export default function AcquisitionPage() {
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>{fr ? "Calendrier de présence" : "Availability Calendar"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{fr ? "Calendrier des absences" : "Absence calendar"}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
                   {fr
-                    ? "Clique sur un jour pour marquer un opérateur en vacances (non assignable)."
+                    ? "Clique sur un jour pour marquer un opérateur absent (non assignable)."
                     : "Click a day to mark an operator as unavailable (not assignable)."}
                 </div>
               </div>
@@ -741,6 +774,7 @@ function UnfinishedBookingsTab({
   rows,
   setRows,
   viewMode,
+  operatorFilter,
   operators,
   operatorById,
   operatorsLoading,
@@ -750,6 +784,7 @@ function UnfinishedBookingsTab({
   rows: UnfinishedBookingRow[];
   setRows: React.Dispatch<React.SetStateAction<UnfinishedBookingRow[]>>;
   viewMode: ViewMode;
+  operatorFilter: OperatorFilter;
   operators: OperatorAccount[];
   operatorById: Map<string, OperatorAccount>;
   operatorsLoading: boolean;
@@ -760,6 +795,9 @@ function UnfinishedBookingsTab({
   const [openAssignMenuId, setOpenAssignMenuId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<number | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [dragInsertSide, setDragInsertSide] = useState<"before" | "after">("before");
+  const pointerRef = useRef<{ cardId: string; x: number; y: number; moved: boolean } | null>(null);
 
   const maxStep = useMemo(() => {
     return Math.max(1, ...rows.map((row) => row.totalSteps));
@@ -768,6 +806,12 @@ function UnfinishedBookingsTab({
   const columns = useMemo(() => {
     return Array.from({ length: maxStep }, (_, index) => index + 1);
   }, [maxStep]);
+
+  const visibleRows = useMemo(() => {
+    if (operatorFilter === "all") return rows;
+    if (operatorFilter === "unassigned") return rows.filter((row) => !row.assignedOperatorId);
+    return rows.filter((row) => row.assignedOperatorId === operatorFilter);
+  }, [rows, operatorFilter]);
 
   const assignOperator = (leadId: string, operatorId: string | null) => {
     setRows((current) =>
@@ -779,13 +823,39 @@ function UnfinishedBookingsTab({
   };
 
   const moveToStep = (leadId: string, nextStep: number) => {
-    setRows((current) =>
-      current.map((row) =>
-        row.id === leadId
-          ? { ...row, step: Math.max(1, Math.min(nextStep, row.totalSteps)) }
-          : row
-      )
-    );
+    setRows((current) => {
+      const moving = current.find((row) => row.id === leadId);
+      if (!moving) return current;
+
+      const without = current.filter((row) => row.id !== leadId);
+      const next = {
+        ...moving,
+        step: Math.max(1, Math.min(nextStep, moving.totalSteps)),
+      };
+
+      const lastIndexInColumn = without.reduce((acc, row, index) => (row.step === next.step ? index : acc), -1);
+      const insertIndex = lastIndexInColumn >= 0 ? lastIndexInColumn + 1 : without.length;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
+  };
+
+  const moveBeforeOrAfter = (leadId: string, targetId: string, side: "before" | "after", step: number) => {
+    setRows((current) => {
+      const moving = current.find((row) => row.id === leadId);
+      if (!moving) return current;
+
+      const without = current.filter((row) => row.id !== leadId);
+      const targetIndex = without.findIndex((row) => row.id === targetId);
+      if (targetIndex < 0) return current;
+
+      const next = {
+        ...moving,
+        step: Math.max(1, Math.min(step, moving.totalSteps)),
+      };
+
+      const insertIndex = side === "after" ? targetIndex + 1 : targetIndex;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
   };
 
   if (viewMode === "kanban") {
@@ -807,7 +877,7 @@ function UnfinishedBookingsTab({
           }}
         >
           {columns.map((step) => {
-            const stepRows = rows.filter((row) => row.step === step);
+            const stepRows = visibleRows.filter((row) => row.step === step);
 
             return (
               <div
@@ -819,6 +889,7 @@ function UnfinishedBookingsTab({
                   moveToStep(draggingId, step);
                   setDraggingId(null);
                   setDragOverColumn(null);
+                  setDragOverCardId(null);
                 }}
                 style={{
                   border: dragOverColumn === step ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
@@ -850,35 +921,77 @@ function UnfinishedBookingsTab({
                     const assigned = row.assignedOperatorId
                       ? operatorById.get(row.assignedOperatorId)
                       : undefined;
+                    const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
+                    const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
 
                     return (
-                      <div
-                        key={row.id}
-                        draggable
-                        onDragStart={() => setDraggingId(row.id)}
-                        onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
-                        onMouseEnter={() => setHoveredCardId(row.id)}
-                        onMouseLeave={() => setHoveredCardId(null)}
-                        onClick={() =>
-                          openPanel({
-                            panelId: "PLD_acquisition_kanban",
-                            contextKey: "acquisition.unfinished",
-                            entity: row,
-                          })
-                        }
-                        style={{
-                          border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                          borderRadius: 8,
-                          background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
-                          padding: "0.5rem",
-                          cursor: draggingId === row.id ? "grabbing" : "grab",
-                          display: "grid",
-                          gap: "0.35rem",
-                          position: "relative",
-                          opacity: draggingId === row.id ? 0.45 : 1,
-                          transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
-                        }}
-                      >
+                      <div key={row.id} style={{ display: "grid", gap: 4 }}>
+                        {insertBefore ? <div className="kanban-insert-line" /> : null}
+                        <div
+                          draggable
+                          onDragStart={() => setDraggingId(row.id)}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverColumn(null);
+                            setDragOverCardId(null);
+                            pointerRef.current = null;
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+                            const nextSide = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                            if (dragOverCardId !== row.id) setDragOverCardId(row.id);
+                            if (dragInsertSide !== nextSide) setDragInsertSide(nextSide);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (!draggingId || draggingId === row.id) return;
+                            moveBeforeOrAfter(draggingId, row.id, dragInsertSide, step);
+                            setDraggingId(null);
+                            setDragOverCardId(null);
+                            setDragOverColumn(null);
+                          }}
+                          onMouseDown={(event) => {
+                            pointerRef.current = { cardId: row.id, x: event.clientX, y: event.clientY, moved: false };
+                          }}
+                          onMouseMove={(event) => {
+                            if (!pointerRef.current || pointerRef.current.cardId !== row.id) return;
+                            const dx = event.clientX - pointerRef.current.x;
+                            const dy = event.clientY - pointerRef.current.y;
+                            if (Math.hypot(dx, dy) > 6) {
+                              pointerRef.current.moved = true;
+                            }
+                          }}
+                          onMouseUp={(event) => {
+                            const pointer = pointerRef.current;
+                            pointerRef.current = null;
+                            if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
+                            const target = event.target as HTMLElement | null;
+                            if (target?.closest("button, a, input, select, textarea")) return;
+                            openPanel({
+                              panelId: "PLD_acquisition_kanban",
+                              contextKey: "acquisition.unfinished",
+                              entity: row,
+                            });
+                          }}
+                          onMouseEnter={() => setHoveredCardId(row.id)}
+                          onMouseLeave={() => setHoveredCardId(null)}
+                          className="ui-hover-premium"
+                          style={{
+                            border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                            borderRadius: 8,
+                            background:
+                              hoveredCardId === row.id
+                                ? "var(--surface-secondary, rgba(255,255,255,0.06))"
+                                : "var(--surface-secondary, rgba(255,255,255,0.02))",
+                            padding: "0.5rem",
+                            cursor: draggingId === row.id ? "grabbing" : "grab",
+                            display: "grid",
+                            gap: "0.35rem",
+                            position: "relative",
+                            opacity: draggingId === row.id ? 0 : 1,
+                          }}
+                        >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}>
                           <div style={{ minWidth: 0 }}>
                             <div style={{ fontSize: 12, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -988,6 +1101,8 @@ function UnfinishedBookingsTab({
                             </span>
                           ) : null}
                         </div>
+                        </div>
+                        {insertAfter ? <div className="kanban-insert-line" /> : null}
                       </div>
                     );
                   })}
@@ -1000,7 +1115,7 @@ function UnfinishedBookingsTab({
     );
   }
 
-  const tableRows = rows.map((row) => ({
+  const tableRows = visibleRows.map((row) => ({
     ...row,
     stepLabel: `${row.step} / ${row.totalSteps}`,
     assignedOperator: row.assignedOperatorId ? operatorById.get(row.assignedOperatorId) : undefined,
@@ -1152,19 +1267,30 @@ function QuoteRequestsTab({
   rows,
   setRows,
   viewMode,
+  operatorFilter,
   onOpenDetails,
 }: {
   fr: boolean;
   rows: QuoteRow[];
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
+  operatorFilter: OperatorFilter;
   onOpenDetails: (row: QuoteRow) => void;
 }) {
   const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [dragInsertSide, setDragInsertSide] = useState<"before" | "after">("before");
+  const pointerRef = useRef<{ cardId: string; x: number; y: number; moved: boolean } | null>(null);
   const statusOrder: QuoteStatus[] = ["new", "sent", "accepted", "expired", "abandoned"];
+
+  const visibleRows = useMemo(() => {
+    if (operatorFilter === "all") return rows;
+    if (operatorFilter === "unassigned") return rows.filter((row) => !row.assignedOperatorId);
+    return rows.filter((row) => row.assignedOperatorId === operatorFilter);
+  }, [rows, operatorFilter]);
 
   const statusBadge = (status: string) => {
     const colors: Record<string, { bg: string; text: string }> = {
@@ -1179,17 +1305,45 @@ function QuoteRequestsTab({
   };
 
   const moveToStatus = (quoteId: string, nextStatus: QuoteStatus) => {
-    setRows((current) =>
-      current.map((row) =>
-        row.id === quoteId
-          ? {
-              ...row,
-              status: nextStatus,
-              statusLabel: getStatusLabel(nextStatus, fr),
-            }
-          : row
-      )
-    );
+    setRows((current) => {
+      const moving = current.find((row) => row.id === quoteId);
+      if (!moving) return current;
+      const without = current.filter((row) => row.id !== quoteId);
+      const next = {
+        ...moving,
+        status: nextStatus,
+        statusLabel: getStatusLabel(nextStatus, fr),
+      };
+      const lastIndexInColumn = without.reduce(
+        (acc, row, index) => (row.status === nextStatus ? index : acc),
+        -1
+      );
+      const insertIndex = lastIndexInColumn >= 0 ? lastIndexInColumn + 1 : without.length;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
+  };
+
+  const moveBeforeOrAfter = (
+    quoteId: string,
+    targetId: string,
+    side: "before" | "after",
+    nextStatus: QuoteStatus
+  ) => {
+    setRows((current) => {
+      const moving = current.find((row) => row.id === quoteId);
+      if (!moving) return current;
+      const without = current.filter((row) => row.id !== quoteId);
+      const targetIndex = without.findIndex((row) => row.id === targetId);
+      if (targetIndex < 0) return current;
+
+      const next = {
+        ...moving,
+        status: nextStatus,
+        statusLabel: getStatusLabel(nextStatus, fr),
+      };
+      const insertIndex = side === "after" ? targetIndex + 1 : targetIndex;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
   };
 
   if (viewMode === "kanban") {
@@ -1211,7 +1365,7 @@ function QuoteRequestsTab({
           }}
         >
           {statusOrder.map((status) => {
-            const statusRows = rows.filter((row) => row.status === status);
+            const statusRows = visibleRows.filter((row) => row.status === status);
             return (
               <div
                 key={`quote_col_${status}`}
@@ -1227,6 +1381,7 @@ function QuoteRequestsTab({
                   moveToStatus(draggingId, status);
                   setDraggingId(null);
                   setDragOverColumn(null);
+                  setDragOverCardId(null);
                 }}
                 style={{
                   border: dragOverColumn === status ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
@@ -1252,40 +1407,98 @@ function QuoteRequestsTab({
                 </div>
 
                 <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
-                  {statusRows.map((row) => (
-                    <div
-                      key={row.id}
-                      draggable
-                      onDragStart={() => setDraggingId(row.id)}
-                      onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
-                      onMouseEnter={() => setHoveredCardId(row.id)}
-                      onMouseLeave={() => setHoveredCardId(null)}
-                      onClick={() =>
-                        openPanel({
-                          panelId: "PLD_acquisition_kanban",
-                          contextKey: "acquisition.quotes",
-                          entity: row,
-                        })
-                      }
-                      style={{
-                        border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                        borderRadius: 8,
-                        background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
-                        padding: "0.5rem",
-                        cursor: draggingId === row.id ? "grabbing" : "grab",
-                        display: "grid",
-                        gap: "0.3rem",
-                        opacity: draggingId === row.id ? 0.45 : 1,
-                        transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
-                      }}
-                    >
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {row.centerName}
+                  {statusRows.map((row) => {
+                    const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
+                    const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
+
+                    return (
+                      <div key={row.id} style={{ display: "grid", gap: 4 }}>
+                        {insertBefore ? <div className="kanban-insert-line" /> : null}
+                        <div
+                          draggable
+                          onDragStart={() => setDraggingId(row.id)}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverColumn(null);
+                            setDragOverCardId(null);
+                            pointerRef.current = null;
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+                            const nextSide = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                            if (dragOverCardId !== row.id) setDragOverCardId(row.id);
+                            if (dragInsertSide !== nextSide) setDragInsertSide(nextSide);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (!draggingId || draggingId === row.id) return;
+                            moveBeforeOrAfter(draggingId, row.id, dragInsertSide, status);
+                            setDraggingId(null);
+                            setDragOverCardId(null);
+                            setDragOverColumn(null);
+                          }}
+                          onMouseDown={(event) => {
+                            pointerRef.current = { cardId: row.id, x: event.clientX, y: event.clientY, moved: false };
+                          }}
+                          onMouseMove={(event) => {
+                            if (!pointerRef.current || pointerRef.current.cardId !== row.id) return;
+                            const dx = event.clientX - pointerRef.current.x;
+                            const dy = event.clientY - pointerRef.current.y;
+                            if (Math.hypot(dx, dy) > 6) {
+                              pointerRef.current.moved = true;
+                            }
+                          }}
+                          onMouseUp={(event) => {
+                            const pointer = pointerRef.current;
+                            pointerRef.current = null;
+                            if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
+                            const target = event.target as HTMLElement | null;
+                            if (target?.closest("button, a, input, select, textarea")) return;
+                            openPanel({
+                              panelId: "PLD_acquisition_kanban",
+                              contextKey: "acquisition.quotes",
+                              entity: row,
+                            });
+                          }}
+                          onMouseEnter={() => setHoveredCardId(row.id)}
+                          onMouseLeave={() => setHoveredCardId(null)}
+                          className="ui-hover-premium"
+                          style={{
+                            border:
+                              hoveredCardId === row.id
+                                ? "1px solid var(--accent-primary)"
+                                : "1px solid var(--border-color)",
+                            borderRadius: 8,
+                            background:
+                              hoveredCardId === row.id
+                                ? "var(--surface-secondary, rgba(255,255,255,0.06))"
+                                : "var(--surface-secondary, rgba(255,255,255,0.02))",
+                            padding: "0.5rem",
+                            cursor: draggingId === row.id ? "grabbing" : "grab",
+                            display: "grid",
+                            gap: "0.3rem",
+                            opacity: draggingId === row.id ? 0 : 1,
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-secondary)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {row.centerName}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                        </div>
+                        {insertAfter ? <div className="kanban-insert-line" /> : null}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -1299,7 +1512,7 @@ function QuoteRequestsTab({
     <TableWithColumnFilters
       title={fr ? "Demandes de devis" : "Quote Requests"}
       description={fr ? "Toutes les demandes de devis reçues." : "All received quote requests."}
-      data={rows}
+      data={visibleRows}
       columns={[
         { key: "fullName", label: fr ? "Nom" : "Name", filterType: "text" },
         { key: "email", label: "Email", filterType: "text" },
@@ -1374,34 +1587,73 @@ function AbandonedQuotesTab({
   rows,
   setRows,
   viewMode,
+  operatorFilter,
   onOpenDetails,
 }: {
   fr: boolean;
   rows: QuoteRow[];
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
+  operatorFilter: OperatorFilter;
   onOpenDetails: (row: QuoteRow) => void;
 }) {
   const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
-  const filteredRows = rows.filter((q) => q.status === "abandoned" || q.status === "expired");
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [dragInsertSide, setDragInsertSide] = useState<"before" | "after">("before");
+  const pointerRef = useRef<{ cardId: string; x: number; y: number; moved: boolean } | null>(null);
+  const filteredRows = useMemo(() => {
+    const base = rows.filter((q) => q.status === "abandoned" || q.status === "expired");
+    if (operatorFilter === "all") return base;
+    if (operatorFilter === "unassigned") return base.filter((row) => !row.assignedOperatorId);
+    return base.filter((row) => row.assignedOperatorId === operatorFilter);
+  }, [rows, operatorFilter]);
   const statusOrder: QuoteStatus[] = ["expired", "abandoned"];
 
   const moveToStatus = (quoteId: string, nextStatus: QuoteStatus) => {
     if (nextStatus !== "expired" && nextStatus !== "abandoned") return;
-    setRows((current) =>
-      current.map((row) =>
-        row.id === quoteId
-          ? {
-              ...row,
-              status: nextStatus,
-              statusLabel: getStatusLabel(nextStatus, fr),
-            }
-          : row
-      )
-    );
+    setRows((current) => {
+      const moving = current.find((row) => row.id === quoteId);
+      if (!moving) return current;
+      const without = current.filter((row) => row.id !== quoteId);
+      const next = {
+        ...moving,
+        status: nextStatus,
+        statusLabel: getStatusLabel(nextStatus, fr),
+      };
+      const lastIndexInColumn = without.reduce(
+        (acc, row, index) => (row.status === nextStatus ? index : acc),
+        -1
+      );
+      const insertIndex = lastIndexInColumn >= 0 ? lastIndexInColumn + 1 : without.length;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
+  };
+
+  const moveBeforeOrAfter = (
+    quoteId: string,
+    targetId: string,
+    side: "before" | "after",
+    nextStatus: QuoteStatus
+  ) => {
+    if (nextStatus !== "expired" && nextStatus !== "abandoned") return;
+    setRows((current) => {
+      const moving = current.find((row) => row.id === quoteId);
+      if (!moving) return current;
+      const without = current.filter((row) => row.id !== quoteId);
+      const targetIndex = without.findIndex((row) => row.id === targetId);
+      if (targetIndex < 0) return current;
+
+      const next = {
+        ...moving,
+        status: nextStatus,
+        statusLabel: getStatusLabel(nextStatus, fr),
+      };
+      const insertIndex = side === "after" ? targetIndex + 1 : targetIndex;
+      return [...without.slice(0, insertIndex), next, ...without.slice(insertIndex)];
+    });
   };
 
   if (filteredRows.length === 0) {
@@ -1448,6 +1700,7 @@ function AbandonedQuotesTab({
                   moveToStatus(draggingId, status);
                   setDraggingId(null);
                   setDragOverColumn(null);
+                  setDragOverCardId(null);
                 }}
                 style={{
                   border: dragOverColumn === status ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
@@ -1473,40 +1726,98 @@ function AbandonedQuotesTab({
                 </div>
 
                 <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
-                  {statusRows.map((row) => (
-                    <div
-                      key={row.id}
-                      draggable
-                      onDragStart={() => setDraggingId(row.id)}
-                      onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
-                      onMouseEnter={() => setHoveredCardId(row.id)}
-                      onMouseLeave={() => setHoveredCardId(null)}
-                      onClick={() =>
-                        openPanel({
-                          panelId: "PLD_acquisition_kanban",
-                          contextKey: "acquisition.abandoned",
-                          entity: row,
-                        })
-                      }
-                      style={{
-                        border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                        borderRadius: 8,
-                        background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
-                        padding: "0.5rem",
-                        cursor: draggingId === row.id ? "grabbing" : "grab",
-                        display: "grid",
-                        gap: "0.3rem",
-                        opacity: draggingId === row.id ? 0.45 : 1,
-                        transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
-                      }}
-                    >
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {row.centerName}
+                  {statusRows.map((row) => {
+                    const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
+                    const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
+
+                    return (
+                      <div key={row.id} style={{ display: "grid", gap: 4 }}>
+                        {insertBefore ? <div className="kanban-insert-line" /> : null}
+                        <div
+                          draggable
+                          onDragStart={() => setDraggingId(row.id)}
+                          onDragEnd={() => {
+                            setDraggingId(null);
+                            setDragOverColumn(null);
+                            setDragOverCardId(null);
+                            pointerRef.current = null;
+                          }}
+                          onDragOver={(event) => {
+                            event.preventDefault();
+                            const rect = (event.currentTarget as HTMLDivElement).getBoundingClientRect();
+                            const nextSide = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                            if (dragOverCardId !== row.id) setDragOverCardId(row.id);
+                            if (dragInsertSide !== nextSide) setDragInsertSide(nextSide);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            if (!draggingId || draggingId === row.id) return;
+                            moveBeforeOrAfter(draggingId, row.id, dragInsertSide, status);
+                            setDraggingId(null);
+                            setDragOverCardId(null);
+                            setDragOverColumn(null);
+                          }}
+                          onMouseDown={(event) => {
+                            pointerRef.current = { cardId: row.id, x: event.clientX, y: event.clientY, moved: false };
+                          }}
+                          onMouseMove={(event) => {
+                            if (!pointerRef.current || pointerRef.current.cardId !== row.id) return;
+                            const dx = event.clientX - pointerRef.current.x;
+                            const dy = event.clientY - pointerRef.current.y;
+                            if (Math.hypot(dx, dy) > 6) {
+                              pointerRef.current.moved = true;
+                            }
+                          }}
+                          onMouseUp={(event) => {
+                            const pointer = pointerRef.current;
+                            pointerRef.current = null;
+                            if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
+                            const target = event.target as HTMLElement | null;
+                            if (target?.closest("button, a, input, select, textarea")) return;
+                            openPanel({
+                              panelId: "PLD_acquisition_kanban",
+                              contextKey: "acquisition.abandoned",
+                              entity: row,
+                            });
+                          }}
+                          onMouseEnter={() => setHoveredCardId(row.id)}
+                          onMouseLeave={() => setHoveredCardId(null)}
+                          className="ui-hover-premium"
+                          style={{
+                            border:
+                              hoveredCardId === row.id
+                                ? "1px solid var(--accent-primary)"
+                                : "1px solid var(--border-color)",
+                            borderRadius: 8,
+                            background:
+                              hoveredCardId === row.id
+                                ? "var(--surface-secondary, rgba(255,255,255,0.06))"
+                                : "var(--surface-secondary, rgba(255,255,255,0.02))",
+                            padding: "0.5rem",
+                            cursor: draggingId === row.id ? "grabbing" : "grab",
+                            display: "grid",
+                            gap: "0.3rem",
+                            opacity: draggingId === row.id ? 0 : 1,
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-secondary)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {row.centerName}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                        </div>
+                        {insertAfter ? <div className="kanban-insert-line" /> : null}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );

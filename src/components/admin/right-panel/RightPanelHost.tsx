@@ -161,9 +161,10 @@ export function RightPanelHost() {
         height: "100vh",
         width: collapsed ? 44 : width,
         borderLeft: "1px solid var(--border-color)",
-        background: "var(--card-bg)",
+        background: "var(--surface-primary)",
         zIndex: 80,
-        boxShadow: "-6px 0 16px rgba(0,0,0,0.12)",
+        boxShadow: "-12px 0 30px rgba(0,0,0,0.18)",
+        backdropFilter: "blur(12px)",
         transition: "width 0.22s ease",
         display: "grid",
         gridTemplateRows: "auto 1fr",
@@ -171,17 +172,18 @@ export function RightPanelHost() {
     >
       <div
         style={{
-          padding: "0.55rem",
+          padding: "0.7rem 0.65rem",
           borderBottom: "1px solid var(--border-color)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 8,
+          background: "linear-gradient(180deg, rgba(var(--accent-rgb), 0.08), transparent)",
         }}
       >
         {!collapsed ? (
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", letterSpacing: "0.01em" }}>
               {title || config.displayName}
             </div>
             {subtitle ? (
@@ -207,6 +209,7 @@ export function RightPanelHost() {
                 fontSize: 11,
                 color: "var(--text-secondary)",
                 cursor: "help",
+                background: "var(--surface-secondary)",
               }}
             >
               ?
@@ -215,7 +218,7 @@ export function RightPanelHost() {
           <button
             type="button"
             onClick={toggleCollapse}
-            style={{ border: "none", background: "transparent", color: "var(--text-secondary)", cursor: "pointer", padding: 0 }}
+            style={{ border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-secondary)", cursor: "pointer", padding: 2, borderRadius: 6 }}
             title={collapsed ? "Deplier" : "Replier"}
           >
             <MaterialSymbol name={collapsed ? "left_panel_open" : "left_panel_close"} size={18} weight={500} opticalSize={20} />
@@ -223,7 +226,7 @@ export function RightPanelHost() {
           <button
             type="button"
             onClick={closePanel}
-            style={{ border: "none", background: "transparent", color: "var(--text-secondary)", cursor: "pointer", padding: 0 }}
+            style={{ border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-secondary)", cursor: "pointer", padding: 2, borderRadius: 6 }}
             title="Fermer"
           >
             <MaterialSymbol name="close" size={18} weight={500} opticalSize={20} />
@@ -232,7 +235,7 @@ export function RightPanelHost() {
       </div>
 
       {!collapsed ? (
-        <div style={{ overflow: "auto", padding: "0.65rem", display: "grid", gap: "0.65rem", alignContent: "start" }}>
+        <div style={{ overflow: "auto", padding: "0.75rem", display: "grid", gap: "0.7rem", alignContent: "start" }}>
           {(config.globalActions || []).length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
               {(config.globalActions || []).map((action) => (
@@ -250,8 +253,18 @@ export function RightPanelHost() {
           ) : null}
 
           {(config.sections || []).map((section) => (
-            <section key={section.key} style={{ border: "1px solid var(--border-color)", borderRadius: 10, padding: "0.55rem", display: "grid", gap: "0.45rem" }}>
-              {section.title ? <div style={{ fontSize: 12, fontWeight: 700 }}>{section.title}</div> : null}
+            <section
+              key={section.key}
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.65rem",
+                display: "grid",
+                gap: "0.5rem",
+                background: "var(--surface-secondary)",
+              }}
+            >
+              {section.title ? <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.01em" }}>{section.title}</div> : null}
 
               {section.fields.map((field) => {
                 const value = fieldValue(field);

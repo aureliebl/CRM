@@ -191,6 +191,18 @@ export function TableWithColumnFilters<T extends { id: string }>({
     [measuredColumnWidths]
   );
 
+  const computedTableWidth = useMemo(() => {
+    const total = columns.reduce((sum, column) => {
+      const width = getEffectiveColumnWidth(column);
+      if (!width) return sum + 150;
+      const parsed = Number.parseFloat(width);
+      if (!Number.isFinite(parsed)) return sum + 150;
+      return sum + parsed;
+    }, 0);
+
+    return `${Math.max(total, columns.length * 120)}px`;
+  }, [columns, getEffectiveColumnWidth]);
+
   const syncMeasuredColumnWidths = useCallback(() => {
     setMeasuredColumnWidths((prev) => {
       const next: Record<string, string> = {};
@@ -351,11 +363,11 @@ export function TableWithColumnFilters<T extends { id: string }>({
           <div style={{ overflowX: "auto", marginTop: "0.6rem" }} ref={filterWrapperRef}>
             <table
               style={{
-                width: "100%",
+                width: computedTableWidth,
                 borderCollapse: "collapse",
                 fontSize: "0.8rem",
                 tableLayout: "fixed",
-                minWidth: columns.length > 5 ? `${columns.length * 150}px` : undefined,
+                minWidth: computedTableWidth,
               }}
             >
               <colgroup>
@@ -536,11 +548,11 @@ export function TableWithColumnFilters<T extends { id: string }>({
         <div style={{ overflowX: "auto" }} ref={dataTableWrapperRef}>
           <table
             style={{
-              width: "100%",
+              width: computedTableWidth,
               borderCollapse: "collapse",
               fontSize: "0.8rem",
               tableLayout: "fixed",
-              minWidth: columns.length > 5 ? `${columns.length * 150}px` : undefined,
+              minWidth: computedTableWidth,
             }}
           >
             <colgroup>

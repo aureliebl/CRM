@@ -44,46 +44,46 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --bg-primary: #fbf7ea;
-  --bg-secondary: #f3f8e8;
-  --bg-tertiary: #fffdf2;
-  --bg-hover: #e7f1db;
-  --accent-primary: #1f5b38;
-  --accent-rgb: 31, 91, 56;
-  --text-primary: #1c3a29;
-  --text-secondary: #3a5b48;
-  --text-muted: #5f7767;
+  --bg-primary: #f8f1e3;
+  --bg-secondary: #f3e9d6;
+  --bg-tertiary: #fffaf0;
+  --bg-hover: #f6eddc;
+  --accent-primary: #8b6a3e;
+  --accent-rgb: 139, 106, 62;
+  --text-primary: #3f3120;
+  --text-secondary: #6a5336;
+  --text-muted: #8a7355;
   --text-tertiary: var(--text-muted);
-  --border-color: #c9dbc3;
+  --border-color: #e0cfb2;
   --border-primary: var(--border-color);
-  --border-secondary: #b0c8ac;
-  --border-hover: #9cb99a;
-  --search-bg: #fffef7;
-  --dropdown-bg: #fffef7;
-  --modal-bg: #fffef7;
-  --input-bg: #fffdf4;
-  --button-bg: #f3f8e9;
-  --card-bg: #f4f8ea;
-  --surface-primary: #fffef7;
-  --surface-secondary: #edf5df;
-  --shadow-color: rgba(20, 48, 29, 0.12);
+  --border-secondary: #d4bea0;
+  --border-hover: #c8af8f;
+  --search-bg: #fffaf2;
+  --dropdown-bg: #fffaf2;
+  --modal-bg: #fffaf2;
+  --input-bg: #fff6e8;
+  --button-bg: #f7eddc;
+  --card-bg: #fcf6ea;
+  --surface-primary: #fffaf2;
+  --surface-secondary: #f7ecda;
+  --shadow-color: rgba(56, 38, 16, 0.12);
   --overlay-bg: rgba(0, 0, 0, 0.4);
   --success-bg: rgba(34, 197, 94, 0.15);
   --success-text: rgb(22, 163, 74);
   --error-bg: rgba(239, 68, 68, 0.15);
   --error-text: rgb(220, 38, 38);
-  --scrollbar-track: #e7f1db;
-  --scrollbar-thumb: #b5c9ad;
-  --scrollbar-thumb-hover: #8ca589;
+  --scrollbar-track: #efdfc7;
+  --scrollbar-thumb: #ceb38e;
+  --scrollbar-thumb-hover: #b89466;
   --gradient-shell: linear-gradient(
     145deg,
-    #fff7e7 0%,
-    #f3f8e8 52%,
-    #deebd1 90%,
-    #2a6340 100%
+    #fff6e8 0%,
+    #f5ead7 52%,
+    #ecdabf 90%,
+    #dfc29c 100%
   );
-  --gradient-surface: linear-gradient(125deg, #fffdf2 0%, #f0f6e2 58%, #deebd1 100%);
-  --avatar-gradient: linear-gradient(135deg, #2a6340, #4f8b66);
+  --gradient-surface: linear-gradient(125deg, #fffbf3 0%, #f8efdf 58%, #eedcc1 100%);
+  --avatar-gradient: linear-gradient(135deg, #a27d4f, #d1b07d);
 }
 
 html,
@@ -394,7 +394,7 @@ button {
 
 [data-theme="dark"] .admin-nav-link-active {
   background: var(--gradient-surface);
-  box-shadow: 0 0 0 1px rgba(26, 24, 36, 1), 0 20px 40px rgba(10, 9, 16, 0.9);
+  box-shadow: 0 0 0 1px rgba(50, 45, 72, 0.9), 0 10px 24px rgba(10, 9, 16, 0.45);
 }
 
 [data-theme="light"] .admin-nav-link-active {
@@ -516,6 +516,37 @@ button {
 .admin-topbar-title {
   font-size: 1.2rem;
   font-weight: 600;
+}
+
+.ui-hover-premium {
+  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.18s ease,
+    background 0.2s ease;
+}
+
+.ui-hover-premium:hover {
+  transform: translateY(-1px);
+  border-color: rgba(var(--accent-rgb), 0.55) !important;
+  box-shadow: 0 10px 22px var(--shadow-color);
+}
+
+.kanban-insert-line {
+  height: 2px;
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.9);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16);
+  animation: kanbanInsertPulse 0.85s ease-in-out infinite;
+}
+
+@keyframes kanbanInsertPulse {
+  0%,
+  100% {
+    opacity: 0.68;
+    transform: scaleX(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 
 .admin-topbar-subtitle {

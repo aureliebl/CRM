@@ -33,7 +33,7 @@ function buildTransport() {
 
 export async function sendPasswordResetEmail({ to, fullName, resetUrl }: SendResetParams): Promise<ResetEmailResult> {
   const transport = buildTransport();
-  const appName = process.env.APP_NAME || "Costockage";
+  const appName = process.env.APP_NAME || "CostOP";
   const from = process.env.SMTP_FROM || `no-reply@costockage.local`;
   const recipientName = (fullName ?? "").trim() || to;
 

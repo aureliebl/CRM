@@ -118,7 +118,7 @@ export default function LoginPage() {
             textAlign: "center",
           }}
         >
-          Admin Costockage
+          Admin CostOP
         </h1>
         <p
           style={{

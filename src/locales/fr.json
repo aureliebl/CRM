@@ -3,7 +3,7 @@
   "bug": "Bug",
   "report_bug": "Signaler un bug",
   "settings": "Paramètres",
-  "costockage_admin": "Costockage Admin",
+  "costockage_admin": "CostOP Admin",
   "navigation": {
     "dashboard": "Dashboard",
     "geo": "GEO",
@@ -45,7 +45,7 @@
   "bug_modal_sent_alert": "Rapport de bug envoyé ! Merci pour votre retour.",
 
   "live_users_title": "Utilisateurs en ligne",
-  "live_users_description": "Suivi (mock) des visiteurs actuellement sur le site Costockage.",
+  "live_users_description": "Suivi (mock) des visiteurs actuellement sur le site CostOP.",
   "sessions_active": "Sessions actives",
   "filters_center": "Centre",
   "option_all": "Tous",

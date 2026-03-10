@@ -27,6 +27,7 @@ interface SecurityOverview {
 type AuditLogLite = {
   id: string;
   accountId: string;
+  actorName?: string;
   type: string;
   message: string;
   timestamp: string;
@@ -153,6 +154,7 @@ export default function SecurityPage() {
           activationError: "Impossible de modifier le statut du compte",
           auditTrail: "Journal d'audit",
           eventType: "Type",
+          eventActor: "Auteur",
           eventMessage: "Message",
           eventTime: "Horodatage",
           noLogs: "Aucun événement",
@@ -239,6 +241,7 @@ export default function SecurityPage() {
           activationError: "Unable to change account status",
           auditTrail: "Audit trail",
           eventType: "Type",
+          eventActor: "Actor",
           eventMessage: "Message",
           eventTime: "Timestamp",
           noLogs: "No events",
@@ -567,6 +570,14 @@ export default function SecurityPage() {
     });
     return map;
   }, [overview]);
+
+  const accountNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    (overview?.accounts ?? []).forEach((account) => {
+      map.set(account.id, account.fullName || account.email || account.id);
+    });
+    return map;
+  }, [overview?.accounts]);
 
   const groupNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -1222,11 +1233,13 @@ export default function SecurityPage() {
                     data={(overview.logs ?? []).map((entry) => ({
                       id: entry.id,
                       type: entry.type,
+                      actorName: accountNameById.get(entry.accountId) || entry.accountId,
                       message: entry.message,
                       timestamp: entry.timestamp,
                     }))}
                     columns={[
                       { key: "type", label: labels.eventType, filterType: "text" },
+                      { key: "actorName", label: labels.eventActor, filterType: "text" },
                       { key: "message", label: labels.eventMessage, filterType: "text" },
                       { key: "timestamp", label: labels.eventTime, filterType: "text" },
                     ]}

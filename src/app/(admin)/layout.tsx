@@ -85,7 +85,7 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
       tabId: tab.id,
     })),
     { href: "/crm", label: locale === "fr" ? "Fiche client" : "Client file", icon: "person" },
-    { href: "/acquisition", label: locale === "fr" ? "Acquisition" : "Acquisition", icon: "trending_up" },
+    { href: "/acquisition", label: locale === "fr" ? "Lead" : "Lead", icon: "trending_up" },
     {
       href: "/documentation",
       label: t.navigation.documentation ?? "Documentation",
@@ -147,7 +147,7 @@ function AdminSidebar({ user, isSidebarCollapsed, onExpandSidebar }: { user: Loc
         <div className="admin-logo-mark" style={{ background: 'transparent', padding: 0, boxShadow: 'none' }}>
           <Image
             src="/logo.svg"
-            alt="Costockage Logo"
+            alt="CostOP Logo"
             width={28}
             height={28}
             style={{ borderRadius: '0.75rem' }}
