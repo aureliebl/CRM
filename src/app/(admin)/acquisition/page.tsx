@@ -29,6 +29,32 @@ type UnfinishedBookingRow = ReturnType<typeof getUnfinishedBookings>[number] & {
 
 const STORAGE_KEY = "acquisition_settings_v1";
 
+function getTodayKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getMonthKey(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getMonthDays(monthDate: Date) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  return Array.from({ length: daysInMonth }, (_, index) => {
+    const day = `${index + 1}`.padStart(2, "0");
+    const monthPadded = `${month + 1}`.padStart(2, "0");
+    return `${year}-${monthPadded}-${day}`;
+  });
+}
+
 function getInitialUnfinishedRows() {
   const centerMap = Object.fromEntries(centers.map((c) => [c.id, c]));
   const btMap = Object.fromEntries(boxTypes.map((b) => [b.id, b]));
@@ -59,7 +85,14 @@ export default function AcquisitionPage() {
   );
   const [operators, setOperators] = useState<OperatorAccount[]>([]);
   const [operatorsLoading, setOperatorsLoading] = useState(true);
-  const roundRobinRef = useRef(0);
+  const [operatorAbsences, setOperatorAbsences] = useState<Record<string, string[]>>({});
+  const [presenceModalOpen, setPresenceModalOpen] = useState(false);
+  const [presenceMonth, setPresenceMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
+  const balanceCursorRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -69,6 +102,7 @@ export default function AcquisitionPage() {
         viewMode?: ViewMode;
         autoAssignEnabled?: boolean;
         unfinishedAssignments?: Record<string, string>;
+        operatorAbsences?: Record<string, string[]>;
       };
 
       if (parsed.viewMode === "kanban" || parsed.viewMode === "table") {
@@ -84,6 +118,9 @@ export default function AcquisitionPage() {
             assignedOperatorId: parsed.unfinishedAssignments?.[row.id] || row.assignedOperatorId,
           }))
         );
+      }
+      if (parsed.operatorAbsences && typeof parsed.operatorAbsences === "object") {
+        setOperatorAbsences(parsed.operatorAbsences);
       }
     } catch {
       // Ignore localStorage parsing issues.
@@ -104,9 +141,10 @@ export default function AcquisitionPage() {
         viewMode,
         autoAssignEnabled,
         unfinishedAssignments,
+        operatorAbsences,
       })
     );
-  }, [viewMode, autoAssignEnabled, unfinishedRows]);
+  }, [viewMode, autoAssignEnabled, unfinishedRows, operatorAbsences]);
 
   useEffect(() => {
     let mounted = true;
@@ -117,7 +155,7 @@ export default function AcquisitionPage() {
         if (!res.ok || !mounted) return;
         const payload = (await res.json()) as OperatorAccount[];
         if (!mounted) return;
-        const filtered = payload.filter((item) => item.role === "admin" || item.role === "operator");
+        const filtered = payload.filter((item) => item.role === "operator");
         setOperators(filtered);
       } finally {
         if (mounted) setOperatorsLoading(false);
@@ -131,29 +169,91 @@ export default function AcquisitionPage() {
   }, []);
 
   useEffect(() => {
+    if (!selectedOperatorId && operators.length > 0) {
+      setSelectedOperatorId(operators[0].id);
+    }
+    if (selectedOperatorId && operators.length > 0 && !operators.some((operator) => operator.id === selectedOperatorId)) {
+      setSelectedOperatorId(operators[0].id);
+    }
+  }, [operators, selectedOperatorId]);
+
+  useEffect(() => {
     if (!autoAssignEnabled || operators.length === 0) return;
 
+    const todayKey = getTodayKey();
+    const availableOperators = operators.filter(
+      (operator) => !operatorAbsences[operator.id]?.includes(todayKey)
+    );
+
+    if (availableOperators.length === 0) return;
+
     setUnfinishedRows((current) => {
-      let changed = false;
+      const hasUnassigned = current.some((row) => !row.assignedOperatorId);
+      if (!hasUnassigned) return current;
+
+      const loads = new Map<string, number>();
+      availableOperators.forEach((operator) => loads.set(operator.id, 0));
+
+      current.forEach((row) => {
+        if (!row.assignedOperatorId) return;
+        if (!loads.has(row.assignedOperatorId)) return;
+        loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
+      });
+
+      const orderedOperators = [...availableOperators];
+      const cursor = balanceCursorRef.current % orderedOperators.length;
+      const rotated = [...orderedOperators.slice(cursor), ...orderedOperators.slice(0, cursor)];
+
+      let assignedCount = 0;
       const next = current.map((row) => {
         if (row.assignedOperatorId) return row;
-        const operator = operators[roundRobinRef.current % operators.length];
-        roundRobinRef.current += 1;
-        changed = true;
+
+        let chosen = rotated[0];
+        for (const candidate of rotated) {
+          const candidateLoad = loads.get(candidate.id) || 0;
+          const currentChosenLoad = loads.get(chosen.id) || 0;
+          if (candidateLoad < currentChosenLoad) {
+            chosen = candidate;
+          }
+        }
+
+        loads.set(chosen.id, (loads.get(chosen.id) || 0) + 1);
+        assignedCount += 1;
         return {
           ...row,
-          assignedOperatorId: operator?.id,
+          assignedOperatorId: chosen.id,
         };
       });
-      return changed ? next : current;
+
+      if (assignedCount > 0) {
+        balanceCursorRef.current = (balanceCursorRef.current + assignedCount) % availableOperators.length;
+      }
+      return next;
     });
-  }, [autoAssignEnabled, operators]);
+  }, [autoAssignEnabled, operators, operatorAbsences, unfinishedRows]);
 
   const operatorById = useMemo(() => {
     const map = new Map<string, OperatorAccount>();
     operators.forEach((operator) => map.set(operator.id, operator));
     return map;
   }, [operators]);
+
+  const monthDays = useMemo(() => getMonthDays(presenceMonth), [presenceMonth]);
+  const selectedOperatorAbsences = selectedOperatorId
+    ? operatorAbsences[selectedOperatorId] || []
+    : [];
+
+  const toggleAbsenceDay = (operatorId: string, day: string) => {
+    setOperatorAbsences((current) => {
+      const days = current[operatorId] || [];
+      const exists = days.includes(day);
+      const nextDays = exists ? days.filter((item) => item !== day) : [...days, day];
+      return {
+        ...current,
+        [operatorId]: nextDays,
+      };
+    });
+  };
 
   const tabs: { key: AcqTab; label: string; icon: string }[] = [
     { key: "unfinished", label: fr ? "Bookings non finalisés" : "Unfinished Bookings", icon: "pending_actions" },
@@ -179,6 +279,16 @@ export default function AcquisitionPage() {
           marginBottom: "0.75rem",
         }}
       >
+        <button
+          type="button"
+          className="admin-btn admin-btn-secondary"
+          onClick={() => setPresenceModalOpen(true)}
+          style={{ padding: "0.3rem 0.6rem", display: "inline-flex", alignItems: "center", gap: 6 }}
+        >
+          <MaterialSymbol name="calendar_month" style={{ fontSize: 15 }} />
+          {fr ? "Présences" : "Availability"}
+        </button>
+
         <div style={{ display: "inline-flex", border: "1px solid var(--border-color)", borderRadius: 999, padding: 2 }}>
           <button
             type="button"
@@ -296,6 +406,170 @@ export default function AcquisitionPage() {
       )}
       {activeTab === "quotes" && <QuoteRequestsTab fr={fr} />}
       {activeTab === "abandoned" && <AbandonedQuotesTab fr={fr} />}
+
+      {presenceModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            zIndex: 90,
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              width: "min(820px, 100%)",
+              maxHeight: "80vh",
+              overflow: "auto",
+              background: "var(--card-bg)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 12,
+              padding: "0.9rem",
+              display: "grid",
+              gap: "0.8rem",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>{fr ? "Calendrier de présence" : "Availability Calendar"}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  {fr
+                    ? "Clique sur un jour pour marquer un opérateur en vacances (non assignable)."
+                    : "Click a day to mark an operator as unavailable (not assignable)."}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                onClick={() => setPresenceModalOpen(false)}
+              >
+                {fr ? "Fermer" : "Close"}
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+              {operators.map((operator) => {
+                const active = selectedOperatorId === operator.id;
+                return (
+                  <button
+                    key={`presence_op_${operator.id}`}
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => setSelectedOperatorId(operator.id)}
+                    style={{
+                      borderRadius: 999,
+                      padding: "0.35rem 0.7rem",
+                      border: "1px solid var(--border-color)",
+                      background: active ? "var(--accent-primary)" : "transparent",
+                      color: active ? "#fff" : "var(--text-secondary)",
+                    }}
+                  >
+                    {operator.fullName || operator.email}
+                  </button>
+                );
+              })}
+              {operators.length === 0 && (
+                <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  {fr ? "Aucun opérateur chargé." : "No operators loaded."}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                onClick={() =>
+                  setPresenceMonth(
+                    (current) => new Date(current.getFullYear(), current.getMonth() - 1, 1)
+                  )
+                }
+              >
+                <MaterialSymbol name="chevron_left" style={{ fontSize: 16 }} />
+              </button>
+              <strong>
+                {presenceMonth.toLocaleDateString(fr ? "fr-FR" : "en-US", {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </strong>
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                onClick={() =>
+                  setPresenceMonth(
+                    (current) => new Date(current.getFullYear(), current.getMonth() + 1, 1)
+                  )
+                }
+              >
+                <MaterialSymbol name="chevron_right" style={{ fontSize: 16 }} />
+              </button>
+            </div>
+
+            {selectedOperatorId ? (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                  gap: "0.35rem",
+                }}
+              >
+                {monthDays.map((day) => {
+                  const absent = selectedOperatorAbsences.includes(day);
+                  const dayDate = new Date(`${day}T00:00:00`);
+                  const isToday = day === getTodayKey();
+                  const isCurrentMonth = getMonthKey(dayDate) === getMonthKey(presenceMonth);
+                  if (!isCurrentMonth) return null;
+
+                  return (
+                    <button
+                      key={`day_${day}`}
+                      type="button"
+                      onClick={() => toggleAbsenceDay(selectedOperatorId, day)}
+                      className="admin-btn"
+                      style={{
+                        border: `1px solid ${absent ? "#ef4444" : "var(--border-color)"}`,
+                        background: absent ? "#fee2e2" : "transparent",
+                        color: absent ? "#991b1b" : "var(--text-primary)",
+                        borderRadius: 8,
+                        padding: "0.45rem 0.25rem",
+                        fontSize: 12,
+                        position: "relative",
+                      }}
+                    >
+                      {dayDate.getDate()}
+                      {isToday && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: 4,
+                            right: 5,
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            background: "var(--accent-primary)",
+                          }}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+              {fr
+                ? "Règle d'auto-attribution: uniquement opérateurs disponibles aujourd'hui, avec équilibrage de charge."
+                : "Auto-assignment rule: available operators only today, with load balancing."}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
