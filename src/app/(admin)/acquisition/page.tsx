@@ -755,8 +755,11 @@ function UnfinishedBookingsTab({
   operatorsLoading: boolean;
   onOpenDetails: (row: UnfinishedBookingRow) => void;
 }) {
+  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [openAssignMenuId, setOpenAssignMenuId] = useState<string | null>(null);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<number | null>(null);
 
   const maxStep = useMemo(() => {
     return Math.max(1, ...rows.map((row) => row.totalSteps));
@@ -809,19 +812,22 @@ function UnfinishedBookingsTab({
             return (
               <div
                 key={`step_${step}`}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => { event.preventDefault(); setDragOverColumn(step); }}
+                onDragLeave={(event) => { if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
                 onDrop={() => {
                   if (!draggingId) return;
                   moveToStep(draggingId, step);
                   setDraggingId(null);
+                  setDragOverColumn(null);
                 }}
                 style={{
-                  border: "1px solid var(--border-color)",
+                  border: dragOverColumn === step ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
                   borderRadius: 10,
-                  background: "var(--card-bg)",
+                  background: dragOverColumn === step ? "rgba(99,102,241,0.05)" : "var(--card-bg)",
                   minHeight: 280,
                   display: "grid",
                   gridTemplateRows: "auto 1fr",
+                  transition: "border-color 0.12s, background 0.12s",
                 }}
               >
                 <div
@@ -850,16 +856,27 @@ function UnfinishedBookingsTab({
                         key={row.id}
                         draggable
                         onDragStart={() => setDraggingId(row.id)}
-                        onDragEnd={() => setDraggingId(null)}
+                        onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
+                        onMouseEnter={() => setHoveredCardId(row.id)}
+                        onMouseLeave={() => setHoveredCardId(null)}
+                        onClick={() =>
+                          openPanel({
+                            panelId: "PLD_acquisition_kanban",
+                            contextKey: "acquisition.unfinished",
+                            entity: row,
+                          })
+                        }
                         style={{
-                          border: "1px solid var(--border-color)",
+                          border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
                           borderRadius: 8,
-                          background: "var(--surface-secondary, rgba(255,255,255,0.02))",
+                          background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
                           padding: "0.5rem",
-                          cursor: "grab",
+                          cursor: draggingId === row.id ? "grabbing" : "grab",
                           display: "grid",
                           gap: "0.35rem",
                           position: "relative",
+                          opacity: draggingId === row.id ? 0.45 : 1,
+                          transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "start" }}>
@@ -875,24 +892,7 @@ function UnfinishedBookingsTab({
                           <div style={{ position: "relative" }}>
                             <button
                               type="button"
-                              onClick={() => onOpenDetails(row)}
-                              style={{
-                                border: "none",
-                                background: "transparent",
-                                color: "var(--text-secondary)",
-                                cursor: "pointer",
-                                padding: 0,
-                                lineHeight: 1,
-                                marginRight: 6,
-                              }}
-                              title={fr ? "Voir details" : "View details"}
-                            >
-                              <MaterialSymbol name="info" size={15} weight={500} opticalSize={20} />
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setOpenAssignMenuId((current) => (current === row.id ? null : row.id))}
+                              onClick={(event) => { event.stopPropagation(); setOpenAssignMenuId((current) => (current === row.id ? null : row.id)); }}
                               style={{
                                 border: "none",
                                 background: "transparent",
@@ -927,7 +927,7 @@ function UnfinishedBookingsTab({
                                 </div>
                                 <button
                                   type="button"
-                                  onClick={() => assignOperator(row.id, null)}
+                                  onClick={(event) => { event.stopPropagation(); assignOperator(row.id, null); }}
                                   className="admin-btn admin-btn-secondary"
                                   style={{ justifyContent: "flex-start", fontSize: 12 }}
                                 >
@@ -942,7 +942,7 @@ function UnfinishedBookingsTab({
                                     <button
                                       key={`assign_${row.id}_${operator.id}`}
                                       type="button"
-                                      onClick={() => assignOperator(row.id, operator.id)}
+                                      onClick={(event) => { event.stopPropagation(); assignOperator(row.id, operator.id); }}
                                       className="admin-btn admin-btn-secondary"
                                       style={{ justifyContent: "flex-start", fontSize: 12 }}
                                     >
@@ -1160,7 +1160,10 @@ function QuoteRequestsTab({
   viewMode: ViewMode;
   onOpenDetails: (row: QuoteRow) => void;
 }) {
+  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const statusOrder: QuoteStatus[] = ["new", "sent", "accepted", "expired", "abandoned"];
 
   const statusBadge = (status: string) => {
@@ -1212,19 +1215,22 @@ function QuoteRequestsTab({
             return (
               <div
                 key={`quote_col_${status}`}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => { event.preventDefault(); setDragOverColumn(status); }}
+                onDragLeave={(event) => { if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
                 onDrop={() => {
                   if (!draggingId) return;
                   moveToStatus(draggingId, status);
                   setDraggingId(null);
+                  setDragOverColumn(null);
                 }}
                 style={{
-                  border: "1px solid var(--border-color)",
+                  border: dragOverColumn === status ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
                   borderRadius: 10,
-                  background: "var(--card-bg)",
+                  background: dragOverColumn === status ? "rgba(99,102,241,0.05)" : "var(--card-bg)",
                   minHeight: 260,
                   display: "grid",
                   gridTemplateRows: "auto 1fr",
+                  transition: "border-color 0.12s, background 0.12s",
                 }}
               >
                 <div
@@ -1246,15 +1252,26 @@ function QuoteRequestsTab({
                       key={row.id}
                       draggable
                       onDragStart={() => setDraggingId(row.id)}
-                      onDragEnd={() => setDraggingId(null)}
+                      onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
+                      onMouseEnter={() => setHoveredCardId(row.id)}
+                      onMouseLeave={() => setHoveredCardId(null)}
+                      onClick={() =>
+                        openPanel({
+                          panelId: "PLD_acquisition_kanban",
+                          contextKey: "acquisition.quotes",
+                          entity: row,
+                        })
+                      }
                       style={{
-                        border: "1px solid var(--border-color)",
+                        border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
                         borderRadius: 8,
-                        background: "var(--surface-secondary, rgba(255,255,255,0.02))",
+                        background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
                         padding: "0.5rem",
-                        cursor: "grab",
+                        cursor: draggingId === row.id ? "grabbing" : "grab",
                         display: "grid",
                         gap: "0.3rem",
+                        opacity: draggingId === row.id ? 0.45 : 1,
+                        transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
                       }}
                     >
                       <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
@@ -1262,15 +1279,6 @@ function QuoteRequestsTab({
                         {row.centerName}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenDetails(row)}
-                        className="admin-btn admin-btn-secondary"
-                        style={{ fontSize: 11, padding: "3px 8px", justifySelf: "start" }}
-                      >
-                        <MaterialSymbol name="info" style={{ fontSize: 13, verticalAlign: "middle", marginRight: 4 }} />
-                        {fr ? "Details" : "Details"}
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -1369,7 +1377,10 @@ function AbandonedQuotesTab({
   viewMode: ViewMode;
   onOpenDetails: (row: QuoteRow) => void;
 }) {
+  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const filteredRows = rows.filter((q) => q.status === "abandoned" || q.status === "expired");
   const statusOrder: QuoteStatus[] = ["expired", "abandoned"];
 
@@ -1420,19 +1431,22 @@ function AbandonedQuotesTab({
             return (
               <div
                 key={`abandoned_col_${status}`}
-                onDragOver={(event) => event.preventDefault()}
+                onDragOver={(event) => { event.preventDefault(); setDragOverColumn(status); }}
+                onDragLeave={(event) => { if (!event.relatedTarget || !event.currentTarget.contains(event.relatedTarget as Node)) setDragOverColumn(null); }}
                 onDrop={() => {
                   if (!draggingId) return;
                   moveToStatus(draggingId, status);
                   setDraggingId(null);
+                  setDragOverColumn(null);
                 }}
                 style={{
-                  border: "1px solid var(--border-color)",
+                  border: dragOverColumn === status ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
                   borderRadius: 10,
-                  background: "var(--card-bg)",
+                  background: dragOverColumn === status ? "rgba(99,102,241,0.05)" : "var(--card-bg)",
                   minHeight: 260,
                   display: "grid",
                   gridTemplateRows: "auto 1fr",
+                  transition: "border-color 0.12s, background 0.12s",
                 }}
               >
                 <div
@@ -1454,15 +1468,26 @@ function AbandonedQuotesTab({
                       key={row.id}
                       draggable
                       onDragStart={() => setDraggingId(row.id)}
-                      onDragEnd={() => setDraggingId(null)}
+                      onDragEnd={() => { setDraggingId(null); setDragOverColumn(null); }}
+                      onMouseEnter={() => setHoveredCardId(row.id)}
+                      onMouseLeave={() => setHoveredCardId(null)}
+                      onClick={() =>
+                        openPanel({
+                          panelId: "PLD_acquisition_kanban",
+                          contextKey: "acquisition.abandoned",
+                          entity: row,
+                        })
+                      }
                       style={{
-                        border: "1px solid var(--border-color)",
+                        border: hoveredCardId === row.id ? "1px solid var(--accent-primary)" : "1px solid var(--border-color)",
                         borderRadius: 8,
-                        background: "var(--surface-secondary, rgba(255,255,255,0.02))",
+                        background: hoveredCardId === row.id ? "var(--surface-secondary, rgba(255,255,255,0.06))" : "var(--surface-secondary, rgba(255,255,255,0.02))",
                         padding: "0.5rem",
-                        cursor: "grab",
+                        cursor: draggingId === row.id ? "grabbing" : "grab",
                         display: "grid",
                         gap: "0.3rem",
+                        opacity: draggingId === row.id ? 0.45 : 1,
+                        transition: "border-color 0.15s, background 0.15s, opacity 0.15s",
                       }}
                     >
                       <div style={{ fontSize: 12, fontWeight: 600 }}>{row.fullName}</div>
@@ -1470,15 +1495,6 @@ function AbandonedQuotesTab({
                         {row.centerName}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenDetails(row)}
-                        className="admin-btn admin-btn-secondary"
-                        style={{ fontSize: 11, padding: "3px 8px", justifySelf: "start" }}
-                      >
-                        <MaterialSymbol name="info" style={{ fontSize: 13, verticalAlign: "middle", marginRight: 4 }} />
-                        {fr ? "Details" : "Details"}
-                      </button>
                     </div>
                   ))}
                 </div>
