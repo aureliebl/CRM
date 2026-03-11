@@ -123,7 +123,6 @@ function getInitialQuoteRows(fr: boolean): QuoteRow[] {
 function autoAssignRows<T extends { assignedOperatorId?: string }>(
   current: T[],
   availableOperators: OperatorAccount[],
-  availableIds: Set<string>,
   cursorRef: { current: number },
 ): T[] {
   const loads = new Map<string, number>();
@@ -132,10 +131,6 @@ function autoAssignRows<T extends { assignedOperatorId?: string }>(
   let didChange = false;
   const normalized = current.map((row) => {
     if (!row.assignedOperatorId) return row;
-    if (availableIds.has(row.assignedOperatorId)) {
-      loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
-      return row;
-    }
     didChange = true;
     return { ...row, assignedOperatorId: undefined };
   });
@@ -362,14 +357,12 @@ export default function AcquisitionPage() {
       (operator) => !operatorAbsences[operator.id]?.includes(todayKey)
     );
 
-    const availableIds = new Set(availableOperators.map((op) => op.id));
-
     setUnfinishedRows((current) =>
-      autoAssignRows(current, availableOperators, availableIds, balanceCursorRef)
+      autoAssignRows(current, availableOperators, balanceCursorRef)
     );
 
     setQuoteRows((current) =>
-      autoAssignRows(current, availableOperators, availableIds, balanceCursorRef)
+      autoAssignRows(current, availableOperators, balanceCursorRef)
     );
   }, [autoAssignEnabled, operators, operatorAbsences]);
 
