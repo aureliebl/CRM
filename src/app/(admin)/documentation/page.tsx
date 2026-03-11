@@ -416,6 +416,7 @@ export default function DocumentationPage() {
   const saveAbortRef = useRef<AbortController | null>(null);
   const pendingEditTitleNodeIdRef = useRef<string | null>(null);
   const handleSaveNodeRef = useRef<((options?: { silent?: boolean }) => Promise<void>) | undefined>(undefined);
+  const overlayBoundsRef = useRef<HTMLDivElement | null>(null);
 
   const readApiErrorMessage = useCallback(async (res: Response, fallback: string) => {
     const raw = await res.text().catch(() => "");
@@ -1363,20 +1364,38 @@ export default function DocumentationPage() {
   };
 
   const getOverlayPosition = (
-    anchor: DOMRect,
+    anchor: DOMRect | { x: number; y: number },
     dimensions: { width: number; height: number },
     gap = 8
   ) => {
-    let x = anchor.left;
-    let y = anchor.bottom + gap;
+    const bounds = overlayBoundsRef.current?.getBoundingClientRect();
+    const minX = bounds ? bounds.left + gap : gap;
+    const minY = bounds ? bounds.top + gap : gap;
+    const maxX = Math.max(
+      minX,
+      (bounds ? bounds.right : window.innerWidth) - dimensions.width - gap
+    );
+    const maxY = Math.max(
+      minY,
+      (bounds ? bounds.bottom : window.innerHeight) - dimensions.height - gap
+    );
 
-    if (x + dimensions.width > window.innerWidth - gap) {
-      x = Math.max(gap, window.innerWidth - dimensions.width - gap);
+    const isRectAnchor = (value: DOMRect | { x: number; y: number }): value is DOMRect => {
+      return "left" in value && "top" in value && "bottom" in value;
+    };
+
+    const baseX = isRectAnchor(anchor) ? anchor.left : anchor.x;
+    const baseY = isRectAnchor(anchor) ? anchor.bottom + gap : anchor.y + gap;
+    const anchorTop = isRectAnchor(anchor) ? anchor.top : anchor.y;
+
+    let x = Math.min(Math.max(baseX, minX), maxX);
+    let y = baseY;
+
+    if (y + dimensions.height > (bounds ? bounds.bottom : window.innerHeight) - gap) {
+      y = anchorTop - dimensions.height - gap;
     }
 
-    if (y + dimensions.height > window.innerHeight - gap) {
-      y = Math.max(gap, anchor.top - dimensions.height - gap);
-    }
+    y = Math.min(Math.max(y, minY), maxY);
 
     return { x, y };
   };
@@ -1389,9 +1408,8 @@ export default function DocumentationPage() {
     setBlockContextMenu(null);
   };
 
-  const openBlockContextMenu = (blockId: string, target: HTMLElement) => {
-    const rect = target.getBoundingClientRect();
-    const { x, y } = getOverlayPosition(rect, { width: 260, height: 220 });
+  const openBlockContextMenu = (blockId: string, anchor: DOMRect | { x: number; y: number }) => {
+    const { x, y } = getOverlayPosition(anchor, { width: 260, height: 220 });
     setBlockContextMenu({ blockId, x, y });
     setSlashMenu(null);
   };
@@ -1686,7 +1704,7 @@ export default function DocumentationPage() {
       )}
 
       {/* ---- MAIN CONTENT ---- */}
-      <div className="doc-main">
+      <div className="doc-main" ref={overlayBoundsRef}>
         <div style={{ minHeight: "78vh", width: "100%" }}>
 
           {!selectedNode ? (
@@ -2295,7 +2313,10 @@ export default function DocumentationPage() {
                             onClick={() => publishCursorBlock(block.id)}
                             onContextMenu={(event) => {
                               event.preventDefault();
-                              openBlockContextMenu(block.id, event.currentTarget);
+                              openBlockContextMenu(block.id, {
+                                x: event.clientX,
+                                y: event.clientY,
+                              });
                             }}
                             onDragStart={(event) => {
                               if (!crdtCanWrite) return;
@@ -2496,7 +2517,10 @@ export default function DocumentationPage() {
                               }}
                               onContextMenu={(event) => {
                                 event.preventDefault();
-                                openBlockContextMenu(block.id, event.currentTarget);
+                                openBlockContextMenu(block.id, {
+                                  x: event.clientX,
+                                  y: event.clientY,
+                                });
                               }}
                             >
                               <span style={{ color: "var(--text-secondary)", paddingTop: "0.28rem" }}>

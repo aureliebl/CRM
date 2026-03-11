@@ -6,6 +6,7 @@ import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider";
 import type { RightPanelConfig, RightPanelFieldConfig } from "@/lib/right-panel-types";
 import { evaluateRightPanelFormula } from "@/lib/right-panel-formula-engine";
+import { getClients } from "@/lib/mock/clients";
 
 function getByPath(input: Record<string, unknown>, path: string | undefined): unknown {
   if (!path) return null;
@@ -31,6 +32,10 @@ function renderTemplate(template: string, scope: Record<string, unknown>) {
     if (value === null || value === undefined) return "";
     return String(value);
   });
+}
+
+function normalizePhone(value: string) {
+  return value.replace(/\D+/g, "");
 }
 
 export function RightPanelHost() {
@@ -154,6 +159,30 @@ export function RightPanelHost() {
   const subtitle = config.subtitleTemplate ? renderTemplate(config.subtitleTemplate, scoped) : "";
   const width = config.uiOptions?.width ?? 420;
   const clientId = typeof entityRecord.clientId === "string" && entityRecord.clientId ? entityRecord.clientId : null;
+  const resolvedClientId = useMemo(() => {
+    if (clientId) return clientId;
+
+    const email = typeof entityRecord.email === "string" ? entityRecord.email.toLowerCase().trim() : "";
+    const phone = typeof entityRecord.phone === "string" ? normalizePhone(entityRecord.phone) : "";
+    const fullName = typeof entityRecord.fullName === "string" ? entityRecord.fullName.toLowerCase().trim() : "";
+
+    if (!email && !phone && !fullName) return null;
+
+    const match = getClients().find((client) => {
+      const clientEmail = (client.email || "").toLowerCase().trim();
+      const clientPhone = normalizePhone(client.phone || "");
+      const clientName = (client.fullName || "").toLowerCase().trim();
+
+      if (email && clientEmail && clientEmail === email) return true;
+      if (phone && clientPhone && clientPhone === phone) return true;
+      if (fullName && clientName && clientName === fullName) return true;
+      return false;
+    });
+
+    return match?.id ?? null;
+  }, [clientId, entityRecord]);
+
+  const showClientButton = panelId === "PLD_acquisition_kanban" || !!resolvedClientId;
 
   return (
     <aside
@@ -198,12 +227,18 @@ export function RightPanelHost() {
         ) : null}
 
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          {!collapsed && clientId ? (
+          {!collapsed && showClientButton ? (
             <button
               type="button"
-              onClick={() => router.push(`/crm/${clientId}`)}
+              onClick={() => {
+                if (resolvedClientId) {
+                  router.push(`/crm/${resolvedClientId}`);
+                  return;
+                }
+                router.push("/crm");
+              }}
               style={{ border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-secondary)", cursor: "pointer", padding: 2, borderRadius: 6 }}
-              title="Voir la fiche client"
+              title={resolvedClientId ? "Voir la fiche client" : "Ouvrir CRM"}
             >
               <MaterialSymbol name="person" size={18} weight={500} opticalSize={20} />
             </button>
