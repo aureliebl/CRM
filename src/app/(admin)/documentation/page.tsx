@@ -1662,9 +1662,8 @@ export default function DocumentationPage() {
             </div>
 
             <div className="doc-sidebar-tree">
-              {loading && <div className="doc-sidebar-empty">{labels.loading}</div>}
-              {!loading && rootNodes.length === 0 && <div className="doc-sidebar-empty">{labels.emptyTree}</div>}
-              {!loading && rootNodes.map((node) => renderTreeNode(node, 0))}
+              {rootNodes.length === 0 && <div className="doc-sidebar-empty">{labels.emptyTree}</div>}
+              {rootNodes.map((node) => renderTreeNode(node, 0))}
             </div>
           </>
         )}
