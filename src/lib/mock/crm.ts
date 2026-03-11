@@ -487,28 +487,41 @@ const trends: Trend[] = ["up", "down", "stable", "up", "stable"];
 Object.entries(centerConfig).forEach(([centerId, cfg]) => {
   for (let floor = 0; floor < cfg.floors; floor++) {
     cfg.sizesPerFloor.forEach((sizeConf, sIdx) => {
-      const basePrice = sizeConf.sizeM2 * 25 + (floor === 0 ? 10 : floor === 1 ? 5 : 0);
+      const directorPrice = sizeConf.sizeM2 * 25 + (floor === 0 ? 10 : floor === 1 ? 5 : 0);
       const available = sizeConf.count - Math.floor(sizeConf.count * (0.3 + (sIdx * 0.15)));
       const total = sizeConf.count;
       const trendIdx = (floor + sIdx + centerId.length) % trends.length;
 
+      const pctAbove20 = -5;
+      const pctAbove10 = 0;
+      const pctBelow10 = 10;
+      const pctBelow5 = 20;
+
       // Days since last change for coloring
       const daysAgo = 5 + ((sIdx + floor) * 12) % 90;
       const lastChange = new Date(Date.now() - daysAgo * 86400000).toISOString();
+      const columnDaysAgo = 3 + ((sIdx + floor) * 7) % 60;
+      const lastColumnChange = new Date(Date.now() - columnDaysAgo * 86400000).toISOString();
 
       pricingTiers.push({
         id: `pt-${centerId}-${sizeConf.sizeM2}m2-f${floor}`,
         centerId,
         boxSizeM2: sizeConf.sizeM2,
         floor,
-        priceAbove20: basePrice - 5,
-        priceAbove10: basePrice,
-        priceBelow10: basePrice + 8,
-        priceBelow5: basePrice + 18,
+        basePrice: directorPrice,
+        percentAbove20: pctAbove20,
+        percentAbove10: pctAbove10,
+        percentBelow10: pctBelow10,
+        percentBelow5: pctBelow5,
+        priceAbove20: Math.round(directorPrice * (1 + pctAbove20 / 100)),
+        priceAbove10: Math.round(directorPrice * (1 + pctAbove10 / 100)),
+        priceBelow10: Math.round(directorPrice * (1 + pctBelow10 / 100)),
+        priceBelow5: Math.round(directorPrice * (1 + pctBelow5 / 100)),
         currentAvailable: Math.max(0, available),
         totalUnits: total,
         trend: trends[trendIdx],
         lastPriceChangeDate: lastChange,
+        lastColumnChangeDate: lastColumnChange,
       });
     });
   }
@@ -620,38 +633,156 @@ export function getPricingTiersByCenter(centerId: string): PricingTier[] {
 
 export function updatePricingTier(
   tierId: string,
-  updates: Partial<Pick<PricingTier, "priceAbove20" | "priceAbove10" | "priceBelow10" | "priceBelow5">>
+  updates: Partial<Pick<PricingTier, "basePrice" | "percentAbove20" | "percentAbove10" | "percentBelow10" | "percentBelow5" | "priceAbove20" | "priceAbove10" | "priceBelow10" | "priceBelow5">>
 ): PricingTier | null {
   const tier = pricingTiers.find((t) => t.id === tierId);
   if (!tier) return null;
-  Object.assign(tier, updates);
+
+  // Determine the effective base price to use when back-computing percentages
+  const effectiveBasePrice =
+    typeof updates.basePrice === "number" ? updates.basePrice : tier.basePrice;
+
+  // Back-compute percentage values from any updated price* fields
+  const derivedPercentUpdates: Partial<Record<PercentColumn, number>> = {};
+  if (typeof effectiveBasePrice === "number" && effectiveBasePrice !== 0) {
+    (Object.keys(percentToPrice) as PercentColumn[]).forEach((percentKey) => {
+      const priceKey = percentToPrice[percentKey];
+      const updatedPrice = updates[priceKey];
+      if (typeof updatedPrice === "number") {
+        derivedPercentUpdates[percentKey] =
+          ((updatedPrice / effectiveBasePrice) - 1) * 100;
+      }
+    });
+  }
+
+  // Merge original updates with any derived percentage updates
+  const combinedUpdates: typeof updates & Partial<Record<PercentColumn, number>> = {
+    ...updates,
+    ...derivedPercentUpdates,
+  };
+
+  // Decide whether prices need to be recomputed from basePrice/percentages
+  let shouldRecompute = false;
+  if (typeof combinedUpdates.basePrice === "number") {
+    shouldRecompute = true;
+  } else {
+    const percentColumns: PercentColumn[] = [
+      "percentAbove20",
+      "percentAbove10",
+      "percentBelow10",
+      "percentBelow5",
+    ];
+    shouldRecompute = percentColumns.some(
+      (percentKey) => typeof combinedUpdates[percentKey] === "number"
+    );
+  }
+
+  Object.assign(tier, combinedUpdates);
+
+  if (shouldRecompute) {
+    // Recompute prices from basePrice + percentages
+    recomputePrices(tier);
+  }
   tier.lastPriceChangeDate = new Date().toISOString();
   return tier;
+}
+
+type PercentColumn = "percentAbove20" | "percentAbove10" | "percentBelow10" | "percentBelow5";
+type PriceColumn = "priceAbove20" | "priceAbove10" | "priceBelow10" | "priceBelow5";
+
+const percentToPrice: Record<PercentColumn, PriceColumn> = {
+  percentAbove20: "priceAbove20",
+  percentAbove10: "priceAbove10",
+  percentBelow10: "priceBelow10",
+  percentBelow5: "priceBelow5",
+};
+
+function recomputePrices(tier: PricingTier): void {
+  tier.priceAbove20 = Math.round(tier.basePrice * (1 + tier.percentAbove20 / 100));
+  tier.priceAbove10 = Math.round(tier.basePrice * (1 + tier.percentAbove10 / 100));
+  tier.priceBelow10 = Math.round(tier.basePrice * (1 + tier.percentBelow10 / 100));
+  tier.priceBelow5 = Math.round(tier.basePrice * (1 + tier.percentBelow5 / 100));
 }
 
 export function bulkUpdatePricingTiers(
   tierIds: string[],
   action: { type: "percent"; deltaPercent: number } | { type: "absolute"; deltaAmount: number },
-  targetColumns?: Array<"priceAbove20" | "priceAbove10" | "priceBelow10" | "priceBelow5">
+  targetColumns?: PercentColumn[],
+  options?: { roundToEuro?: boolean; modifyPriceDirectly?: boolean }
 ): PricingTier[] {
   const updated: PricingTier[] = [];
   tierIds.forEach((id) => {
     const tier = pricingTiers.find((t) => t.id === id);
     if (!tier) return;
 
-    // Apply to specific columns or to ALL 4 columns if none specified
-    const fields = targetColumns && targetColumns.length > 0
+    const fields: PercentColumn[] = targetColumns && targetColumns.length > 0
       ? targetColumns
-      : (["priceAbove20", "priceAbove10", "priceBelow10", "priceBelow5"] as const);
+      : (["percentAbove20", "percentAbove10", "percentBelow10", "percentBelow5"] as const);
 
-    for (const field of fields) {
-      if (action.type === "percent") {
-        const currentVal = tier[field];
-        tier[field] = Math.round(currentVal * (1 + action.deltaPercent / 100));
-      } else {
-        tier[field] = Math.max(0, tier[field] + action.deltaAmount);
+    if (options?.modifyPriceDirectly) {
+      // Direct price modification mode
+      for (const pctField of fields) {
+        const priceField = percentToPrice[pctField];
+        if (action.type === "percent") {
+          tier[priceField] = Math.round(tier[priceField] * (1 + action.deltaPercent / 100));
+        } else {
+          tier[priceField] = Math.max(0, tier[priceField] + action.deltaAmount);
+        }
+        // Back-compute percentage from price
+        if (tier.basePrice > 0) {
+          tier[pctField] = parseFloat(((tier[priceField] / tier.basePrice - 1) * 100).toFixed(2));
+        } else {
+          // When basePrice is not positive, keep the invariant by zeroing both price and percent
+          tier[priceField] = 0;
+          tier[pctField] = 0;
+        }
+      }
+    } else {
+      // Percentage modification mode (default)
+      for (const pctField of fields) {
+        if (action.type === "percent") {
+          tier[pctField] = parseFloat((tier[pctField] + action.deltaPercent).toFixed(2));
+        } else {
+          // Absolute: convert euro delta to percentage shift relative to basePrice
+          if (tier.basePrice > 0) {
+            const pctShift = (action.deltaAmount / tier.basePrice) * 100;
+            tier[pctField] = parseFloat((tier[pctField] + pctShift).toFixed(2));
+          }
+        }
+      }
+      recomputePrices(tier);
+    }
+
+    if (options?.roundToEuro) {
+      for (const pctField of fields) {
+        const priceField = percentToPrice[pctField];
+        tier[priceField] = Math.ceil(tier[priceField]);
+        if (tier.basePrice > 0) {
+          tier[pctField] = parseFloat(((tier[priceField] / tier.basePrice - 1) * 100).toFixed(2));
+        }
       }
     }
+
+    tier.lastPriceChangeDate = new Date().toISOString();
+    updated.push(tier);
+  });
+  return updated;
+}
+
+export function bulkUpdateBasePrice(
+  tierIds: string[],
+  action: { type: "percent"; deltaPercent: number } | { type: "absolute"; deltaAmount: number }
+): PricingTier[] {
+  const updated: PricingTier[] = [];
+  tierIds.forEach((id) => {
+    const tier = pricingTiers.find((t) => t.id === id);
+    if (!tier) return;
+    if (action.type === "percent") {
+      tier.basePrice = Math.round(tier.basePrice * (1 + action.deltaPercent / 100));
+    } else {
+      tier.basePrice = Math.max(0, Math.round(tier.basePrice + action.deltaAmount));
+    }
+    recomputePrices(tier);
     tier.lastPriceChangeDate = new Date().toISOString();
     updated.push(tier);
   });
