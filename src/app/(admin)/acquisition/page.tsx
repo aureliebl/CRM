@@ -310,7 +310,7 @@ export default function AcquisitionPage() {
       (operator) => !operatorAbsences[operator.id]?.includes(todayKey)
     );
 
-    if (availableOperators.length === 0) return;
+    const availableIds = new Set(availableOperators.map((op) => op.id));
 
     setUnfinishedRows((current) => {
       const loads = new Map<string, number>();
@@ -319,7 +319,7 @@ export default function AcquisitionPage() {
       let didChange = false;
       const normalized = current.map((row) => {
         if (!row.assignedOperatorId) return row;
-        if (loads.has(row.assignedOperatorId)) {
+        if (availableIds.has(row.assignedOperatorId)) {
           loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
           return row;
         }
@@ -329,6 +329,65 @@ export default function AcquisitionPage() {
           assignedOperatorId: undefined,
         };
       });
+
+      if (availableOperators.length === 0) {
+        return didChange ? normalized : current;
+      }
+
+      const cursor = balanceCursorRef.current % availableOperators.length;
+      const rotated = [...availableOperators.slice(cursor), ...availableOperators.slice(0, cursor)];
+
+      let assignedCount = 0;
+      const next = normalized.map((row) => {
+        if (row.assignedOperatorId) return row;
+
+        let chosen = rotated[0];
+        for (const candidate of rotated) {
+          const candidateLoad = loads.get(candidate.id) || 0;
+          const chosenLoad = loads.get(chosen.id) || 0;
+          if (candidateLoad < chosenLoad) {
+            chosen = candidate;
+          }
+        }
+
+        loads.set(chosen.id, (loads.get(chosen.id) || 0) + 1);
+        assignedCount += 1;
+        didChange = true;
+        return {
+          ...row,
+          assignedOperatorId: chosen.id,
+        };
+      });
+
+      if (!didChange) return current;
+
+      if (assignedCount > 0) {
+        balanceCursorRef.current = (balanceCursorRef.current + assignedCount) % availableOperators.length;
+      }
+      return next;
+    });
+
+    setQuoteRows((current) => {
+      const loads = new Map<string, number>();
+      availableOperators.forEach((operator) => loads.set(operator.id, 0));
+
+      let didChange = false;
+      const normalized = current.map((row) => {
+        if (!row.assignedOperatorId) return row;
+        if (availableIds.has(row.assignedOperatorId)) {
+          loads.set(row.assignedOperatorId, (loads.get(row.assignedOperatorId) || 0) + 1);
+          return row;
+        }
+        didChange = true;
+        return {
+          ...row,
+          assignedOperatorId: undefined,
+        };
+      });
+
+      if (availableOperators.length === 0) {
+        return didChange ? normalized : current;
+      }
 
       const cursor = balanceCursorRef.current % availableOperators.length;
       const rotated = [...availableOperators.slice(cursor), ...availableOperators.slice(0, cursor)];
@@ -945,6 +1004,7 @@ function UnfinishedBookingsTab({
                           }}
                           onDrop={(event) => {
                             event.preventDefault();
+                            event.stopPropagation();
                             if (!draggingId || draggingId === row.id) return;
                             moveBeforeOrAfter(draggingId, row.id, dragInsertSide, step);
                             setDraggingId(null);
@@ -1432,6 +1492,7 @@ function QuoteRequestsTab({
                           }}
                           onDrop={(event) => {
                             event.preventDefault();
+                            event.stopPropagation();
                             if (!draggingId || draggingId === row.id) return;
                             moveBeforeOrAfter(draggingId, row.id, dragInsertSide, status);
                             setDraggingId(null);
@@ -1751,6 +1812,7 @@ function AbandonedQuotesTab({
                           }}
                           onDrop={(event) => {
                             event.preventDefault();
+                            event.stopPropagation();
                             if (!draggingId || draggingId === row.id) return;
                             moveBeforeOrAfter(draggingId, row.id, dragInsertSide, status);
                             setDraggingId(null);
