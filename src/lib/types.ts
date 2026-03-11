@@ -442,6 +442,11 @@ export interface PricingTier {
   centerId: string;
   boxSizeM2: number;
   floor: number;
+  basePrice: number;
+  percentAbove20: number;
+  percentAbove10: number;
+  percentBelow10: number;
+  percentBelow5: number;
   priceAbove20: number;
   priceAbove10: number;
   priceBelow10: number;
@@ -450,6 +455,7 @@ export interface PricingTier {
   totalUnits: number;
   trend: Trend;
   lastPriceChangeDate: string;
+  lastColumnChangeDate: string;
 }
 
 export type DynamicTabSource = "centers" | "clients" | "bookings" | "external";
