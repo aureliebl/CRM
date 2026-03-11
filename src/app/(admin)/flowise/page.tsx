@@ -2,39 +2,12 @@
 
 import Link from "next/link";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
-
-const ASSISTANTS = [
-  {
-    id: "general",
-    name: "Assistant Général",
-    description: "Assistant polyvalent pour répondre à toutes vos questions.",
-    icon: "smart_toy",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  {
-    id: "commercial",
-    name: "Assistant Commercial",
-    description: "Aide à la rédaction de devis et suivi client.",
-    icon: "storefront",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  {
-    id: "technique",
-    name: "Assistant Technique",
-    description: "Support technique et résolution de problèmes.",
-    icon: "build",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  {
-    id: "rh",
-    name: "Assistant RH",
-    description: "Gestion des ressources humaines et questions internes.",
-    icon: "groups",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-];
+import { ASSISTANTS } from "@/lib/assistants-config";
+import { useLocale } from "@/lib/use-locale";
 
 export default function FlowisePage() {
+  const { t } = useLocale();
+
   return (
     <div style={{ padding: "0 1.5rem 1rem" }}>
       <h2
@@ -45,7 +18,7 @@ export default function FlowisePage() {
           margin: "0 0 0.25rem",
         }}
       >
-        Assistants
+        {t("assistant_page_title")}
       </h2>
       <p
         style={{
@@ -54,8 +27,7 @@ export default function FlowisePage() {
           margin: "0 0 1.5rem",
         }}
       >
-        Sélectionnez un assistant pour démarrer une conversation et enregistrer
-        des données.
+        {t("assistant_page_description")}
       </p>
 
       <div

@@ -86,5 +86,12 @@
   "assistant_table_title": "Title",
   "assistant_table_date": "Date",
   "assistant_no_entries": "No entries saved. Use the assistant above then paste the generated JSON.",
-  "assistant_created_at": "Created on"
+  "assistant_created_at": "Created on",
+  "assistant_json_invalid": "Invalid JSON. Check the syntax.",
+  "assistant_json_missing_fields": "The JSON must contain \"title\" and \"description\".",
+  "assistant_not_found": "Assistant not found.",
+  "assistant_back_all": "Back to assistants",
+  "assistant_format_hint_example": "{ \"title\": \"…\", \"description\": \"…\" }",
+  "assistant_placeholder": "{ \"title\": \"My title\", \"description\": \"Long description…\" }",
+  "assistant_delete": "Delete"
 }

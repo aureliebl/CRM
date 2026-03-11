@@ -5,40 +5,13 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { ASSISTANTS_BY_ID } from "@/lib/assistants-config";
+import { useLocale } from "@/lib/use-locale";
 
 const FullPageChat = dynamic(
   () => import("flowise-embed-react").then((module) => module.FullPageChat),
   { ssr: false },
 );
-
-/* ------------------------------------------------------------------ */
-/*  Assistant catalogue (same source of truth as the parent page)      */
-/* ------------------------------------------------------------------ */
-const ASSISTANTS: Record<
-  string,
-  { name: string; icon: string; chatflowid: string }
-> = {
-  general: {
-    name: "Assistant Général",
-    icon: "smart_toy",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  commercial: {
-    name: "Assistant Commercial",
-    icon: "storefront",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  technique: {
-    name: "Assistant Technique",
-    icon: "build",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-  rh: {
-    name: "Assistant RH",
-    icon: "groups",
-    chatflowid: "47146e72-8790-4600-846f-03ba7e0301ae",
-  },
-};
 
 /* ------------------------------------------------------------------ */
 /*  Saved‑entry type                                                   */
@@ -73,7 +46,8 @@ function saveEntries(assistantId: string, entries: SavedEntry[]) {
 /* ------------------------------------------------------------------ */
 export default function AssistantDetailPage() {
   const { assistantId } = useParams<{ assistantId: string }>();
-  const assistant = ASSISTANTS[assistantId];
+  const assistant = ASSISTANTS_BY_ID[assistantId];
+  const { t, locale } = useLocale();
 
   /* ---------- state ---------- */
   const [chatHeight, setChatHeight] = useState(420);
@@ -107,7 +81,7 @@ export default function AssistantDetailPage() {
     try {
       parsed = JSON.parse(jsonText);
     } catch {
-      setJsonError("JSON invalide. Vérifiez la syntaxe.");
+      setJsonError(t("assistant_json_invalid"));
       return;
     }
     if (
@@ -115,7 +89,7 @@ export default function AssistantDetailPage() {
       typeof parsed.title !== "string" ||
       typeof parsed.description !== "string"
     ) {
-      setJsonError('Le JSON doit contenir "title" et "description".');
+      setJsonError(t("assistant_json_missing_fields"));
       return;
     }
     const entry: SavedEntry = {
@@ -128,7 +102,7 @@ export default function AssistantDetailPage() {
     setEntries(next);
     saveEntries(assistantId, next);
     setJsonText("");
-  }, [jsonText, entries, assistantId]);
+  }, [jsonText, entries, assistantId, t]);
 
   const handleDelete = useCallback(
     (id: string) => {
@@ -157,10 +131,10 @@ export default function AssistantDetailPage() {
           }}
         >
           <MaterialSymbol name="arrow_back" size={18} />
-          Retour aux assistants
+          {t("assistant_back_all")}
         </Link>
         <p style={{ color: "var(--text-secondary)" }}>
-          Assistant introuvable.
+          {t("assistant_not_found")}
         </p>
       </div>
     );
@@ -183,7 +157,7 @@ export default function AssistantDetailPage() {
           }}
         >
           <MaterialSymbol name="arrow_back" size={18} />
-          Retour
+          {t("assistant_back")}
         </Link>
         <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
           /
@@ -238,7 +212,7 @@ export default function AssistantDetailPage() {
             fontSize: "0.95rem",
           }}
         >
-          Coller le JSON de l&apos;assistant
+          {t("assistant_paste_label")}
         </label>
         <p
           style={{
@@ -247,7 +221,7 @@ export default function AssistantDetailPage() {
             margin: "0 0 8px",
           }}
         >
-          Format attendu&nbsp;:{" "}
+          {t("assistant_paste_hint")}{" "}
           <code
             style={{
               background: "var(--surface-primary)",
@@ -256,14 +230,14 @@ export default function AssistantDetailPage() {
               fontSize: "0.8rem",
             }}
           >
-            {`{ "title": "…", "description": "…" }`}
+            {t("assistant_format_hint_example")}
           </code>
         </p>
         <textarea
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           rows={4}
-          placeholder='{ "title": "Mon titre", "description": "Description longue…" }'
+          placeholder={t("assistant_placeholder")}
           style={{
             width: "100%",
             fontFamily: "monospace",
@@ -301,7 +275,7 @@ export default function AssistantDetailPage() {
             transition: "background 0.15s",
           }}
         >
-          Enregistrer
+          {t("assistant_save")}
         </button>
       </div>
 
@@ -340,7 +314,7 @@ export default function AssistantDetailPage() {
                       color: "var(--text-primary)",
                     }}
                   >
-                    Titre
+                    {t("assistant_table_title")}
                   </th>
                   <th
                     style={{
@@ -351,7 +325,7 @@ export default function AssistantDetailPage() {
                       width: 140,
                     }}
                   >
-                    Date
+                    {t("assistant_table_date")}
                   </th>
                   <th
                     style={{
@@ -403,12 +377,12 @@ export default function AssistantDetailPage() {
                         fontSize: "0.82rem",
                       }}
                     >
-                      {new Date(e.createdAt).toLocaleDateString("fr-FR")}
+                      {new Date(e.createdAt).toLocaleDateString(locale)}
                     </td>
                     <td style={{ padding: "0.55rem 0.8rem", textAlign: "center" }}>
                       <button
                         type="button"
-                        title="Supprimer"
+                        title={t("assistant_delete")}
                         onClick={(ev) => {
                           ev.stopPropagation();
                           handleDelete(e.id);
@@ -503,8 +477,8 @@ export default function AssistantDetailPage() {
                   color: "var(--text-secondary)",
                 }}
               >
-                Créé le{" "}
-                {new Date(selectedEntry.createdAt).toLocaleString("fr-FR")}
+                {t("assistant_created_at")}{" "}
+                {new Date(selectedEntry.createdAt).toLocaleString(locale)}
               </div>
             </div>
           )}
@@ -520,8 +494,7 @@ export default function AssistantDetailPage() {
             padding: "1.5rem 0",
           }}
         >
-          Aucune entrée enregistrée. Utilisez l&apos;assistant ci-dessus puis
-          collez le JSON généré.
+          {t("assistant_no_entries")}
         </p>
       )}
     </div>
