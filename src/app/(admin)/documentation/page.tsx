@@ -418,7 +418,7 @@ export default function DocumentationPage() {
       const jsonPayload = JSON.parse(raw) as { error?: string } | null;
       if (jsonPayload?.error) return jsonPayload.error;
     } catch {
-      // not JSON – fall through
+      // not JSON - fall through
     }
 
     const compactRaw = raw.replace(/\s+/g, " ").trim();
