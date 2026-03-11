@@ -76,5 +76,15 @@
   "settings_save_account": "Save account details",
   "settings_account_saved": "Account information saved",
   "settings_error_image": "Failed to save profile image",
-  "settings_error_account": "Failed to save account information"
+  "settings_error_account": "Failed to save account information",
+  "assistant_page_title": "Assistants",
+  "assistant_page_description": "Select an assistant to start a conversation and save data.",
+  "assistant_back": "Back",
+  "assistant_paste_label": "Paste the assistant JSON",
+  "assistant_paste_hint": "Expected format:",
+  "assistant_save": "Save",
+  "assistant_table_title": "Title",
+  "assistant_table_date": "Date",
+  "assistant_no_entries": "No entries saved. Use the assistant above then paste the generated JSON.",
+  "assistant_created_at": "Created on"
 }
