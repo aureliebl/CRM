@@ -6,6 +6,7 @@ import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { useLocale } from "@/lib/use-locale";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
 import type {
   DocumentationBlock,
@@ -1626,6 +1627,10 @@ export default function DocumentationPage() {
       </div>
     );
   };
+
+  if (loading) {
+    return <TabLoadingIndicator label={labels.loading} />;
+  }
 
   return (
     <div className="doc-layout">

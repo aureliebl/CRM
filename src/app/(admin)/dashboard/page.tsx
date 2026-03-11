@@ -13,6 +13,7 @@ import {
   type DashboardGraphWithData,
 } from "@/components/admin/DashboardGraphCard";
 import { PricingOverviewCharts } from "@/components/admin/PricingOverviewCharts";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import type { DashboardGraphSize } from "@/lib/types";
 
 type SessionActor = {
@@ -187,7 +188,7 @@ export default function DashboardPage() {
   }));
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator />;
   }
 
   return (
@@ -330,7 +331,7 @@ export default function DashboardPage() {
         </div>
 
         {loadingGraphs ? (
-          <section className="admin-placeholder-card">Loading...</section>
+          <TabLoadingIndicator />
         ) : (
           <div
             style={{
