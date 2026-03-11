@@ -269,11 +269,6 @@ export default function TarifsMatrixPage() {
     return floorTiers.some((t) => selectedTiers.has(t.id));
   };
 
-  const selectedCountForFloor = (floor: number): number => {
-    const floorTiers = tiersByFloor[floor] || [];
-    return floorTiers.filter((t) => selectedTiers.has(t.id)).length;
-  };
-
   // Build the bulk actions bar content (reused per floor)
   const renderBulkBar = () => (
     <div style={{
