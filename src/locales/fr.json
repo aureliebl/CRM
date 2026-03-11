@@ -76,5 +76,22 @@
   "settings_save_account": "Enregistrer les informations",
   "settings_account_saved": "Informations du compte enregistrées",
   "settings_error_image": "Erreur lors de l'enregistrement de l'image",
-  "settings_error_account": "Erreur lors de l'enregistrement du compte"
+  "settings_error_account": "Erreur lors de l'enregistrement du compte",
+  "assistant_page_title": "Assistants",
+  "assistant_page_description": "Sélectionnez un assistant pour démarrer une conversation et enregistrer des données.",
+  "assistant_back": "Retour",
+  "assistant_paste_label": "Coller le JSON de l'assistant",
+  "assistant_paste_hint": "Format attendu :",
+  "assistant_save": "Enregistrer",
+  "assistant_table_title": "Titre",
+  "assistant_table_date": "Date",
+  "assistant_no_entries": "Aucune entrée enregistrée. Utilisez l'assistant ci-dessus puis collez le JSON généré.",
+  "assistant_created_at": "Créé le",
+  "assistant_json_invalid": "JSON invalide. Vérifiez la syntaxe.",
+  "assistant_json_missing_fields": "Le JSON doit contenir \"title\" et \"description\".",
+  "assistant_not_found": "Assistant introuvable.",
+  "assistant_back_all": "Retour aux assistants",
+  "assistant_format_hint_example": "{ \"title\": \"…\", \"description\": \"…\" }",
+  "assistant_placeholder": "{ \"title\": \"Mon titre\", \"description\": \"Description longue…\" }",
+  "assistant_delete": "Supprimer"
 }
