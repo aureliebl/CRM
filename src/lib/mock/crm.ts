@@ -780,7 +780,7 @@ export function bulkUpdateBasePrice(
     if (action.type === "percent") {
       tier.basePrice = Math.round(tier.basePrice * (1 + action.deltaPercent / 100));
     } else {
-      tier.basePrice = Math.max(0, tier.basePrice + action.deltaAmount);
+      tier.basePrice = Math.max(0, Math.round(tier.basePrice + action.deltaAmount));
     }
     recomputePrices(tier);
     tier.lastPriceChangeDate = new Date().toISOString();
