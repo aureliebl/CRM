@@ -2081,10 +2081,14 @@ export default function DocumentationPage() {
 
                           <div style={{ borderTop: "1px solid var(--border-color)", margin: "0.2rem 0", opacity: 0.7 }} />
 
-                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                          <label
+                            htmlFor="folder-visibility-select"
+                            style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}
+                          >
                             {labels.visibility}
-                          </div>
+                          </label>
                           <select
+                            id="folder-visibility-select"
                             value={selectedNode.folderVisibility}
                             onChange={(e) =>
                               setSelectedNode((current) =>
