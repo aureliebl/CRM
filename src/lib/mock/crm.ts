@@ -688,6 +688,8 @@ export function bulkUpdatePricingTiers(
         // Back-compute percentage from price
         if (tier.basePrice > 0) {
           tier[pctField] = parseFloat(((tier[priceField] / tier.basePrice - 1) * 100).toFixed(2));
+        } else {
+          tier[pctField] = 0;
         }
       }
     } else {

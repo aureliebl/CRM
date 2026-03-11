@@ -141,7 +141,9 @@ export default function TarifsMatrixPage() {
       });
       return;
     }
-    updatePricingTier(tierId, { [field]: field === "basePrice" ? Math.round(num) : parseFloat(num.toFixed(2)) } as Partial<PricingTier>);
+    const value = field === "basePrice" ? Math.round(num) : parseFloat(num.toFixed(2));
+    const updates: Record<string, number> = { [field]: value };
+    updatePricingTier(tierId, updates as Pick<PricingTier, "basePrice" | "percentAbove20" | "percentAbove10" | "percentBelow10" | "percentBelow5">);
     refreshTiers();
   };
 
@@ -212,9 +214,16 @@ export default function TarifsMatrixPage() {
     percentBelow5: "priceBelow5",
   };
 
+  const priceToPercentKey: Record<string, PercentColumn> = {
+    priceAbove20: "percentAbove20",
+    priceAbove10: "percentAbove10",
+    priceBelow10: "percentBelow10",
+    priceBelow5: "percentBelow5",
+  };
+
   const activePercentField = (tier: PricingTier): PercentColumn => {
     const pf = getActivePriceField(tier);
-    return pf.replace("price", "percent") as PercentColumn;
+    return priceToPercentKey[pf];
   };
 
   const trendIcon = (trend: string) => {
