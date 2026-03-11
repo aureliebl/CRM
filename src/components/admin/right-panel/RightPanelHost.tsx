@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider";
 import type { RightPanelConfig, RightPanelFieldConfig } from "@/lib/right-panel-types";
@@ -33,6 +34,7 @@ function renderTemplate(template: string, scope: Record<string, unknown>) {
 }
 
 export function RightPanelHost() {
+  const router = useRouter();
   const {
     state: { panelId, entity, collapsed, contextKey },
     closePanel,
@@ -151,6 +153,7 @@ export function RightPanelHost() {
   const title = renderTemplate(config.titleTemplate || config.displayName, scoped);
   const subtitle = config.subtitleTemplate ? renderTemplate(config.subtitleTemplate, scoped) : "";
   const width = config.uiOptions?.width ?? 420;
+  const clientId = typeof entityRecord.clientId === "string" && entityRecord.clientId ? entityRecord.clientId : null;
 
   return (
     <aside
@@ -195,6 +198,16 @@ export function RightPanelHost() {
         ) : null}
 
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {!collapsed && clientId ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/crm/${clientId}`)}
+              style={{ border: "1px solid var(--border-color)", background: "var(--button-bg)", color: "var(--text-secondary)", cursor: "pointer", padding: 2, borderRadius: 6 }}
+              title="Voir la fiche client"
+            >
+              <MaterialSymbol name="person" size={18} weight={500} opticalSize={20} />
+            </button>
+          ) : null}
           {!collapsed ? (
             <span
               title={panelId}
