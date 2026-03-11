@@ -532,7 +532,7 @@ export default function EditDashboardGraphPage() {
   }
 
   if (!authResolved) {
-    return <TabLoadingIndicator />;
+    return <TabLoadingIndicator label={labels.loading} />;
   }
 
   if (actor?.role !== "admin") {
