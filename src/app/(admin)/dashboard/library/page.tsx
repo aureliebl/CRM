@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useLocale } from "@/lib/use-locale";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 
 type LibraryGraph = {
   id: string;
@@ -112,7 +113,7 @@ export default function DashboardLibraryPage() {
       </div>
 
       {loading ? (
-        <section className="admin-placeholder-card">Loading...</section>
+        <TabLoadingIndicator />
       ) : (
         <TableWithColumnFilters
           title={labels.tableTitle}

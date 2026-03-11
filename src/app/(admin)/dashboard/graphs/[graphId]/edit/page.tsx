@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useLocale } from "@/lib/use-locale";
 import { DashboardGraphCard, type DashboardGraphWithData } from "@/components/admin/DashboardGraphCard";
 import { AsyncButton } from "@/components/admin/AsyncButton";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import type {
   DashboardGraphConfig,
   DashboardGraphFieldOption,
@@ -527,11 +528,11 @@ export default function EditDashboardGraphPage() {
     ));
 
   if (loading) {
-    return <section className="admin-placeholder-card">{labels.loading}</section>;
+    return <TabLoadingIndicator label={labels.loading} />;
   }
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label={labels.loading} />;
   }
 
   if (actor?.role !== "admin") {

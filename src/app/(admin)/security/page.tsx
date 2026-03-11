@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { AsyncButton } from "@/components/admin/AsyncButton";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import { useLocale } from "@/lib/use-locale";
 import type { AccountGroupMembership, IpAllowlistEntry, SecuritySettings, UserGroup } from "@/lib/types";
 import type { RightPanelConfig } from "@/lib/right-panel-types";
@@ -599,7 +600,7 @@ export default function SecurityPage() {
   }, [overview, membershipMap]);
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">{labels.loading}</section>;
+    return <TabLoadingIndicator label={labels.loading} />;
   }
 
   if (actor?.role !== "admin") {
