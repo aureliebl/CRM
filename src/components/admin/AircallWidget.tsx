@@ -392,7 +392,13 @@ export function AircallWidget() {
 
   useEffect(() => {
     if (!call || call.direction !== "inbound") return;
-    const client = clients.find((c) => c.phone === call.from);
+    const normalize = (value?: string) => (value ?? "").replace(/\D/g, "");
+    const target = normalize(call.from);
+    if (!target) return;
+    const client = clients.find((c) => {
+      const candidate = normalize(c.phone);
+      return candidate === target || candidate.endsWith(target) || target.endsWith(candidate);
+    });
     if (client) {
       router.push(`/crm/${client.id}`);
     }
