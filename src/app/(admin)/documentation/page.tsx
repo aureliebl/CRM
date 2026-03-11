@@ -304,6 +304,8 @@ export default function DocumentationPage() {
           addBlockBelow: "Ajouter un bloc",
           collapseSidebar: "Masquer",
           expandSidebar: "Afficher",
+          parentFolder: "Dossier parent",
+          visibility: "Visibilité",
         }
       : {
           title: "Documentation",
@@ -364,6 +366,8 @@ export default function DocumentationPage() {
           addBlockBelow: "Add block",
           collapseSidebar: "Collapse",
           expandSidebar: "Expand",
+          parentFolder: "Parent folder",
+          visibility: "Visibility",
         };
 
   const [tree, setTree] = useState<DocumentationTreeItem[]>([]);
@@ -1848,7 +1852,14 @@ export default function DocumentationPage() {
                               </span>
                             </label>
 
+                            <label
+                              htmlFor="parent-folder-select"
+                              style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}
+                            >
+                              {labels.parentFolder}
+                            </label>
                             <select
+                              id="parent-folder-select"
                               value={selectedNode.parentId ?? ""}
                               onChange={(e) => {
                                 void handleMoveNode(e.target.value || null);
@@ -1872,6 +1883,9 @@ export default function DocumentationPage() {
                                 ))}
                             </select>
 
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                              {labels.sharedGroups}
+                            </div>
                             <select
                               multiple
                               value={selectedNode.sharedGroupIds}
@@ -1901,6 +1915,9 @@ export default function DocumentationPage() {
                               ))}
                             </select>
 
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                              {labels.sharedUsers}
+                            </div>
                             <select
                               multiple
                               value={selectedNode.sharedUserIds}
@@ -2062,7 +2079,16 @@ export default function DocumentationPage() {
                             {labels.delete}
                           </button>
 
+                          <div style={{ borderTop: "1px solid var(--border-color)", margin: "0.2rem 0", opacity: 0.7 }} />
+
+                          <label
+                            htmlFor="folder-visibility-select"
+                            style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}
+                          >
+                            {labels.visibility}
+                          </label>
                           <select
+                            id="folder-visibility-select"
                             value={selectedNode.folderVisibility}
                             onChange={(e) =>
                               setSelectedNode((current) =>
@@ -2088,6 +2114,9 @@ export default function DocumentationPage() {
                             <option value="group">{labels.folderGroup}</option>
                           </select>
 
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                            {labels.parentFolder}
+                          </div>
                           <select
                             value={selectedNode.parentId ?? ""}
                             onChange={(e) => {
@@ -2112,6 +2141,9 @@ export default function DocumentationPage() {
                               ))}
                           </select>
 
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                            {labels.sharedGroups}
+                          </div>
                           <select
                             multiple
                             value={selectedNode.sharedGroupIds}
@@ -2141,6 +2173,9 @@ export default function DocumentationPage() {
                             ))}
                           </select>
 
+                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                            {labels.sharedUsers}
+                          </div>
                           <select
                             multiple
                             value={selectedNode.sharedUserIds}
@@ -2572,75 +2607,87 @@ export default function DocumentationPage() {
                     </div>
                   )}
 
-                  {blockContextMenu && selectedNode.content.some((block) => block.id === blockContextMenu.blockId) && (
-                    <div
-                      className="doc-editor-slash-menu"
-                      style={{
-                        position: "fixed",
-                        left: `${blockContextMenu.x}px`,
-                        top: `${blockContextMenu.y}px`,
-                        width: "260px",
-                        zIndex: 1250,
-                      }}
-                      onPointerDown={(event) => event.stopPropagation()}
-                    >
-                      {selectedNode.content.find((block) => block.id === blockContextMenu.blockId)?.type === "info" && (
-                        <>
-                          <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", padding: "0.2rem 0.3rem 0.1rem" }}>
-                            {labels.infoStyle}
-                          </div>
-                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
-                            {labels.tone}
-                          </div>
-                          <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
-                            {INFO_TONES.map((tone) => (
-                              <button
-                                key={`tone_${tone}`}
-                                type="button"
-                                className="doc-editor-slash-item"
-                                onClick={() => {
-                                  updateSelectedBlock(blockContextMenu.blockId, { infoTone: tone });
-                                  setBlockContextMenu(null);
-                                }}
-                              >
-                                {tone}
-                              </button>
-                            ))}
-                          </div>
-
-                          <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
-                            {labels.icon}
-                          </div>
-                          <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
-                            {INFO_ICONS.map((iconName) => (
-                              <button
-                                key={`icon_${iconName}`}
-                                type="button"
-                                className="doc-editor-slash-item"
-                                onClick={() => {
-                                  updateSelectedBlock(blockContextMenu.blockId, { infoIcon: iconName });
-                                  setBlockContextMenu(null);
-                                }}
-                              >
-                                <MaterialSymbol name={iconName} size={14} weight={500} opticalSize={20} />
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-
-                      <button
-                        type="button"
-                        className="doc-editor-slash-item"
-                        onClick={() => {
-                          removeBlock(blockContextMenu.blockId);
-                          setBlockContextMenu(null);
+                  {blockContextMenu && (() => {
+                    const menuBlock = selectedNode.content.find((b) => b.id === blockContextMenu.blockId);
+                    if (!menuBlock) return null;
+                    return (
+                      <div
+                        className="doc-editor-slash-menu"
+                        style={{
+                          position: "fixed",
+                          left: `${blockContextMenu.x}px`,
+                          top: `${blockContextMenu.y}px`,
+                          width: "260px",
+                          maxWidth: "260px",
+                          zIndex: 1250,
                         }}
+                        onPointerDown={(event) => event.stopPropagation()}
                       >
-                        {labels.removeBlock}
-                      </button>
-                    </div>
-                  )}
+                        {menuBlock.type === "info" && (
+                          <>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", padding: "0.2rem 0.3rem 0.1rem" }}>
+                              {labels.infoStyle}
+                            </div>
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
+                              {labels.tone}
+                            </div>
+                            <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
+                              {INFO_TONES.map((tone) => (
+                                <button
+                                  key={`tone_${tone}`}
+                                  type="button"
+                                  className={[
+                                    "doc-editor-slash-item",
+                                    (menuBlock.infoTone ?? "default") === tone ? "doc-editor-slash-item-active" : "",
+                                  ].filter(Boolean).join(" ")}
+                                  onClick={() => {
+                                    updateSelectedBlock(blockContextMenu.blockId, { infoTone: tone });
+                                    setBlockContextMenu(null);
+                                  }}
+                                >
+                                  {tone}
+                                </button>
+                              ))}
+                            </div>
+
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.1rem 0.3rem" }}>
+                              {labels.icon}
+                            </div>
+                            <div style={{ display: "flex", gap: "0.2rem", flexWrap: "wrap", padding: "0 0.3rem 0.2rem" }}>
+                              {INFO_ICONS.map((iconName) => (
+                                <button
+                                  key={`icon_${iconName}`}
+                                  type="button"
+                                  className={[
+                                    "doc-editor-slash-item",
+                                    (menuBlock.infoIcon ?? "info") === iconName ? "doc-editor-slash-item-active" : "",
+                                  ].filter(Boolean).join(" ")}
+                                  onClick={() => {
+                                    updateSelectedBlock(blockContextMenu.blockId, { infoIcon: iconName });
+                                    setBlockContextMenu(null);
+                                  }}
+                                >
+                                  <MaterialSymbol name={iconName} size={14} weight={500} opticalSize={20} />
+                                </button>
+                              ))}
+                            </div>
+                            <div style={{ borderTop: "1px solid var(--border-color)", margin: "0.2rem 0", opacity: 0.7 }} />
+                          </>
+                        )}
+
+                        <button
+                          type="button"
+                          className="doc-editor-slash-item"
+                          onClick={() => {
+                            removeBlock(blockContextMenu.blockId);
+                            setBlockContextMenu(null);
+                          }}
+                        >
+                          {labels.removeBlock}
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </>
               )}
             </div>
