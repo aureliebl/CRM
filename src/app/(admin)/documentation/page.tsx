@@ -300,6 +300,10 @@ export default function DocumentationPage() {
           slashNewPage: "Créer une sous-page",
           newPageDefaultTitle: "Nouvelle page",
           openLinkedPage: "Ouvrir la page liée",
+          blockPlaceholder: "Tapez '/' pour les commandes\u2026",
+          addBlockBelow: "Ajouter un bloc",
+          collapseSidebar: "Masquer",
+          expandSidebar: "Afficher",
         }
       : {
           title: "Documentation",
@@ -356,6 +360,10 @@ export default function DocumentationPage() {
           slashNewPage: "Create sub-page",
           newPageDefaultTitle: "New page",
           openLinkedPage: "Open linked page",
+          blockPlaceholder: "Type '/' for commands\u2026",
+          addBlockBelow: "Add block",
+          collapseSidebar: "Collapse",
+          expandSidebar: "Expand",
         };
 
   const [tree, setTree] = useState<DocumentationTreeItem[]>([]);
@@ -371,8 +379,6 @@ export default function DocumentationPage() {
     x: number;
     y: number;
   } | null>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [crdtStatus, setCrdtStatus] = useState("disconnected");
   const [crdtPeers, setCrdtPeers] = useState<DocumentationPeer[]>([]);
@@ -396,18 +402,25 @@ export default function DocumentationPage() {
   const [groupOptions, setGroupOptions] = useState<UserGroup[]>([]);
   const [userOptions, setUserOptions] = useState<SafeAccount[]>([]);
   const [graphOptions, setGraphOptions] = useState<DashboardGraphWithData[]>([]);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const crdtSessionRef = useRef<DocumentationCrdtSession | null>(null);
   const initialBlocksRef = useRef<DocumentationBlock[]>([]);
   const lastSavedSnapshotRef = useRef("");
   const blockInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const saveAbortRef = useRef<AbortController | null>(null);
   const pendingEditTitleNodeIdRef = useRef<string | null>(null);
+  const handleSaveNodeRef = useRef<((options?: { silent?: boolean }) => Promise<void>) | undefined>(undefined);
 
   const readApiErrorMessage = useCallback(async (res: Response, fallback: string) => {
-    const jsonPayload = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (jsonPayload?.error) return jsonPayload.error;
-
     const raw = await res.text().catch(() => "");
+    try {
+      const jsonPayload = JSON.parse(raw) as { error?: string } | null;
+      if (jsonPayload?.error) return jsonPayload.error;
+    } catch {
+      // not JSON - fall through
+    }
+
     const compactRaw = raw.replace(/\s+/g, " ").trim();
     if (compactRaw) {
       return `${fallback} (${res.status}): ${compactRaw.slice(0, 180)}`;
@@ -439,6 +452,9 @@ export default function DocumentationPage() {
     element.style.height = `${Math.max(28, element.scrollHeight)}px`;
   };
 
+  const selectedNodeIdRef = useRef<string | null>(selectedNodeId);
+  selectedNodeIdRef.current = selectedNodeId;
+
   const refreshTree = useCallback(async () => {
     const res = await fetch("/api/documentation/tree", { cache: "no-store" });
     if (!res.ok) {
@@ -450,11 +466,11 @@ export default function DocumentationPage() {
     setTree(payload.tree ?? []);
     setPages(payload.pages ?? []);
 
-    if (!selectedNodeId && payload.tree?.length) {
+    if (!selectedNodeIdRef.current && payload.tree?.length) {
       const firstPage = payload.tree.find((node) => node.kind === "page") ?? payload.tree[0];
       setSelectedNodeId(firstPage.id);
     }
-  }, [selectedNodeId]);
+  }, []);
 
   const loadNode = useCallback(async (nodeId: string | null) => {
     if (!nodeId) {
@@ -537,8 +553,6 @@ export default function DocumentationPage() {
       if (!mounted) return;
       setSelectedNode(null);
       setPageMenuOverlay(null);
-      setEditingTitle(false);
-      setEditingSubtitle(false);
       setSaveStatus("idle");
       await loadNode(selectedNodeId);
     };
@@ -769,12 +783,40 @@ export default function DocumentationPage() {
     return children.filter((node) => node.kind === "page");
   }, [activeRootId, childrenByParent]);
 
+  const toggleFolder = useCallback((folderId: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Auto-expand ancestors of the selected node so it's always visible in the tree
   useEffect(() => {
-    if (selectedRootId === "__all__") return;
-    if (!treeById.has(selectedRootId)) {
-      setSelectedRootId("__all__");
+    if (!selectedNodeId) return;
+    const ancestors: string[] = [];
+    let cursor = treeById.get(selectedNodeId);
+    while (cursor?.parentId) {
+      ancestors.push(cursor.parentId);
+      cursor = treeById.get(cursor.parentId);
     }
-  }, [selectedRootId, treeById]);
+    if (ancestors.length === 0) return;
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of ancestors) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [selectedNodeId, treeById]);
 
   useEffect(() => {
     if (!selectedNodeId || selectedRootId === "__all__") return;
@@ -913,6 +955,7 @@ export default function DocumentationPage() {
       await refreshTree();
     }
   };
+  handleSaveNodeRef.current = handleSaveNode;
 
   const handleExportNode = async (format: "pdf" | "doc") => {
     if (!selectedNode || selectedNode.kind !== "page") return;
@@ -954,20 +997,23 @@ export default function DocumentationPage() {
 
     setSaveStatus("saving");
     const timeout = window.setTimeout(() => {
-      void handleSaveNode({ silent: true });
-    }, 800);
+      void handleSaveNodeRef.current?.({ silent: true });
+    }, 1000);
 
     return () => {
       window.clearTimeout(timeout);
     };
   }, [selectedNode, nodeSnapshot]);
 
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     if (!selectedNode) return;
     if (pendingEditTitleNodeIdRef.current !== selectedNode.id) return;
 
-    if (selectedNode.kind === "page") {
-      setEditingTitle(true);
+    if (selectedNode.kind === "page" && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
     }
     pendingEditTitleNodeIdRef.current = null;
   }, [selectedNode]);
@@ -1535,81 +1581,121 @@ export default function DocumentationPage() {
     input.value = "";
   };
 
-  return (
-    <div>
-      <div style={{ minHeight: "78vh", width: "100%" }}>
-        {selectedNode?.kind !== "page" && (
-        <div style={{ display: "grid", gap: "0.45rem", marginBottom: "0.85rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
-              <select
-                value={selectedRootId}
-                onChange={(e) => setSelectedRootId(e.target.value)}
-                style={{
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "0.55rem",
-                  padding: "0.38rem 0.48rem",
-                  background: "var(--input-bg)",
-                  color: "var(--text-primary)",
-                  fontSize: "0.8rem",
-                }}
-              >
-                <option value="__all__">{labels.allRoots}</option>
-                {rootNodes.map((node) => (
-                  <option key={node.id} value={node.id}>
-                    {node.title || labels.untitled}
-                  </option>
-                ))}
-              </select>
+  /* ---- recursive tree rendering ---- */
+  const renderTreeNode = (node: DocumentationTreeItem, depth: number): React.ReactNode => {
+    const isFolder = node.kind === "folder";
+    const isSelected = node.id === selectedNodeId;
+    const isExpanded = expandedFolders.has(node.id);
+    const children = childrenByParent.get(node.id) ?? [];
+    const hasChildren = children.length > 0;
 
-              <button className="admin-btn admin-btn-secondary" type="button" onClick={() => handleCreateNode("folder")}>
+    return (
+      <div key={node.id}>
+        <button
+          type="button"
+          className={`doc-tree-item${isSelected ? " doc-tree-item-active" : ""}`}
+          style={{ paddingLeft: `${0.5 + depth * 0.85}rem` }}
+          onClick={() => {
+            if (isFolder) {
+              toggleFolder(node.id);
+              setSelectedNodeId(node.id);
+            } else {
+              setSelectedNodeId(node.id);
+            }
+          }}
+        >
+          {isFolder && (
+            <MaterialSymbol
+              name={isExpanded ? "expand_more" : "chevron_right"}
+              size={16}
+              weight={500}
+              opticalSize={20}
+            />
+          )}
+          <MaterialSymbol
+            name={isFolder ? "folder" : "description"}
+            size={15}
+            weight={400}
+            opticalSize={20}
+          />
+          <span className="doc-tree-item-label">{node.title || labels.untitled}</span>
+        </button>
+        {isFolder && isExpanded && hasChildren && (
+          <div>{children.map((child) => renderTreeNode(child, depth + 1))}</div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="doc-layout">
+      {/* ---- SIDEBAR ---- */}
+      <aside className={`doc-sidebar${sidebarCollapsed ? " doc-sidebar-collapsed" : ""}`}>
+        <div className="doc-sidebar-header">
+          <span className="doc-sidebar-title">{labels.treeTitle}</span>
+          <button
+            type="button"
+            className="doc-sidebar-toggle"
+            onClick={() => setSidebarCollapsed((v) => !v)}
+            title={sidebarCollapsed ? labels.expandSidebar : labels.collapseSidebar}
+          >
+            <MaterialSymbol name={sidebarCollapsed ? "chevron_right" : "chevron_left"} size={16} weight={500} opticalSize={20} />
+          </button>
+        </div>
+
+        {!sidebarCollapsed && (
+          <>
+            <div className="doc-sidebar-actions">
+              <button className="admin-btn admin-btn-secondary doc-sidebar-btn" type="button" onClick={() => handleCreateNode("folder")}>
+                <MaterialSymbol name="create_new_folder" size={15} weight={400} opticalSize={20} />
                 {labels.newFolder}
               </button>
-              <button className="admin-btn admin-btn-secondary" type="button" onClick={() => handleCreateNode("page")}>
+              <button className="admin-btn admin-btn-secondary doc-sidebar-btn" type="button" onClick={() => handleCreateNode("page")}>
+                <MaterialSymbol name="note_add" size={15} weight={400} opticalSize={20} />
                 {labels.newPage}
               </button>
             </div>
-          </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "0.74rem", color: "var(--text-secondary)" }}>{labels.quickPages}</span>
-            {quickNavItems.map((node) => (
-              <button
-                key={`quick_${node.id}`}
-                type="button"
-                onClick={() => setSelectedNodeId(node.id)}
-                style={{
-                  border: "none",
-                  background: "transparent",
-                  color: node.id === selectedNodeId ? "var(--text-primary)" : "var(--text-secondary)",
-                  cursor: "pointer",
-                  fontSize: "0.78rem",
-                  padding: "0.1rem 0.2rem",
-                }}
-              >
-                {node.title || labels.untitled}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="doc-sidebar-tree">
+              {loading && <div className="doc-sidebar-empty">{labels.loading}</div>}
+              {!loading && rootNodes.length === 0 && <div className="doc-sidebar-empty">{labels.emptyTree}</div>}
+              {!loading && rootNodes.map((node) => renderTreeNode(node, 0))}
+            </div>
+          </>
         )}
+      </aside>
+
+      {/* ---- collapse toggle when sidebar is collapsed ---- */}
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          className="doc-sidebar-expand-btn"
+          onClick={() => setSidebarCollapsed(false)}
+          title={labels.expandSidebar}
+        >
+          <MaterialSymbol name="menu" size={18} weight={500} opticalSize={20} />
+        </button>
+      )}
+
+      {/* ---- MAIN CONTENT ---- */}
+      <div className="doc-main">
+        <div style={{ minHeight: "78vh", width: "100%" }}>
 
           {!selectedNode ? (
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>{labels.noSelection}</p>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", padding: "2rem 1rem", textAlign: "center" }}>{labels.noSelection}</p>
           ) : (
-            <div style={{ display: "grid", gap: "0.75rem" }}>
+            <div className="doc-page-content">
 
               {selectedNode.kind === "page" && (
                 <div style={{ display: "grid", gap: "0.5rem" }}>
                   <div
                     style={{
-                      minHeight: "210px",
-                      borderRadius: "0.2rem",
-                      border: "1px solid var(--border-color)",
+                      minHeight: selectedNode.coverMediaId ? "210px" : "60px",
+                      borderRadius: "0.5rem",
                       background: selectedNode.coverMediaId ? "transparent" : "var(--bg-hover)",
                       position: "relative",
                       overflow: "hidden",
-                      margin: "-0.2rem -0.2rem 0.65rem",
+                      margin: "0 0 0.65rem",
                     }}
                   >
                     {selectedNode.coverMediaId && (
@@ -1851,66 +1937,27 @@ export default function DocumentationPage() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {editingTitle ? (
-                        <input
-                          value={selectedNode.title}
-                          autoFocus
-                          onBlur={() => setEditingTitle(false)}
-                          onChange={(e) =>
-                            setSelectedNode((current) =>
-                              current ? { ...current, title: e.target.value } : current
-                            )
-                          }
-                          style={{
-                            width: "100%",
-                            border: "1px solid var(--border-color)",
-                            borderRadius: "0.6rem",
-                            padding: "0.45rem 0.6rem",
-                            background: "var(--input-bg)",
-                            color: "var(--text-primary)",
-                            fontSize: "1.65rem",
-                            fontWeight: 650,
-                          }}
-                        />
-                      ) : (
-                        <h2
-                          onClick={() => setEditingTitle(true)}
-                          style={{ margin: 0, fontSize: "1.65rem", fontWeight: 650, cursor: "text" }}
-                        >
-                          {selectedNode.title || labels.untitled}
-                        </h2>
-                      )}
-
-                      {editingSubtitle ? (
-                        <input
-                          value={selectedNode.subtitle}
-                          autoFocus
-                          onBlur={() => setEditingSubtitle(false)}
-                          onChange={(e) =>
-                            setSelectedNode((current) =>
-                              current ? { ...current, subtitle: e.target.value } : current
-                            )
-                          }
-                          placeholder={labels.subtitlePlaceholder}
-                          style={{
-                            width: "100%",
-                            marginTop: "0.25rem",
-                            border: "1px solid var(--border-color)",
-                            borderRadius: "0.55rem",
-                            padding: "0.35rem 0.55rem",
-                            background: "var(--input-bg)",
-                            color: "var(--text-secondary)",
-                            fontSize: "0.98rem",
-                          }}
-                        />
-                      ) : (
-                        <p
-                          onClick={() => setEditingSubtitle(true)}
-                          style={{ margin: "0.3rem 0 0", color: "var(--text-secondary)", cursor: "text" }}
-                        >
-                          {selectedNode.subtitle || labels.subtitlePlaceholder}
-                        </p>
-                      )}
+                      <input
+                        ref={titleInputRef}
+                        value={selectedNode.title}
+                        placeholder={labels.untitled}
+                        onChange={(e) =>
+                          setSelectedNode((current) =>
+                            current ? { ...current, title: e.target.value } : current
+                          )
+                        }
+                        className="doc-title-input"
+                      />
+                      <input
+                        value={selectedNode.subtitle}
+                        placeholder={labels.subtitlePlaceholder}
+                        onChange={(e) =>
+                          setSelectedNode((current) =>
+                            current ? { ...current, subtitle: e.target.value } : current
+                          )
+                        }
+                        className="doc-subtitle-input"
+                      />
                     </div>
 
                     <div style={{ display: "grid", justifyItems: "end", gap: "0.3rem" }}>
@@ -2453,6 +2500,7 @@ export default function DocumentationPage() {
                                 autoResizeTextarea(element);
                               }}
                               value={block.text ?? ""}
+                              placeholder={block.type === "paragraph" ? labels.blockPlaceholder : ""}
                               readOnly={!crdtCanWrite}
                               onFocus={() => publishCursorBlock(block.id)}
                               onPaste={(event) => {
@@ -2477,6 +2525,18 @@ export default function DocumentationPage() {
                       </div>
                     )})}
                   </div>
+
+                  {/* Add block button at bottom */}
+                  {crdtCanWrite && (
+                    <button
+                      type="button"
+                      className="doc-add-block-btn"
+                      onClick={() => addBlock("paragraph")}
+                    >
+                      <MaterialSymbol name="add" size={18} weight={500} opticalSize={20} />
+                      <span>{labels.addBlockBelow}</span>
+                    </button>
+                  )}
 
                   {slashMenu && (
                     <div
@@ -2585,6 +2645,7 @@ export default function DocumentationPage() {
               )}
             </div>
           )}
+        </div>
       </div>
     </div>
   );
