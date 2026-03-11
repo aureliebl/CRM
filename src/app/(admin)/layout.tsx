@@ -390,8 +390,8 @@ function AdminTopbar({
             style={{
               padding: "0.4rem 0.75rem",
               borderRadius: "999px",
-              border: "1px solid var(--border-hover)",
-              background: "var(--button-bg)",
+              border: "none",
+              background: "transparent",
               cursor: "pointer",
               display: "inline-flex",
               alignItems: "center",
@@ -417,8 +417,8 @@ function AdminTopbar({
             style={{
               padding: "0.4rem 0.75rem",
               borderRadius: "999px",
-              border: "1px solid var(--border-hover)",
-              background: "var(--button-bg)",
+              border: "none",
+              background: "transparent",
               color: "var(--text-primary)",
               cursor: "pointer",
               fontSize: "0.8rem",
@@ -443,8 +443,9 @@ function AdminTopbar({
                   display: "flex",
                   alignItems: "center",
                   gap: "0.5rem",
-                  color: "var(--text-primary, #e5e7eb)",
+                  color: "var(--text-primary)",
                   fontSize: "0.9rem",
+                  paddingRight: "2px",
                 }}
                 title={`${labels.connectedAs} ${resolvedDisplayName} (${user.role})`}
               >

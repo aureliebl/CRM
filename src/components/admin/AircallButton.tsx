@@ -16,17 +16,20 @@ export function AircallButton() {
       type="button"
       onClick={handleClick}
       title={locale === "fr" ? "Aircall" : "Aircall"}
+      className="admin-aircall-btn"
       style={{
-        padding: "0.4rem 0.75rem",
+        padding: "0.35rem 0.75rem",
         borderRadius: "999px",
-        border: "1px solid var(--border-hover)",
-        background: "var(--button-bg)",
-        color: "var(--text-primary)",
+        border: "none",
+        background: "transparent",
+        color: "white",
         cursor: "pointer",
-        fontSize: "0.8rem",
+        fontSize: "0.78rem",
+        fontWeight: 590,
         display: "flex",
         alignItems: "center",
-        gap: "0.4rem",
+        gap: "0.35rem",
+        boxShadow: "0 8px 24px rgba(43,34,18,0.10)",
       }}
     >
       <MaterialSymbol
@@ -34,6 +37,7 @@ export function AircallButton() {
         size={16}
         weight={500}
         opticalSize={20}
+        style={{ color: "white" }}
       />
       {locale === "fr" ? "Aircall" : "Aircall"}
     </button>

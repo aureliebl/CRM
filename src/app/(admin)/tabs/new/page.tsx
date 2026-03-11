@@ -5,6 +5,7 @@ import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { IconPickerModal } from "@/components/admin/IconPickerModal";
 import { ColumnConfigModal } from "@/components/admin/ColumnConfigModal";
 import { AsyncButton } from "@/components/admin/AsyncButton";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import { useLocale } from "@/lib/use-locale";
 import type { DynamicTabConfig, DynamicTabColumnConfig, DynamicTabFieldFormat, DynamicTabSource, DynamicTabMultiJoinEntry, DynamicTabComputedColumn, UserGroup } from "@/lib/types";
@@ -420,7 +421,7 @@ export default function NewTabPage() {
   /* ═══ Guard ═══ */
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (actor?.role !== "admin") {

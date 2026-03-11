@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { TableWithColumnFilters, type ColumnDefinition } from "@/components/admin/TableWithColumnFilters";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import type { DynamicTab, DynamicTabColumnConfig } from "@/lib/types";
 
 type SessionActor = {
@@ -308,7 +309,7 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
   }, [router, tab]);
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (!actor) {
@@ -316,7 +317,7 @@ export default function DynamicTabPage({ params }: { params: Promise<{ tabSlug: 
   }
 
   if (loading) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (error || !tab) {

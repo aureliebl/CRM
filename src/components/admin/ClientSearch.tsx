@@ -61,7 +61,7 @@ export function ClientSearch({
   const inputIdentifier = inputId ?? "client-search-input";
 
   return (
-    <div style={{ position: "relative", width: "100%", maxWidth: maxWidth ?? "600px" }}>
+    <div style={{ position: "relative", width: "100%", maxWidth: maxWidth ?? "600px", height: "100%" }}>
       <input
         id={inputIdentifier}
         type="text"
@@ -95,14 +95,17 @@ export function ClientSearch({
         }}
         style={{
           width: "100%",
-          padding: "0.5rem 0.75rem",
-          paddingRight: "3rem",
+          height: "100%",
+          padding: "0.35rem 0.5rem",
+          paddingRight: "3.5rem",
           borderRadius: "999px",
           border: appearance === "embedded" ? "none" : "1px solid var(--border-hover)",
           background: appearance === "embedded" ? "transparent" : "var(--search-bg)",
           color: "var(--text-primary)",
           fontSize: "0.85rem",
+          lineHeight: 1,
           outline: "none",
+          boxSizing: "border-box",
         }}
       />
 
@@ -111,16 +114,18 @@ export function ClientSearch({
         aria-hidden
         style={{
           position: "absolute",
-          right: 8,
+          right: 12,
           top: "50%",
           transform: "translateY(-50%)",
           fontSize: "0.75rem",
-          color: "var(--text-secondary)",
-          background: appearance === "embedded" ? "var(--button-bg)" : "var(--dropdown-bg)",
-          border: "1px solid var(--border-color)",
-          borderRadius: "999px",
-          padding: "2px 6px",
+          color: "#585142",
+          background: appearance === "embedded" ? "#efebe4" : "var(--dropdown-bg)",
+          border: "1px solid #d6d0c4",
+          borderRadius: "22px",
+          padding: "3px 7px",
           pointerEvents: "none",
+          lineHeight: 1,
+          whiteSpace: "nowrap",
         }}
       >
         {isMac ? "⌘ K" : "Ctrl K"}

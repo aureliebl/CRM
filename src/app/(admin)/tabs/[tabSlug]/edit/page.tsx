@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { IconPickerModal } from "@/components/admin/IconPickerModal";
 import { AsyncButton } from "@/components/admin/AsyncButton";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import { APP_MATERIAL_SYMBOLS } from "@/lib/material-symbols";
 import type { DynamicTabColumnConfig, DynamicTabConfig, DynamicTabFieldFormat, DynamicTabRowActionConfig, DynamicTabComputedColumn, DynamicTabDetailSection, DynamicTabDetailSectionField } from "@/lib/types";
 
@@ -167,7 +168,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
   );
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (actor?.role !== "admin") {
@@ -479,7 +480,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
   };
 
   if (loading) {
-    return <section className="admin-placeholder-card">Loading...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   return (

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { TabLoadingIndicator } from "@/components/admin/TabLoadingIndicator";
 import type { DynamicTabConfig, DynamicTabDetailSection, DynamicTabFormatOptions, DynamicTabFieldFormat } from "@/lib/types";
 
 type SessionActor = {
@@ -209,7 +210,7 @@ export default function TabDetailPage({
   }, [params, authResolved, actor]);
 
   if (!authResolved) {
-    return <section className="admin-placeholder-card">Chargement...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (!actor) {
@@ -217,7 +218,7 @@ export default function TabDetailPage({
   }
 
   if (loading) {
-    return <section className="admin-placeholder-card">Chargement...</section>;
+    return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
   if (error || !row || !config) {
