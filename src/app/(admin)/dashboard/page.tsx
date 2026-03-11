@@ -12,6 +12,7 @@ import {
   DashboardGraphCard,
   type DashboardGraphWithData,
 } from "@/components/admin/DashboardGraphCard";
+import { PricingOverviewCharts } from "@/components/admin/PricingOverviewCharts";
 import type { DashboardGraphSize } from "@/lib/types";
 
 type SessionActor = {
@@ -360,6 +361,8 @@ export default function DashboardPage() {
           </p>
         )}
       </section>
+
+      <PricingOverviewCharts locale={locale} />
 
       <TableWithColumnFilters
         title={labels.centerTableTitle}
