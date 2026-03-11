@@ -334,6 +334,7 @@ export function AircallWidget() {
 
     const handleOutside = (event: MouseEvent) => {
       if (!showContacts) return;
+      if (call) return; // Don't close on outside click during an active call
       const node = panelRef.current;
       const target = event.target as Node | null;
       if (node && target && !node.contains(target)) {
@@ -348,12 +349,16 @@ export function AircallWidget() {
       window.removeEventListener("aircall:toggle", handleToggle);
       window.removeEventListener("mousedown", handleOutside);
     };
-  }, [showContacts]);
+  }, [showContacts, call]);
 
   useEffect(() => {
     let mounted = true;
     const applyCall = (nextCall: AircallCall | null) => {
       if (!mounted) return;
+      // Auto-expand the widget when a new call arrives
+      if (nextCall) {
+        setIsCollapsed(false);
+      }
       setCall(nextCall);
     };
 
@@ -1042,6 +1047,9 @@ export function AircallWidget() {
     );
   }
 
+  // No active call — only render the panel when explicitly opened via the header button
+  if (!showContacts) return null;
+
   return (
     <div
       ref={panelRef}
@@ -1061,8 +1069,7 @@ export function AircallWidget() {
           gap: "0.5rem",
         }}
       >
-        {showContacts && (
-          <div
+        <div
             style={{
               background: "var(--modal-bg)",
               border: "1px solid var(--border-color)",
@@ -1347,94 +1354,66 @@ export function AircallWidget() {
               )}
             </div>
 
-            {process.env.NODE_ENV === "development" && (
-              <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-color)" }}>
-                <button
-                  type="button"
-                  onClick={() => setDevMode(!devMode)}
-                  style={{
-                    width: "100%",
-                    padding: "0.35rem 0.5rem",
-                    borderRadius: "0.4rem",
-                    border: "1px solid var(--border-color)",
-                    background: "rgba(99, 102, 241, 0.1)",
-                    color: "var(--text-secondary)",
-                    cursor: "pointer",
-                    fontSize: "0.75rem",
-                  }}
-                >
-                  {devMode ? labels.hide : labels.show} {labels.simulation}
-                </button>
-                {devMode && (
-                  <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem" }}>
-                    <input
-                      type="text"
-                      value={simNumber}
-                      onChange={(e) => setSimNumber(e.target.value)}
-                      placeholder={labels.testNumber}
-                      style={{
-                        flex: 1,
-                        padding: "0.3rem 0.4rem",
-                        borderRadius: "0.3rem",
-                        border: "1px solid var(--border-color)",
-                        background: "var(--input-bg)",
-                        color: "var(--text-primary)",
-                        fontSize: "0.75rem",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (simNumber.trim()) {
-                          const simulated = await simulateInboundCallRequest(simNumber.trim());
-                          if (simulated) setCall(simulated);
-                          setSimNumber("");
-                          setShowContacts(false);
-                        }
-                      }}
-                      style={{
-                        padding: "0.3rem 0.6rem",
-                        borderRadius: "0.3rem",
-                        border: "1px solid var(--border-color)",
-                        background: "var(--button-bg)",
-                        color: "var(--text-primary)",
-                        cursor: "pointer",
-                        fontSize: "0.75rem",
-                      }}
-                    >
-                      {labels.test}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-color)" }}>
+              <button
+                type="button"
+                onClick={() => setDevMode(!devMode)}
+                style={{
+                  width: "100%",
+                  padding: "0.35rem 0.5rem",
+                  borderRadius: "0.4rem",
+                  border: "1px solid var(--border-color)",
+                  background: "rgba(99, 102, 241, 0.1)",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  fontSize: "0.75rem",
+                }}
+              >
+                {devMode ? labels.hide : labels.show} {labels.simulation}
+              </button>
+              {devMode && (
+                <div style={{ marginTop: "0.5rem", display: "flex", gap: "0.35rem" }}>
+                  <input
+                    type="text"
+                    value={simNumber}
+                    onChange={(e) => setSimNumber(e.target.value)}
+                    placeholder={labels.testNumber}
+                    style={{
+                      flex: 1,
+                      padding: "0.3rem 0.4rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid var(--border-color)",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                      fontSize: "0.75rem",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (simNumber.trim()) {
+                        const simulated = await simulateInboundCallRequest(simNumber.trim());
+                        if (simulated) setCall(simulated);
+                        setSimNumber("");
+                        setShowContacts(false);
+                      }
+                    }}
+                    style={{
+                      padding: "0.3rem 0.6rem",
+                      borderRadius: "0.3rem",
+                      border: "1px solid var(--border-color)",
+                      background: "var(--button-bg)",
+                      color: "var(--text-primary)",
+                      cursor: "pointer",
+                      fontSize: "0.75rem",
+                    }}
+                  >
+                    {labels.test}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => {
-            setIsCollapsed(false);
-            setShowContacts((prev) => !prev);
-          }}
-          style={{
-            border: "1px solid var(--border-color)",
-            background: "linear-gradient(120deg, rgba(30,64,175,0.95), rgba(79,70,229,0.95))",
-            color: "#ffffff",
-            borderRadius: "999px",
-            padding: "0.45rem 0.75rem",
-            cursor: "pointer",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.35rem",
-            fontSize: "0.78rem",
-            fontWeight: 600,
-            boxShadow: "0 8px 24px var(--shadow-color)",
-          }}
-        >
-          <MaterialSymbol name="support_agent" size={16} weight={500} opticalSize={20} />
-          Aircall
-        </button>
       </div>
     </div>
   );
