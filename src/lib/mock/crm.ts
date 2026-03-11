@@ -637,9 +637,52 @@ export function updatePricingTier(
 ): PricingTier | null {
   const tier = pricingTiers.find((t) => t.id === tierId);
   if (!tier) return null;
-  Object.assign(tier, updates);
-  // Recompute prices from basePrice + percentages
-  recomputePrices(tier);
+
+  // Determine the effective base price to use when back-computing percentages
+  const effectiveBasePrice =
+    typeof updates.basePrice === "number" ? updates.basePrice : tier.basePrice;
+
+  // Back-compute percentage values from any updated price* fields
+  const derivedPercentUpdates: Partial<Record<PercentColumn, number>> = {};
+  if (typeof effectiveBasePrice === "number" && effectiveBasePrice !== 0) {
+    (Object.keys(percentToPrice) as PercentColumn[]).forEach((percentKey) => {
+      const priceKey = percentToPrice[percentKey];
+      const updatedPrice = updates[priceKey];
+      if (typeof updatedPrice === "number") {
+        derivedPercentUpdates[percentKey] =
+          ((updatedPrice / effectiveBasePrice) - 1) * 100;
+      }
+    });
+  }
+
+  // Merge original updates with any derived percentage updates
+  const combinedUpdates: typeof updates & Partial<Record<PercentColumn, number>> = {
+    ...updates,
+    ...derivedPercentUpdates,
+  };
+
+  // Decide whether prices need to be recomputed from basePrice/percentages
+  let shouldRecompute = false;
+  if (typeof combinedUpdates.basePrice === "number") {
+    shouldRecompute = true;
+  } else {
+    const percentColumns: PercentColumn[] = [
+      "percentAbove20",
+      "percentAbove10",
+      "percentBelow10",
+      "percentBelow5",
+    ];
+    shouldRecompute = percentColumns.some(
+      (percentKey) => typeof combinedUpdates[percentKey] === "number"
+    );
+  }
+
+  Object.assign(tier, combinedUpdates);
+
+  if (shouldRecompute) {
+    // Recompute prices from basePrice + percentages
+    recomputePrices(tier);
+  }
   tier.lastPriceChangeDate = new Date().toISOString();
   return tier;
 }
