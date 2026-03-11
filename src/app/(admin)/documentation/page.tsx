@@ -379,8 +379,6 @@ export default function DocumentationPage() {
     x: number;
     y: number;
   } | null>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [editingSubtitle, setEditingSubtitle] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
   const [crdtStatus, setCrdtStatus] = useState("disconnected");
   const [crdtPeers, setCrdtPeers] = useState<DocumentationPeer[]>([]);
@@ -412,6 +410,7 @@ export default function DocumentationPage() {
   const blockInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const saveAbortRef = useRef<AbortController | null>(null);
   const pendingEditTitleNodeIdRef = useRef<string | null>(null);
+  const handleSaveNodeRef = useRef<((options?: { silent?: boolean }) => Promise<void>) | undefined>(undefined);
 
   const readApiErrorMessage = useCallback(async (res: Response, fallback: string) => {
     const raw = await res.text().catch(() => "");
@@ -554,8 +553,6 @@ export default function DocumentationPage() {
       if (!mounted) return;
       setSelectedNode(null);
       setPageMenuOverlay(null);
-      setEditingTitle(false);
-      setEditingSubtitle(false);
       setSaveStatus("idle");
       await loadNode(selectedNodeId);
     };
@@ -958,6 +955,7 @@ export default function DocumentationPage() {
       await refreshTree();
     }
   };
+  handleSaveNodeRef.current = handleSaveNode;
 
   const handleExportNode = async (format: "pdf" | "doc") => {
     if (!selectedNode || selectedNode.kind !== "page") return;
@@ -999,20 +997,23 @@ export default function DocumentationPage() {
 
     setSaveStatus("saving");
     const timeout = window.setTimeout(() => {
-      void handleSaveNode({ silent: true });
-    }, 800);
+      void handleSaveNodeRef.current?.({ silent: true });
+    }, 1000);
 
     return () => {
       window.clearTimeout(timeout);
     };
   }, [selectedNode, nodeSnapshot]);
 
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     if (!selectedNode) return;
     if (pendingEditTitleNodeIdRef.current !== selectedNode.id) return;
 
-    if (selectedNode.kind === "page") {
-      setEditingTitle(true);
+    if (selectedNode.kind === "page" && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
     }
     pendingEditTitleNodeIdRef.current = null;
   }, [selectedNode]);
@@ -1681,21 +1682,20 @@ export default function DocumentationPage() {
         <div style={{ minHeight: "78vh", width: "100%" }}>
 
           {!selectedNode ? (
-            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>{labels.noSelection}</p>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", padding: "2rem 1rem", textAlign: "center" }}>{labels.noSelection}</p>
           ) : (
-            <div style={{ display: "grid", gap: "0.75rem" }}>
+            <div className="doc-page-content">
 
               {selectedNode.kind === "page" && (
                 <div style={{ display: "grid", gap: "0.5rem" }}>
                   <div
                     style={{
-                      minHeight: "210px",
-                      borderRadius: "0.2rem",
-                      border: "1px solid var(--border-color)",
+                      minHeight: selectedNode.coverMediaId ? "210px" : "60px",
+                      borderRadius: "0.5rem",
                       background: selectedNode.coverMediaId ? "transparent" : "var(--bg-hover)",
                       position: "relative",
                       overflow: "hidden",
-                      margin: "-0.2rem -0.2rem 0.65rem",
+                      margin: "0 0 0.65rem",
                     }}
                   >
                     {selectedNode.coverMediaId && (
@@ -1937,66 +1937,27 @@ export default function DocumentationPage() {
 
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.75rem" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {editingTitle ? (
-                        <input
-                          value={selectedNode.title}
-                          autoFocus
-                          onBlur={() => setEditingTitle(false)}
-                          onChange={(e) =>
-                            setSelectedNode((current) =>
-                              current ? { ...current, title: e.target.value } : current
-                            )
-                          }
-                          style={{
-                            width: "100%",
-                            border: "1px solid var(--border-color)",
-                            borderRadius: "0.6rem",
-                            padding: "0.45rem 0.6rem",
-                            background: "var(--input-bg)",
-                            color: "var(--text-primary)",
-                            fontSize: "1.65rem",
-                            fontWeight: 650,
-                          }}
-                        />
-                      ) : (
-                        <h2
-                          onClick={() => setEditingTitle(true)}
-                          style={{ margin: 0, fontSize: "1.65rem", fontWeight: 650, cursor: "text" }}
-                        >
-                          {selectedNode.title || labels.untitled}
-                        </h2>
-                      )}
-
-                      {editingSubtitle ? (
-                        <input
-                          value={selectedNode.subtitle}
-                          autoFocus
-                          onBlur={() => setEditingSubtitle(false)}
-                          onChange={(e) =>
-                            setSelectedNode((current) =>
-                              current ? { ...current, subtitle: e.target.value } : current
-                            )
-                          }
-                          placeholder={labels.subtitlePlaceholder}
-                          style={{
-                            width: "100%",
-                            marginTop: "0.25rem",
-                            border: "1px solid var(--border-color)",
-                            borderRadius: "0.55rem",
-                            padding: "0.35rem 0.55rem",
-                            background: "var(--input-bg)",
-                            color: "var(--text-secondary)",
-                            fontSize: "0.98rem",
-                          }}
-                        />
-                      ) : (
-                        <p
-                          onClick={() => setEditingSubtitle(true)}
-                          style={{ margin: "0.3rem 0 0", color: "var(--text-secondary)", cursor: "text" }}
-                        >
-                          {selectedNode.subtitle || labels.subtitlePlaceholder}
-                        </p>
-                      )}
+                      <input
+                        ref={titleInputRef}
+                        value={selectedNode.title}
+                        placeholder={labels.untitled}
+                        onChange={(e) =>
+                          setSelectedNode((current) =>
+                            current ? { ...current, title: e.target.value } : current
+                          )
+                        }
+                        className="doc-title-input"
+                      />
+                      <input
+                        value={selectedNode.subtitle}
+                        placeholder={labels.subtitlePlaceholder}
+                        onChange={(e) =>
+                          setSelectedNode((current) =>
+                            current ? { ...current, subtitle: e.target.value } : current
+                          )
+                        }
+                        className="doc-subtitle-input"
+                      />
                     </div>
 
                     <div style={{ display: "grid", justifyItems: "end", gap: "0.3rem" }}>
