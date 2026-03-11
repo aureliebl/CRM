@@ -114,7 +114,7 @@ export function ClientSearch({
         aria-hidden
         style={{
           position: "absolute",
-          right: 12,
+          right: 1,
           top: "50%",
           transform: "translateY(-50%)",
           fontSize: "0.75rem",
