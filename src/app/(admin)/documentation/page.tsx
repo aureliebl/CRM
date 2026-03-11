@@ -1852,10 +1852,14 @@ export default function DocumentationPage() {
                               </span>
                             </label>
 
-                            <div style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}>
+                            <label
+                              htmlFor="parent-folder-select"
+                              style={{ fontSize: "0.7rem", color: "var(--text-secondary)", padding: "0.25rem 0.3rem 0.1rem" }}
+                            >
                               {labels.parentFolder}
-                            </div>
+                            </label>
                             <select
+                              id="parent-folder-select"
                               value={selectedNode.parentId ?? ""}
                               onChange={(e) => {
                                 void handleMoveNode(e.target.value || null);
