@@ -732,6 +732,8 @@ export function bulkUpdatePricingTiers(
         if (tier.basePrice > 0) {
           tier[pctField] = parseFloat(((tier[priceField] / tier.basePrice - 1) * 100).toFixed(2));
         } else {
+          // When basePrice is not positive, keep the invariant by zeroing both price and percent
+          tier[priceField] = 0;
           tier[pctField] = 0;
         }
       }
