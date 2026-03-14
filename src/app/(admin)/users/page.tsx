@@ -32,9 +32,7 @@ type SessionActor = {
 type TabVisibilityRow = {
   id: string;
   title: string;
-  enabled: boolean;
-  superAdminOnly?: boolean;
-  groupIds: string[];
+  routeKey: string;
 };
 
 type SubTab = "users" | "invitations" | "groups" | "tab-visibility";
@@ -58,6 +56,8 @@ export default function UsersPage() {
   const [groups, setGroups] = useState<GroupWithCount[]>([]);
   const [tabVisibilityRows, setTabVisibilityRows] = useState<TabVisibilityRow[]>([]);
   const [selectedVisibilityGroupId, setSelectedVisibilityGroupId] = useState("");
+  const [selectedGroupVisibilityConfigured, setSelectedGroupVisibilityConfigured] = useState(false);
+  const [selectedGroupVisibleRouteKeys, setSelectedGroupVisibleRouteKeys] = useState<string[]>([]);
   const [tabVisibilitySavingId, setTabVisibilitySavingId] = useState<string | null>(null);
   const [tabVisibilityError, setTabVisibilityError] = useState<string | null>(null);
 
@@ -128,26 +128,46 @@ export default function UsersPage() {
       const rows = (await res.json()) as Array<{
         id: string;
         title: string;
+        slug?: string;
         enabled?: boolean;
         superAdminOnly?: boolean;
-        groupIds?: string[];
       }>;
+
+      const staticRows: TabVisibilityRow[] = [
+        { id: "route:/dashboard", title: locale === "fr" ? "Dashboard" : "Dashboard", routeKey: "/dashboard" },
+        { id: "route:/geo", title: locale === "fr" ? "GEO" : "GEO", routeKey: "/geo" },
+        { id: "route:/vault", title: locale === "fr" ? "Coffre-fort" : "Vault", routeKey: "/vault" },
+        { id: "route:/tickets", title: "Tickets", routeKey: "/tickets" },
+        { id: "route:/crm", title: locale === "fr" ? "Fiche client" : "Client file", routeKey: "/crm" },
+        { id: "route:/acquisition", title: locale === "fr" ? "Lead" : "Lead", routeKey: "/acquisition" },
+        { id: "route:/documentation", title: locale === "fr" ? "Documentation" : "Documentation", routeKey: "/documentation" },
+        { id: "route:/flowise", title: locale === "fr" ? "Assistant" : "Assistant", routeKey: "/flowise" },
+        { id: "route:/users", title: locale === "fr" ? "Utilisateurs" : "Users", routeKey: "/users" },
+        { id: "route:/tarifs", title: locale === "fr" ? "Grille tarifaire" : "Pricing grid", routeKey: "/tarifs" },
+      ];
+
+      const dynamicRows: TabVisibilityRow[] = rows
+        .filter((row) => row.enabled !== false)
+        .filter((row) => row.superAdminOnly !== true)
+        .filter((row) => typeof row.slug === "string" && row.slug.trim().length > 0)
+        .map((row) => ({
+          id: `tab:${row.id}`,
+          title: row.title,
+          routeKey: `/tabs/${String(row.slug).trim()}`,
+        }));
+
+      const seen = new Set<string>();
       setTabVisibilityRows(
-        rows
-          .filter((row) => row.enabled !== false)
-          .filter((row) => row.superAdminOnly !== true)
-          .map((row) => ({
-            id: row.id,
-            title: row.title,
-            enabled: row.enabled !== false,
-            superAdminOnly: row.superAdminOnly,
-            groupIds: Array.isArray(row.groupIds) ? row.groupIds : [],
-          }))
+        [...staticRows, ...dynamicRows].filter((row) => {
+          if (seen.has(row.routeKey)) return false;
+          seen.add(row.routeKey);
+          return true;
+        })
       );
     } catch {
       setTabVisibilityRows([]);
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     const init = async () => {
@@ -196,6 +216,39 @@ export default function UsersPage() {
     if (tabVisibilitySelectableGroups.length === 0) return;
     setSelectedVisibilityGroupId(tabVisibilitySelectableGroups[0].id);
   }, [tabVisibilitySelectableGroups, selectedVisibilityGroupId]);
+
+  const loadSelectedGroupRouteVisibility = useCallback(async () => {
+    if (!selectedVisibilityGroupId) return;
+    try {
+      const res = await fetch(`/api/users/tab-visibility?groupId=${encodeURIComponent(selectedVisibilityGroupId)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setSelectedGroupVisibilityConfigured(false);
+        setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+        return;
+      }
+
+      const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
+      const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
+      if (payload.configured === true) {
+        const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
+        const allowed = new Set(routeKeys);
+        setSelectedGroupVisibilityConfigured(true);
+        setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
+      } else {
+        setSelectedGroupVisibilityConfigured(false);
+        setSelectedGroupVisibleRouteKeys(allRouteKeys);
+      }
+    } catch {
+      setSelectedGroupVisibilityConfigured(false);
+      setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+    }
+  }, [selectedVisibilityGroupId, tabVisibilityRows]);
+
+  useEffect(() => {
+    void loadSelectedGroupRouteVisibility();
+  }, [loadSelectedGroupRouteVisibility]);
 
   const availableGroupsForChange = useCallback(
     (targetUser: UserRow) => {
@@ -339,69 +392,53 @@ export default function UsersPage() {
   };
 
   const isGroupVisibleForTab = useCallback(
-    (row: TabVisibilityRow, groupId: string) => {
-      if (row.groupIds.length === 0) return true;
-      return row.groupIds.includes(groupId);
+    (routeKey: string) => {
+      if (!selectedGroupVisibilityConfigured) return true;
+      return selectedGroupVisibleRouteKeys.includes(routeKey);
     },
-    []
+    [selectedGroupVisibilityConfigured, selectedGroupVisibleRouteKeys]
   );
 
   const toggleTabVisibilityForGroup = useCallback(
-    (tabId: string, groupId: string) => {
-      const selectableGroupIdSet = new Set(tabVisibilitySelectableGroups.map((group) => group.id));
-      setTabVisibilityRows((prev) =>
-        prev.map((row) => {
-          if (row.id !== tabId) return row;
-
-          const preservedGroupIds = row.groupIds.filter((id) => !selectableGroupIdSet.has(id));
-          const currentSelectableGroupIds =
-            row.groupIds.length === 0
-              ? tabVisibilitySelectableGroups.map((group) => group.id)
-              : row.groupIds.filter((id) => selectableGroupIdSet.has(id));
-
-          const isCurrentlyVisible =
-            row.groupIds.length === 0 ? true : currentSelectableGroupIds.includes(groupId);
-
-          const nextSelectableGroupIds = isCurrentlyVisible
-            ? currentSelectableGroupIds.filter((id) => id !== groupId)
-            : Array.from(new Set([...currentSelectableGroupIds, groupId]));
-
-          return {
-            ...row,
-            groupIds: Array.from(new Set([...preservedGroupIds, ...nextSelectableGroupIds])),
-          };
-        })
-      );
+    (routeKey: string) => {
+      const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
+      const currentSet = new Set(selectedGroupVisibilityConfigured ? selectedGroupVisibleRouteKeys : allRouteKeys);
+      if (currentSet.has(routeKey)) currentSet.delete(routeKey);
+      else currentSet.add(routeKey);
+      setSelectedGroupVisibilityConfigured(true);
+      setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((key) => currentSet.has(key)));
     },
-    [tabVisibilitySelectableGroups]
+    [selectedGroupVisibilityConfigured, selectedGroupVisibleRouteKeys, tabVisibilityRows]
   );
 
   const handleSaveTabVisibility = useCallback(
     async (tabId: string) => {
-      const row = tabVisibilityRows.find((item) => item.id === tabId);
-      if (!row) return;
+      if (!selectedVisibilityGroupId) return;
 
       setTabVisibilitySavingId(tabId);
       setTabVisibilityError(null);
       try {
-        const res = await fetch(`/api/tabs/${tabId}`, {
-          method: "PATCH",
+        const res = await fetch(`/api/users/tab-visibility`, {
+          method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ groupIds: row.groupIds }),
+          body: JSON.stringify({
+            groupId: selectedVisibilityGroupId,
+            routeKeys: selectedGroupVisibleRouteKeys,
+          }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           setTabVisibilityError(data?.error || "Error");
           return;
         }
-        await loadTabVisibilityRows();
+        await loadSelectedGroupRouteVisibility();
       } catch {
         setTabVisibilityError("Error");
       } finally {
         setTabVisibilitySavingId(null);
       }
     },
-    [loadTabVisibilityRows, tabVisibilityRows]
+    [loadSelectedGroupRouteVisibility, selectedGroupVisibleRouteKeys, selectedVisibilityGroupId]
   );
 
   // ── Helpers ──
@@ -1159,10 +1196,7 @@ export default function UsersPage() {
                 ) : (
                   tabVisibilityRows.map((row) => {
                     const disabled = !selectedVisibilityGroupId;
-                    const checked =
-                      selectedVisibilityGroupId.length > 0
-                        ? isGroupVisibleForTab(row, selectedVisibilityGroupId)
-                        : false;
+                    const checked = selectedVisibilityGroupId.length > 0 ? isGroupVisibleForTab(row.routeKey) : false;
 
                     return (
                       <tr key={row.id} className="admin-table-row">
@@ -1175,7 +1209,7 @@ export default function UsersPage() {
                               disabled={disabled}
                               onChange={() => {
                                 if (!selectedVisibilityGroupId) return;
-                                toggleTabVisibilityForGroup(row.id, selectedVisibilityGroupId);
+                                toggleTabVisibilityForGroup(row.routeKey);
                               }}
                             />
                             <span>{checked ? (locale === "fr" ? "Oui" : "Yes") : (locale === "fr" ? "Non" : "No")}</span>

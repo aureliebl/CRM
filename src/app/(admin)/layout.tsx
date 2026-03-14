@@ -38,10 +38,12 @@ function AdminSidebar({
   user,
   onToggleSidebar,
   onVisibleRoutesChange,
+  routeVisibility,
 }: {
   user: LocalUser;
   onToggleSidebar: () => void;
   onVisibleRoutesChange?: (routes: string[]) => void;
+  routeVisibility?: { configured: boolean; routeKeys: string[] } | null;
 }) {
   const pathname = usePathname() || "/dashboard";
   const { t, locale } = useLocale();
@@ -140,6 +142,13 @@ function AdminSidebar({
     ]
   );
 
+  const visibleNavItems = useMemo(() => {
+    if (isSuperAdmin) return navItems;
+    if (!routeVisibility?.configured) return navItems;
+    const allowed = new Set(routeVisibility.routeKeys);
+    return navItems.filter((item) => allowed.has(item.href));
+  }, [isSuperAdmin, navItems, routeVisibility]);
+
   const legacyTestItems = useMemo(
     () => [
       { href: "/clients", label: t.navigation.clients, icon: APP_MATERIAL_SYMBOLS.navigation.clients },
@@ -169,10 +178,10 @@ function AdminSidebar({
 
   useEffect(() => {
     if (!onVisibleRoutesChange) return;
-    const visibleMainRoutes = navItems.map((item) => item.href);
+    const visibleMainRoutes = visibleNavItems.map((item) => item.href);
     const visibleLegacyRoutes = isSuperAdmin ? legacyTestItems.map((item) => item.href) : [];
     onVisibleRoutesChange(Array.from(new Set([...visibleMainRoutes, ...visibleLegacyRoutes])));
-  }, [navItems, legacyTestItems, isSuperAdmin, onVisibleRoutesChange]);
+  }, [visibleNavItems, legacyTestItems, isSuperAdmin, onVisibleRoutesChange]);
 
   useEffect(() => {
     if (isTestSectionActive) {
@@ -214,7 +223,7 @@ function AdminSidebar({
           {locale === "fr" ? "Navigation" : "Navigation"}
         </div>
         <ul className="admin-nav-list">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive =
               pathname === item.href || pathname.startsWith(`${item.href}/`);
             const navItem = item as typeof item & { deletable?: boolean; tabId?: string };
@@ -556,6 +565,7 @@ export default function AdminLayout({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [visibleRoutes, setVisibleRoutes] = useState<string[]>([]);
   const [showAircallButton, setShowAircallButton] = useState(true);
+  const [routeVisibility, setRouteVisibility] = useState<{ configured: boolean; routeKeys: string[] } | null>(null);
 
   const handleVisibleRoutesChange = useCallback((routes: string[]) => {
     setVisibleRoutes((prev) => {
@@ -651,6 +661,23 @@ export default function AdminLayout({
     }
   }, []);
 
+  const loadRouteVisibility = useCallback(async () => {
+    try {
+      const res = await fetch("/api/navigation/visible-routes", { cache: "no-store" });
+      if (!res.ok) {
+        setRouteVisibility(null);
+        return;
+      }
+      const data = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
+      setRouteVisibility({
+        configured: data.configured === true,
+        routeKeys: Array.isArray(data.routeKeys) ? data.routeKeys : [],
+      });
+    } catch {
+      setRouteVisibility(null);
+    }
+  }, []);
+
   useEffect(() => {
     const savedSidebarState = window.localStorage.getItem("admin:sidebar-collapsed");
     if (savedSidebarState !== null) {
@@ -659,7 +686,8 @@ export default function AdminLayout({
     setMounted(true);
     void loadCurrentUser();
     void loadUiSecuritySettings();
-  }, [loadCurrentUser, loadUiSecuritySettings]);
+    void loadRouteVisibility();
+  }, [loadCurrentUser, loadUiSecuritySettings, loadRouteVisibility]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -677,10 +705,11 @@ export default function AdminLayout({
   useEffect(() => {
     const handler = () => {
       void loadUiSecuritySettings();
+      void loadRouteVisibility();
     };
     window.addEventListener("security:settings-updated", handler);
     return () => window.removeEventListener("security:settings-updated", handler);
-  }, [loadUiSecuritySettings]);
+  }, [loadUiSecuritySettings, loadRouteVisibility]);
 
   useEffect(() => {
     if (!mounted || !authResolved) return;
@@ -722,6 +751,7 @@ export default function AdminLayout({
           user={user}
           onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
           onVisibleRoutesChange={handleVisibleRoutesChange}
+          routeVisibility={routeVisibility}
         />
         <div className="admin-content-shell">
           <AdminTopbar

@@ -94,6 +94,23 @@ async function ensurePostgresSchema() {
       updatedAt TEXT
     )
   `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility_state (
+      groupId TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility (
+      groupId TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (groupId, routeKey)
+    )
+  `);
 }
 
 async function ensureDefaultsPostgres() {
@@ -460,6 +477,140 @@ export async function updateSecuritySettings(patch: Partial<SecuritySettings>) {
     );
   }
   return getSecuritySettings();
+}
+
+export async function getGroupRouteVisibility(groupId: string): Promise<{ configured: boolean; routeKeys: string[] }> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const stateResult = await pgPool.query(
+      "SELECT configured FROM group_route_visibility_state WHERE groupId = $1",
+      [groupId]
+    );
+    const configured = Number((stateResult.rows[0] as Record<string, unknown> | undefined)?.configured ?? 0) === 1;
+
+    if (!configured) {
+      return { configured: false, routeKeys: [] };
+    }
+
+    const rows = await pgPool.query(
+      "SELECT routeKey FROM group_route_visibility WHERE groupId = $1 ORDER BY routeKey ASC",
+      [groupId]
+    );
+
+    return {
+      configured: true,
+      routeKeys: rows.rows.map((row) =>
+        String((row as Record<string, unknown>).routekey ?? (row as Record<string, unknown>).routeKey ?? "")
+      ),
+    };
+  }
+
+  if (!sqliteDb) return { configured: false, routeKeys: [] };
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility_state (
+      groupId TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility (
+      groupId TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (groupId, routeKey)
+    )
+  `);
+
+  const state = sqliteDb
+    .prepare("SELECT configured FROM group_route_visibility_state WHERE groupId = ?")
+    .get(groupId) as { configured?: number } | undefined;
+  const configured = (state?.configured ?? 0) === 1;
+
+  if (!configured) {
+    return { configured: false, routeKeys: [] };
+  }
+
+  const rows = sqliteDb
+    .prepare("SELECT routeKey FROM group_route_visibility WHERE groupId = ? ORDER BY routeKey ASC")
+    .all(groupId) as Array<{ routeKey: string }>;
+
+  return { configured: true, routeKeys: rows.map((row) => row.routeKey) };
+}
+
+export async function setGroupRouteVisibility(groupId: string, routeKeys: string[]): Promise<{ configured: boolean; routeKeys: string[] }> {
+  const now = nowIso();
+  const normalized = Array.from(
+    new Set(
+      routeKeys
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+
+    await pgPool.query("DELETE FROM group_route_visibility WHERE groupId = $1", [groupId]);
+    for (const routeKey of normalized) {
+      await pgPool.query(
+        "INSERT INTO group_route_visibility (groupId, routeKey, createdAt) VALUES ($1,$2,$3) ON CONFLICT (groupId, routeKey) DO NOTHING",
+        [groupId, routeKey, now]
+      );
+    }
+
+    await pgPool.query(
+      `INSERT INTO group_route_visibility_state (groupId, configured, updatedAt)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (groupId) DO UPDATE SET configured = EXCLUDED.configured, updatedAt = EXCLUDED.updatedAt`,
+      [groupId, 1, now]
+    );
+
+    return { configured: true, routeKeys: normalized };
+  }
+
+  if (!sqliteDb) return { configured: true, routeKeys: normalized };
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility_state (
+      groupId TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS group_route_visibility (
+      groupId TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (groupId, routeKey)
+    )
+  `);
+
+  sqliteDb.prepare("DELETE FROM group_route_visibility WHERE groupId = ?").run(groupId);
+  const insert = sqliteDb.prepare(
+    "INSERT OR IGNORE INTO group_route_visibility (groupId, routeKey, createdAt) VALUES (?,?,?)"
+  );
+  for (const routeKey of normalized) {
+    insert.run(groupId, routeKey, now);
+  }
+
+  const existing = sqliteDb
+    .prepare("SELECT groupId FROM group_route_visibility_state WHERE groupId = ?")
+    .get(groupId) as { groupId?: string } | undefined;
+
+  if (existing?.groupId) {
+    sqliteDb
+      .prepare("UPDATE group_route_visibility_state SET configured = ?, updatedAt = ? WHERE groupId = ?")
+      .run(1, now, groupId);
+  } else {
+    sqliteDb
+      .prepare("INSERT INTO group_route_visibility_state (groupId, configured, updatedAt) VALUES (?,?,?)")
+      .run(groupId, 1, now);
+  }
+
+  return { configured: true, routeKeys: normalized };
 }
 
 export async function getIpAllowlistEntries(): Promise<IpAllowlistEntry[]> {
