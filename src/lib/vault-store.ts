@@ -163,6 +163,8 @@ function maskLogin(login: string): string {
 function canActorViewEntrySecrets(actor: ActorLike, row: { created_by?: string | null; password_owner_only?: number | string | null }): boolean {
   const ownerOnly = Number(row.password_owner_only ?? 0) === 1;
   if (!ownerOnly) return true;
+  if (isAccountSuperAdmin(actor)) return true;
+  if (actor.role === "admin") return true;
   const ownerId = row.created_by ? String(row.created_by) : "";
   if (!ownerId) return false;
   return ownerId === actor.id;
@@ -284,13 +286,21 @@ export async function canActorAccessEntry(
   if (actor.role === "admin") return true;
 
   const entryResult = await pgPool.query(
-    "SELECT admin_only FROM vault_entries WHERE id = $1 LIMIT 1",
+    "SELECT admin_only, password_owner_only, created_by FROM vault_entries WHERE id = $1 LIMIT 1",
     [entryId]
   );
   if (entryResult.rows.length === 0) return false;
-  const adminOnly = Number(entryResult.rows[0].admin_only ?? 0) === 1;
+  const row = entryResult.rows[0];
+  const adminOnly = Number(row.admin_only ?? 0) === 1;
   if (adminOnly && actor.role !== "admin") return false;
   if (adminOnly && actor.role === "admin") return true;
+
+  // Owner-only entries are accessible only to their creator (admins/super admins handled above)
+  const ownerOnly = Number(row.password_owner_only ?? 0) === 1;
+  if (ownerOnly) {
+    const ownerId = row.created_by ? String(row.created_by) : "";
+    if (ownerId !== actor.id) return false;
+  }
 
   const groupId = await getGroupIdForAccount(actor.id);
   if (!groupId) return false;
@@ -300,6 +310,20 @@ export async function canActorAccessEntry(
     [entryId, groupId]
   );
   return result.rows.length > 0;
+}
+
+export async function isActorEntryCreator(
+  actor: ActorLike,
+  entryId: string
+): Promise<boolean> {
+  await ensurePostgresReady();
+  const result = await pgPool.query(
+    "SELECT created_by FROM vault_entries WHERE id = $1 LIMIT 1",
+    [entryId]
+  );
+  if (result.rows.length === 0) return false;
+  const createdBy = result.rows[0].created_by ? String(result.rows[0].created_by) : "";
+  return createdBy === actor.id;
 }
 
 export async function createVaultEntry(input: {

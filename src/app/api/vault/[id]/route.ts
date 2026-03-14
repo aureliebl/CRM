@@ -8,6 +8,7 @@ import {
   updateVaultEntry,
   deleteVaultEntry,
   canActorAccessEntry,
+  isActorEntryCreator,
 } from "@/lib/vault-store";
 import { addLog } from "@/lib/account-store";
 import { getGroupIdForAccount } from "@/lib/security-store";
@@ -48,17 +49,31 @@ export async function PUT(req: Request, context: Ctx) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      const isCreator = await isActorEntryCreator(actor, id);
+      if (!isCreator) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
     const body = await req.json();
     const { serviceName, serviceUrl, login, password, notes, groupIds, adminOnly, passwordOwnerOnly } = body;
 
+    const actorIsAdmin = actor.role === "admin";
+    const actorIsSuperAdmin = isAccountSuperAdmin(actor);
+    const actorCanUseAdminOnly = actorIsAdmin || actorIsSuperAdmin;
+
     let normalizedGroupIds = Array.isArray(groupIds)
       ? groupIds.map((value) => String(value || "").trim()).filter(Boolean)
       : undefined;
 
-    if (adminOnly === false && normalizedGroupIds && normalizedGroupIds.length === 0) {
+    // Non-admins cannot set adminOnly and their groups are restricted to their own
+    const effectiveAdminOnly = actorCanUseAdminOnly ? adminOnly : undefined;
+    if (!actorCanUseAdminOnly && normalizedGroupIds !== undefined) {
+      const actorGroupId = await getGroupIdForAccount(actor.id);
+      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
+    }
+
+    if (effectiveAdminOnly === false && normalizedGroupIds && normalizedGroupIds.length === 0) {
       const fallbackGroupId = await getGroupIdForAccount(actor.id);
       if (fallbackGroupId) normalizedGroupIds = [fallbackGroupId];
     }
@@ -70,7 +85,7 @@ export async function PUT(req: Request, context: Ctx) {
       password,
       notes,
       groupIds: normalizedGroupIds,
-      adminOnly,
+      adminOnly: effectiveAdminOnly,
       passwordOwnerOnly,
     });
 
