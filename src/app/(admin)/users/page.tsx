@@ -1197,7 +1197,6 @@ export default function UsersPage() {
                   tabVisibilityRows.map((row) => {
                     const disabled = !selectedVisibilityGroupId;
                     const checked = selectedVisibilityGroupId.length > 0 ? isGroupVisibleForTab(row.routeKey) : false;
-
                     return (
                       <tr key={row.id} className="admin-table-row">
                         <td style={tdStyle}>{row.title}</td>
@@ -1215,29 +1214,31 @@ export default function UsersPage() {
                             <span>{checked ? (locale === "fr" ? "Oui" : "Yes") : (locale === "fr" ? "Non" : "No")}</span>
                           </label>
                         </td>
-                        <td style={tdStyle}>
-                          <button
-                            type="button"
-                            style={{ ...btnPrimary, ...btnSmall }}
-                            disabled={tabVisibilitySavingId === row.id}
-                            onClick={() => handleSaveTabVisibility(row.id)}
-                          >
-                            {tabVisibilitySavingId === row.id
-                              ? locale === "fr"
-                                ? "Enregistrement…"
-                                : "Saving…"
-                              : locale === "fr"
-                              ? "Enregistrer"
-                              : "Save"}
-                          </button>
-                        </td>
+                        <td style={tdStyle}></td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
+          {/* Bouton global d'enregistrement */}
+          <div style={{ display: "flex", justifyContent: "flex-end", padding: "1rem" }}>
+            <button
+              type="button"
+              style={{ ...btnPrimary, minWidth: 140, fontSize: "1rem" }}
+              disabled={tabVisibilitySavingId !== null || !selectedVisibilityGroupId}
+              onClick={() => handleSaveTabVisibility("all")}
+            >
+              {tabVisibilitySavingId !== null
+                ? locale === "fr"
+                  ? "Enregistrement…"
+                  : "Saving…"
+                : locale === "fr"
+                ? "Enregistrer les modifications"
+                : "Save changes"}
+            </button>
           </div>
+        </div>
         </div>
       )}
 

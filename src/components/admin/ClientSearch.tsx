@@ -171,6 +171,9 @@ export function ClientSearch({
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onBlur={() => {
+          setTimeout(() => setIsOpen(false), 100); // laisse le temps à un clic sur un résultat
+        }}
         onKeyDown={(e) => {
           if (!filtered.length) return;
 

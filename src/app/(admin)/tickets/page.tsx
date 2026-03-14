@@ -1087,9 +1087,14 @@ function renderTokens(
       {/* Create token form */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <input value={newTokenLabel} onChange={(e) => setNewTokenLabel(e.target.value)} placeholder={t.tokenLabel} style={{ ...inputStyle, flex: 1, marginBottom: 0 }} />
-        <button onClick={handleCreateToken} className="admin-btn-primary" style={{ fontSize: 12 }} disabled={!newTokenLabel}>
+        <AsyncButton
+          onClick={handleCreateToken}
+          variant="primary"
+          style={{ fontSize: 12 }}
+          disabled={!newTokenLabel}
+        >
           {t.createToken}
-        </button>
+        </AsyncButton>
       </div>
 
       {/* curl example */}
