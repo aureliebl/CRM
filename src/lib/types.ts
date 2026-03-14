@@ -286,6 +286,7 @@ export interface UserGroup {
   name: string;
   description?: string;
   isDefault: boolean;
+  isAdmin: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -295,6 +296,19 @@ export interface AccountGroupMembership {
   groupId: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type InvitationStatus = "pending" | "accepted" | "expired";
+
+export interface UserInvitation {
+  id: string;
+  email: string;
+  groupId: string;
+  expiresAt: string;
+  status: InvitationStatus;
+  invitedBy: string;
+  createdAt: string;
+  acceptedAt?: string | null;
 }
 
 export interface IpAllowlistEntry {
