@@ -71,10 +71,14 @@ export default function UsersPage() {
 
   const loadSession = useCallback(async () => {
     try {
-      const res = await fetch("/api/auth/session", { method: "POST", cache: "no-store" });
+      const res = await fetch("/api/auth/session", { method: "GET", cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
-      setActor(data);
+      if (data?.authenticated && data.user) {
+        setActor(data.user);
+      } else {
+        setActor(null);
+      }
     } catch { /* ignore */ }
   }, []);
 
