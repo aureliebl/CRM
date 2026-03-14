@@ -121,6 +121,7 @@ const labels = {
     selectGroups: "Sélectionnez au moins un groupe",
     autoShareInfo: "Partage automatique: votre groupe + admins/super-admins",
     saveFailed: "Échec de l'enregistrement",
+    totpSaveFailed: "L'entrée a été créée mais le TOTP n'a pas pu être ajouté. Vous pouvez l'ajouter depuis la vue détaillée.",
     passwordHiddenByPolicy: "Mot de passe masqué (visible uniquement par le créateur).",
     totpOptionalAtSave: "Secret TOTP (optionnel à la création)",
     totpConfigured: "TOTP configuré",
@@ -178,6 +179,7 @@ const labels = {
     selectGroups: "Select at least one group",
     autoShareInfo: "Auto-shared: your group + admins/super-admins",
     saveFailed: "Save failed",
+    totpSaveFailed: "Entry was created but TOTP could not be added. You can add it from the detail view.",
     passwordHiddenByPolicy: "Password hidden (visible only to creator).",
     totpOptionalAtSave: "TOTP secret (optional on save)",
     totpConfigured: "TOTP configured",
@@ -543,15 +545,22 @@ export default function VaultPage() {
         });
         if (res.ok) {
           const created = await res.json();
-          if (formTotpSecret.trim().length >= 16) {
-            await fetch(`/api/vault/${created.id}/totp`, {
+          const cleanedSecret = formTotpSecret.trim().replace(/\s/g, "").toUpperCase();
+          if (cleanedSecret.length >= 16) {
+            const totpRes = await fetch(`/api/vault/${created.id}/totp`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 label: "TOTP principal",
-                secret: formTotpSecret.trim().replace(/\s/g, "").toUpperCase(),
+                secret: cleanedSecret,
               }),
             });
+            if (!totpRes.ok) {
+              await loadEntries();
+              setSaveError(t.totpSaveFailed);
+              setFormSaving(false);
+              return;
+            }
           }
           await loadEntries();
           closeModal();
@@ -567,15 +576,21 @@ export default function VaultPage() {
         });
         if (res.ok) {
           const updated = await res.json();
-          if (formTotpSecret.trim().length >= 16) {
-            await fetch(`/api/vault/${selectedEntry.id}/totp`, {
+          const cleanedSecret = formTotpSecret.trim().replace(/\s/g, "").toUpperCase();
+          let totpFailed = false;
+          if (cleanedSecret.length >= 16) {
+            const totpRes = await fetch(`/api/vault/${selectedEntry.id}/totp`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 label: "TOTP principal",
-                secret: formTotpSecret.trim().replace(/\s/g, "").toUpperCase(),
+                secret: cleanedSecret,
               }),
             });
+            if (!totpRes.ok) {
+              totpFailed = true;
+              setSaveError(t.totpSaveFailed);
+            }
           }
           setSelectedEntry(updated);
           // Reload TOTP data so newly added or existing TOTPs display correctly
@@ -585,7 +600,9 @@ export default function VaultPage() {
               setSelectedTotps(await totpRes.json());
             }
           } catch { /* ignore */ }
-          setModalView("detail");
+          if (!totpFailed) {
+            setModalView("detail");
+          }
           await loadEntries();
         } else {
           const data = await res.json().catch(() => ({}));
@@ -596,7 +613,7 @@ export default function VaultPage() {
       setSaveError(t.saveFailed);
     }
     setFormSaving(false);
-  }, [modalView, selectedEntry, formServiceName, formServiceUrl, formLogin, formPassword, formNotes, formGroupIds, formAdminOnly, formPasswordOwnerOnly, formTotpSecret, loadEntries, closeModal, t.saveFailed]);
+  }, [modalView, selectedEntry, formServiceName, formServiceUrl, formLogin, formPassword, formNotes, formGroupIds, formAdminOnly, formPasswordOwnerOnly, formTotpSecret, loadEntries, closeModal, t.saveFailed, t.totpSaveFailed]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedEntry) return;
@@ -974,6 +991,7 @@ export default function VaultPage() {
         )}
 
         {/* Actions */}
+        {(canManageEntry || isSuperAdmin) && (
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
           {canManageEntry && (
             <button onClick={startAddTotp} className="admin-btn admin-btn-secondary" style={{ fontSize: 13, gap: 4 }}>
@@ -991,6 +1009,7 @@ export default function VaultPage() {
             </button>
           )}
         </div>
+        )}
 
         {/* Metadata */}
         <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
