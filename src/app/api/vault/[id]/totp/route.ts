@@ -8,6 +8,7 @@ import {
   addTotp,
   getTotpForEntryForActor,
   isActorEntryCreator,
+  getVaultEntryById,
 } from "@/lib/vault-store";
 import { addLog } from "@/lib/account-store";
 
@@ -39,6 +40,21 @@ export async function POST(req: Request, context: Ctx) {
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const canAccess = await canActorAccessEntry(actor, id);
+  if (!canAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const entry = await getVaultEntryById(id, actor);
+  if (!entry) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (!entry.canViewPassword) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
     const isCreator = await isActorEntryCreator(actor, id);
     if (!isCreator) {
