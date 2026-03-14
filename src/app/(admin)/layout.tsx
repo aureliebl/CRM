@@ -108,6 +108,15 @@ function AdminSidebar({
         label: t.navigation.assistant ?? "Assistant",
         icon: "smart_toy",
       },
+      ...(user.role === "admin"
+        ? [
+            {
+              href: "/users",
+              label: locale === "fr" ? "Utilisateurs" : "Users",
+              icon: "group",
+            },
+          ]
+        : []),
       { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
       ...(isSuperAdmin
         ? [
@@ -671,6 +680,12 @@ export default function AdminLayout({
       (pathname.includes("/tabs/") && pathname.endsWith("/edit")) ||
       isLegacyLabRoute;
     if (isSuperAdminOnlyRoute && user.isSuperAdmin !== true) {
+      router.push("/dashboard");
+      return;
+    }
+
+    const isAdminOnlyRoute = pathname.startsWith("/users");
+    if (isAdminOnlyRoute && user.role !== "admin") {
       router.push("/dashboard");
     }
   }, [router, user, mounted, authResolved, pathname]);
