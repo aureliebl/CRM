@@ -38,6 +38,8 @@ export async function GET(req: Request) {
   }
 
   // Both are configured: use intersection (most restrictive)
+  // A user only sees routes allowed by BOTH their role and their group.
+  // An empty intersection means no routes are visible under these combined restrictions.
   const roleSet = new Set(roleVisibility.routeKeys);
   const intersected = groupVisibility.routeKeys.filter((key) => roleSet.has(key));
   return NextResponse.json({ configured: true, routeKeys: intersected });
