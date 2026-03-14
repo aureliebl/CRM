@@ -253,11 +253,14 @@ curl -X POST https://costo-test.vercel.app/api/tickets/move \
 
 Toutes les requêtes vers `/api/flowise/*` sont relayées vers l'instance Flowise configurée (`FLOWISE_API_HOST`).
 
+> **Authentification requise** : le proxy nécessite une session utilisateur valide (cookie de session). Les requêtes non authentifiées reçoivent un `401 Unauthorized`.
+
 ### Exemple : envoyer un message au chatbot
 
 ```bash
 curl -X POST https://costo-test.vercel.app/api/flowise/api/v1/prediction/<CHATFLOW_ID> \
   -H "Content-Type: application/json" \
+  -H "Cookie: costockage_session=<SESSION_TOKEN>" \
   -d '{
     "question": "Crée un ticket pour le client Acme avec une priorité haute",
     "overrideConfig": {
@@ -273,8 +276,8 @@ Le `CHATFLOW_ID` du ticket bot est : `e86ba344-9e5d-4cdc-b6e5-2f55481f1c0f`
 | Variable | Par défaut | Description |
 |---|---|---|
 | `FLOWISE_API_HOST` | `https://flowise.costockage.fr` | URL de l'instance Flowise |
-| `FLOWISE_API_KEY` | _(vide)_ | Clé API ajoutée en header `x-api-key` |
-| `FLOWISE_AUTHORIZATION` | _(vide)_ | Header `authorization` envoyé à Flowise |
+| `FLOWISE_API_KEY` | _(vide)_ | Clé API envoyée en header `Authorization: Bearer <key>` |
+| `FLOWISE_AUTHORIZATION` | _(vide)_ | Header `Authorization` brut (prioritaire sur `FLOWISE_API_KEY`) |
 | `FLOWISE_TIMEOUT_MS` | `20000` | Timeout par requête (ms) |
 | `FLOWISE_RETRY_ATTEMPTS` | `2` | Nombre de tentatives en cas d'erreur transitoire |
 
