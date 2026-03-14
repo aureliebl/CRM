@@ -127,6 +127,8 @@ const labels = {
     createdAt: "Créé le",
     updatedAt: "Modifié le",
     seconds: "s",
+    sectionShared: "Mots de passe partagés",
+    sectionPersonal: "Mes mots de passe personnels",
   },
   en: {
     title: "Vault",
@@ -182,6 +184,8 @@ const labels = {
     createdAt: "Created",
     updatedAt: "Modified",
     seconds: "s",
+    sectionShared: "Shared passwords",
+    sectionPersonal: "My personal passwords",
   },
 };
 
@@ -752,6 +756,9 @@ export default function VaultPage() {
     const matchGroup = !filterGroup || e.groupIds.includes(filterGroup);
     return matchSearch && matchGroup;
   });
+
+  const filteredShared = filtered.filter((e) => !e.passwordOwnerOnly);
+  const filteredPersonal = filtered.filter((e) => e.passwordOwnerOnly);
 
   /* ─── Render helpers ─── */
 
@@ -1330,8 +1337,34 @@ export default function VaultPage() {
           {entries.length === 0 ? t.noEntries : t.noResults}
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {filtered.map(renderEntryCard)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Shared passwords section */}
+          {filteredShared.length > 0 && (
+            <div>
+              {filteredPersonal.length > 0 && (
+                <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
+                  <MaterialSymbol name="group" size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
+                  {t.sectionShared}
+                </h3>
+              )}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {filteredShared.map(renderEntryCard)}
+              </div>
+            </div>
+          )}
+
+          {/* Personal passwords section (owner-only) */}
+          {filteredPersonal.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8 }}>
+                <MaterialSymbol name="lock_person" size={16} style={{ verticalAlign: "middle", marginRight: 6 }} />
+                {t.sectionPersonal}
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {filteredPersonal.map(renderEntryCard)}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

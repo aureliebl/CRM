@@ -225,6 +225,9 @@ export async function getVaultEntriesForActor(
 
   const items: VaultEntryListItem[] = [];
   for (const row of rows) {
+    // Hide owner-only entries entirely from non-creators
+    if (!canActorViewEntrySecrets(actor, row)) continue;
+
     const loginDecrypted = vaultDecrypt(
       row.encrypted_login,
       row.login_iv,
