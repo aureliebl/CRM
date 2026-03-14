@@ -22,7 +22,8 @@ export async function GET(req: Request) {
   await expireOldInvitations();
 
   const invitations = await getAllInvitations();
-  return NextResponse.json(invitations);
+  const safeInvitations = invitations.map(({ token, ...rest }) => rest);
+  return NextResponse.json(safeInvitations);
 }
 
 export async function POST(req: Request) {
