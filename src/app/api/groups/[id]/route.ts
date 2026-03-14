@@ -4,6 +4,7 @@ import {
   updateUserGroup,
   deleteUserGroup,
   getAccountGroupMemberships,
+  getAccountGroupInvitations,
 } from "@/lib/security-store";
 import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
 import { addLog } from "@/lib/account-store";
@@ -78,6 +79,19 @@ export async function DELETE(
   if (memberCount > 0) {
     return NextResponse.json(
       { error: "Cannot delete a group that has members" },
+      { status: 400 }
+    );
+  }
+
+  // Check if group has pending/unaccepted invitations
+  const invitations = await getAccountGroupInvitations();
+  const pendingInvitationCount = invitations.filter(
+    (invitation) => invitation.groupId === id && !invitation.acceptedAt
+  ).length;
+
+  if (pendingInvitationCount > 0) {
+    return NextResponse.json(
+      { error: "Cannot delete a group that has pending invitations" },
       { status: 400 }
     );
   }
