@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { getClients } from "@/lib/mock/clients";
 import type { Client } from "@/lib/types";
@@ -40,6 +40,7 @@ export function ClientSearch({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [tickets, setTickets] = useState<TicketSearchItem[]>([]);
   const [ticketsLoaded, setTicketsLoaded] = useState(false);
+  const blurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
   const clients = getClients();
   const isMac = useMemo(() => {
@@ -170,9 +171,21 @@ export function ClientSearch({
           setQuery(e.target.value);
           setIsOpen(true);
         }}
-        onFocus={() => setIsOpen(true)}
+        onFocus={() => {
+          if (blurTimeoutRef.current) {
+            clearTimeout(blurTimeoutRef.current);
+            blurTimeoutRef.current = null;
+          }
+          setIsOpen(true);
+        }}
         onBlur={() => {
-          setTimeout(() => setIsOpen(false), 100); // laisse le temps à un clic sur un résultat
+          if (blurTimeoutRef.current) {
+            clearTimeout(blurTimeoutRef.current);
+          }
+          blurTimeoutRef.current = setTimeout(() => {
+            setIsOpen(false);
+            blurTimeoutRef.current = null;
+          }, 100); // laisse le temps à un clic sur un résultat
         }}
         onKeyDown={(e) => {
           if (!filtered.length) return;
@@ -193,6 +206,7 @@ export function ClientSearch({
           } else if (e.key === "Escape") {
             setIsOpen(false);
             setActiveIndex(-1);
+            e.currentTarget.blur();
           }
         }}
         style={{
