@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { getRecentLogs } from "@/lib/account-store";
-import { isActorAdmin } from "@/lib/server-permissions";
+import { isActorSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -9,7 +9,7 @@ import {
 } from "@/lib/account-store";
 import { sendPasswordResetEmail } from "@/lib/mailer";
 import { getDefaultGroupId, setAccountGroupMembership } from "@/lib/security-store";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ function buildResetUrl(token: string): string {
 
 export async function POST(req: Request) {
   try {
-    if (!(await isActorAdmin(req))) {
+    if (!(await isActorSuperAdmin(req))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

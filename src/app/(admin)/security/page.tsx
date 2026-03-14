@@ -39,6 +39,7 @@ type TabAccessLite = {
   title: string;
   slug: string;
   groupIds: string[];
+  superAdminOnly: boolean;
 };
 
 type ConnectorLite = {
@@ -55,6 +56,7 @@ type ConnectorLite = {
 type SessionActor = {
   id: string;
   role: string;
+  isSuperAdmin?: boolean;
   email?: string;
   fullName?: string;
 };
@@ -120,6 +122,10 @@ export default function SecurityPage() {
           assignGroup: "Affecter un groupe",
           groupTabs: "Onglets autorisés par groupe",
           groupTabsDescription: "Cochez les onglets visibles pour chaque groupe opérateur.",
+          superAdminTabs: "Onglets privés super admin",
+          superAdminTabsDescription:
+            "Activez ce mode pour garder un onglet visible uniquement dans votre version personnelle.",
+          superAdminOnly: "Privé super admin",
           noTabs: "Aucun onglet configurable",
           role: "Rôle",
           account: "Compte",
@@ -135,7 +141,7 @@ export default function SecurityPage() {
           yes: "Oui",
           no: "Non",
           loading: "Chargement...",
-          forbidden: "Accès réservé aux administrateurs.",
+          forbidden: "Accès réservé au super admin.",
           operatorsOnly: "Les comptes non-admin sont traités comme opérateurs.",
           createAccount: "Créer un compte",
           accountEmail: "Email",
@@ -207,6 +213,10 @@ export default function SecurityPage() {
           assignGroup: "Assign group",
           groupTabs: "Allowed tabs by group",
           groupTabsDescription: "Select which tabs are visible for each operator group.",
+          superAdminTabs: "Super-admin private tabs",
+          superAdminTabsDescription:
+            "Enable this mode to keep a tab visible only in your personal super-admin workspace.",
+          superAdminOnly: "Super-admin private",
           noTabs: "No configurable tabs",
           role: "Role",
           account: "Account",
@@ -222,7 +232,7 @@ export default function SecurityPage() {
           yes: "Yes",
           no: "No",
           loading: "Loading...",
-          forbidden: "Admin-only access.",
+          forbidden: "Super-admin-only access.",
           operatorsOnly: "Non-admin accounts are treated as operators.",
           createAccount: "Create account",
           accountEmail: "Email",
@@ -328,11 +338,12 @@ export default function SecurityPage() {
   };
 
   useEffect(() => {
+    if (actor?.isSuperAdmin !== true) return;
     loadOverview();
-  }, [actor?.id]);
+  }, [actor?.id, actor?.isSuperAdmin]);
 
   useEffect(() => {
-    if (!actor || actor.role !== "admin") return;
+    if (!actor || actor.isSuperAdmin !== true) return;
     const interval = window.setInterval(() => {
       loadOverview({ silent: true });
     }, 15000);
@@ -340,10 +351,10 @@ export default function SecurityPage() {
     return () => {
       window.clearInterval(interval);
     };
-  }, [actor?.id, actor?.role]);
+  }, [actor?.id, actor?.isSuperAdmin]);
 
   const loadTabs = async () => {
-    if (!actor) return;
+    if (!actor || actor.isSuperAdmin !== true) return;
     const res = await fetch(`/api/tabs`, {
       cache: "no-store",
     });
@@ -356,6 +367,7 @@ export default function SecurityPage() {
       title: string;
       slug: string;
       groupIds?: string[];
+      superAdminOnly?: boolean;
     }>;
     setTabs(
       data.map((tab) => ({
@@ -363,6 +375,7 @@ export default function SecurityPage() {
         title: tab.title,
         slug: tab.slug,
         groupIds: tab.groupIds ?? [],
+        superAdminOnly: tab.superAdminOnly === true,
       }))
     );
   };
@@ -372,7 +385,7 @@ export default function SecurityPage() {
   }, [actor?.id]);
 
   const loadConnectors = async () => {
-    if (!actor) return;
+    if (!actor || actor.isSuperAdmin !== true) return;
     const res = await fetch(`/api/connectors`, {
       cache: "no-store",
     });
@@ -389,7 +402,7 @@ export default function SecurityPage() {
   }, [actor?.id]);
 
   const loadRightPanels = async () => {
-    if (!actor) return;
+    if (!actor || actor.isSuperAdmin !== true) return;
     const res = await fetch(`/api/security/right-panels`, {
       cache: "no-store",
     });
@@ -603,7 +616,7 @@ export default function SecurityPage() {
     return <TabLoadingIndicator label={labels.loading} />;
   }
 
-  if (actor?.role !== "admin") {
+  if (actor?.isSuperAdmin !== true) {
     return (
       <div>
         <h1 className="admin-page-title">{labels.title}</h1>
@@ -899,6 +912,27 @@ export default function SecurityPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ groupIds: nextGroupIds }),
+    });
+
+    if (!res.ok) {
+      await loadTabs();
+    }
+
+    setSavingTabAccess(null);
+  };
+
+  const setTabSuperAdminOnly = async (tabId: string, enabled: boolean) => {
+    if (!actor) return;
+
+    setSavingTabAccess(tabId);
+    setTabs((current) =>
+      current.map((tab) => (tab.id === tabId ? { ...tab, superAdminOnly: enabled } : tab))
+    );
+
+    const res = await fetch(`/api/tabs/${encodeURIComponent(tabId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ superAdminOnly: enabled }),
     });
 
     if (!res.ok) {
@@ -1259,6 +1293,48 @@ export default function SecurityPage() {
                 <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem" }}>{labels.noTabs}</div>
               ) : (
                 <div style={{ display: "grid", gap: "0.6rem" }}>
+                  <div
+                    style={{
+                      border: "1px solid var(--border-color)",
+                      borderRadius: "0.55rem",
+                      padding: "0.6rem",
+                      display: "grid",
+                      gap: "0.45rem",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>{labels.superAdminTabs}</div>
+                    <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+                      {labels.superAdminTabsDescription}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem", alignItems: "center" }}>
+                      {tabs.map((tab) => {
+                        const disabled = savingTabAccess === tab.id;
+                        return (
+                          <label
+                            key={`super-${tab.id}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.35rem",
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "999px",
+                              padding: "0.2rem 0.45rem",
+                              opacity: disabled ? 0.7 : 1,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={tab.superAdminOnly}
+                              disabled={disabled}
+                              onChange={(e) => setTabSuperAdminOnly(tab.id, e.target.checked)}
+                            />
+                            <span style={{ fontSize: "0.78rem" }}>{tab.title}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {overview.groups
                     .filter((group) => operatorGroupIds.size === 0 || operatorGroupIds.has(group.id))
                     .map((group) => (
@@ -1276,7 +1352,7 @@ export default function SecurityPage() {
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.55rem", alignItems: "center" }}>
                           {tabs.map((tab) => {
                             const checked = tab.groupIds.includes(group.id);
-                            const disabled = savingTabAccess === tab.id;
+                            const disabled = savingTabAccess === tab.id || tab.superAdminOnly;
                             return (
                               <label
                                 key={`${group.id}-${tab.id}`}
@@ -1298,6 +1374,7 @@ export default function SecurityPage() {
                                 />
                                 <span style={{ fontSize: "0.78rem" }}>
                                   {tab.title}
+                                  {tab.superAdminOnly ? ` • ${labels.superAdminOnly}` : ""}
                                 </span>
                               </label>
                             );

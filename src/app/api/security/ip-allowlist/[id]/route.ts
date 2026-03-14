@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { deleteIpAllowlistEntry, updateIpAllowlistEntry } from "@/lib/security-store";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -22,7 +22,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

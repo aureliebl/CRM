@@ -10,6 +10,8 @@ Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
 - **Bookings** : Tableau des réservations avec filtres avancés
 - **Live users** : Suivi en temps réel (mock) des visiteurs sur le site front
 - **Dashboard** : KPIs marketplace vs Kostok avec vue d'ensemble des centres
+- **Coffre-fort** : Gestionnaire de mots de passe interne (AES-256-GCM) avec TOTP, backup codes, scan QR, export JSON/CSV
+- **Tickets** : Kanban de suivi de tickets avec ingestion externe via Bearer token, variables typées (badge, date, lien, progression), description HTML
 
 ### Nouvelles fonctionnalités
 
@@ -60,6 +62,8 @@ Le runtime applicatif est maintenant PostgreSQL-only, tout en gardant BigQuery i
    - `data/migrations/007_postgres_session_version.sql`
    - `data/migrations/008_postgres_documentation.sql`
    - `data/migrations/009_postgres_documentation_crdt.sql`
+   - `data/migrations/011_postgres_vault.sql`
+   - `data/migrations/012_postgres_tickets.sql`
 
    Pour la migration 007 uniquement, vous pouvez aussi utiliser :
    ```bash
@@ -190,6 +194,17 @@ Remarque :
 - Les admins peuvent consulter les logs d'activité via `GET /api/security/logs` (et dans l'écran Sécurité, rafraîchi automatiquement).
 - Le mode démo peut être conservé temporairement via `DEMO_AUTH=true`, puis coupé progressivement.
 
+### Mode super admin (split perso / équipe)
+
+- L'app supporte un mode "super admin" pour séparer une version personnelle (lab) du reste de l'équipe.
+- Variables d'environnement disponibles :
+   - `SUPER_ADMIN_EMAILS=email1@domaine.tld,email2@domaine.tld`
+   - `SUPER_ADMIN_EMAIL=email@domaine.tld` (alias simple)
+   - `SUPER_ADMIN_IDS=id_compte_1,id_compte_2`
+- Si aucune variable `SUPER_ADMIN_*` n'est définie, tous les comptes `admin` restent super admin (mode compatibilité).
+- Les super admins seuls peuvent accéder à `/security`, créer/éditer/supprimer des onglets dynamiques, et marquer un onglet en `super admin only`.
+- Un onglet dynamique `super admin only` reste visible pour le super admin et devient invisible (et non accessible par URL/API) pour les autres admins/opérateurs.
+
 Variables SMTP optionnelles :
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
 
@@ -207,6 +222,53 @@ APP_NAME=Costockage
 Note : ne jamais commiter `SMTP_PASS` (garder la clé uniquement dans `.env.local` / secrets de déploiement).
 
 Le changement de mot de passe authentifié est disponible dans `/settings` et via `POST /api/auth/change-password`.
+
+### Coffre-fort (Vault)
+
+Gestionnaire de mots de passe interne chiffré côté serveur (AES-256-GCM).
+
+**Variable d'environnement requise :**
+```env
+VAULT_MASTER_KEY=<clé hex 64 chars = 32 bytes>
+```
+
+Pour générer une clé :
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Si `VAULT_MASTER_KEY` n'est pas définie, une clé dérivée de `APP_ENCRYPTION_KEY` est utilisée en dev.
+
+**Fonctionnalités :**
+- Chiffrement AES-256-GCM de chaque champ sensible (login, mot de passe, notes, secrets TOTP)
+- Contrôle d'accès par groupes (un opérateur ne voit que les entrées de son groupe)
+- Super admin voit et exporte tout (JSON ou CSV)
+- Codes TOTP temps réel avec cercle de progression (génération côté client, pas de dépendance serveur)
+- Ajout TOTP via saisie manuelle ou scan QR code
+- 10 backup codes par TOTP (affichés une seule fois)
+- Génération de mots de passe aléatoires
+- Log d'audit pour chaque consultation d'identifiants
+
+### Tickets (Kanban)
+
+Kanban de suivi de tickets avec ingestion externe via API Bearer token.
+
+**Fonctionnalités :**
+- 5 colonnes par défaut : Nouveau, En cours, En attente, Résolu, Fermé
+- Drag-and-drop natif (HTML5, pas de librairie externe)
+- Variables typées par ticket : `badge`, `date`, `text`, `link`, `progress`
+- Description HTML (nettoyée côté serveur)
+- Polling toutes les 5 secondes pour rafraîchissement quasi temps réel
+- Gestion des tokens d'API (super admin) pour ingestion externe
+- Endpoint d'ingestion : `POST /api/tickets/ingest` avec `Authorization: Bearer <TOKEN>`
+
+**Exemple d'ingestion externe (curl) :**
+```bash
+curl -X POST https://<domaine>/api/tickets/ingest \
+  -H "Authorization: Bearer <TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Bug critique","description":"<p>Détails ici</p>","variables":[{"key":"Priorité","value":"haute","type":"badge","color":"red"}]}'
+```
 
 ### Après bascule: que faire de `data/accounts.db` ?
 
@@ -240,6 +302,8 @@ cp data/accounts.db data/archive/accounts-$(date +%Y%m%d-%H%M%S).db
 - `/bookings` - Tableau des bookings
 - `/live-users` - Utilisateurs en ligne (mock)
 - `/settings` - Paramètres (thème, compte, déconnexion)
+- `/vault` - Coffre-fort (gestionnaire de mots de passe chiffré)
+- `/tickets` - Kanban de tickets avec ingestion externe
 - `/resetlogin` - Réinitialisation de mot de passe via token email
 
 ### Test de l'intégration Aircall (mock)

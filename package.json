@@ -23,6 +23,7 @@
     "docx": "^9.6.0",
     "flowise-embed-react": "^3.0.5",
     "highlight.js": "^11.11.1",
+    "html5-qrcode": "^2.3.8",
     "lottie-react": "^2.4.1",
     "next": "latest",
     "nodemailer": "^8.0.1",

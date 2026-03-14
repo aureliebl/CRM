@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { deleteTab, getGroupIdsForTab, getTabById, updateTab } from "@/lib/tabs-store";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
 import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -19,7 +19,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -40,6 +40,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     subtitle: body.subtitle,
     icon: body.icon,
     enabled: body.enabled,
+    superAdminOnly: body.superAdminOnly,
     config: body.config,
     groupIds: Array.isArray(body.groupIds) ? body.groupIds : undefined,
   });
@@ -53,7 +54,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

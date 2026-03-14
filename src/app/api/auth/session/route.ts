@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActorFromRequest } from "@/lib/server-permissions";
+import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
+  const isSuperAdmin = isAccountSuperAdmin(account);
+
   return NextResponse.json({
     authenticated: true,
     user: {
@@ -16,6 +18,7 @@ export async function GET(req: Request) {
       email: account.email,
       fullName: account.fullName,
       role: account.role,
+      isSuperAdmin,
     },
   });
 }

@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { createUserGroup, getUserGroups } from "@/lib/security-store";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

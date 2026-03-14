@@ -27,6 +27,7 @@ type LocalUser = {
   email: string;
   fullName: string;
   role: "admin" | "operator";
+  isSuperAdmin?: boolean;
   firstName?: string | null;
   lastName?: string | null;
   profileImage?: string | null;
@@ -36,7 +37,7 @@ type LocalUser = {
 function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSidebar: () => void }) {
   const pathname = usePathname() || "/dashboard";
   const { t, locale } = useLocale();
-  const isAdmin = user?.role === "admin";
+  const isSuperAdmin = user?.isSuperAdmin === true;
   const [dynamicTabs, setDynamicTabs] = useState<SidebarTabItem[]>([]);
   const [isTestOpen, setIsTestOpen] = useState(false);
 
@@ -84,6 +85,8 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
       deletable: true,
       tabId: tab.id,
     })),
+    { href: "/vault", label: locale === "fr" ? "Coffre-fort" : "Vault", icon: "lock" },
+    { href: "/tickets", label: "Tickets", icon: "confirmation_number" },
     { href: "/crm", label: locale === "fr" ? "Fiche client" : "Client file", icon: "person" },
     { href: "/acquisition", label: locale === "fr" ? "Lead" : "Lead", icon: "trending_up" },
     {
@@ -97,7 +100,7 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
       icon: "smart_toy",
     },
     { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
-    ...(isAdmin
+    ...(isSuperAdmin
       ? [
           {
             href: "/security",
@@ -187,7 +190,7 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
                     </span>
                     <span className="admin-nav-link-label">{item.label}</span>
                   </Link>
-                  {isAdmin && navItem.deletable && navItem.tabId && (
+                  {isSuperAdmin && navItem.deletable && navItem.tabId && (
                     <button
                       type="button"
                       className="admin-nav-delete-btn"
@@ -231,7 +234,7 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
             );
           })}
 
-          {isAdmin && (
+          {isSuperAdmin && (
             <li>
               <button
                 type="button"
@@ -282,7 +285,7 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
           )}
         </ul>
       </div>
-      {isAdmin && (
+      {isSuperAdmin && (
         <div className="admin-sidebar-footer">
           <Link
             href="/tabs/new"
@@ -517,6 +520,7 @@ export default function AdminLayout({
           email: string;
           fullName: string;
           role: "admin" | "operator";
+          isSuperAdmin?: boolean;
         };
       };
 
@@ -538,6 +542,7 @@ export default function AdminLayout({
           email: sessionUser.email,
           fullName: sessionUser.fullName,
           role: sessionUser.role,
+          isSuperAdmin: sessionUser.isSuperAdmin === true,
           totpEnabled: 0,
         });
         setAuthResolved(true);
@@ -560,6 +565,7 @@ export default function AdminLayout({
         email: account.email,
         fullName: account.fullName,
         role: account.role,
+        isSuperAdmin: sessionUser.isSuperAdmin === true,
         firstName: account.firstName,
         lastName: account.lastName,
         profileImage: account.profileImage,
@@ -601,9 +607,20 @@ export default function AdminLayout({
       return;
     }
 
-    const isAdminOnlyRoute =
-      pathname.startsWith("/security") || pathname === "/tabs/new" || pathname.includes("/tabs/") && pathname.endsWith("/edit");
-    if (isAdminOnlyRoute && user.role !== "admin") {
+    const isLegacyLabRoute =
+      pathname.startsWith("/clients") ||
+      pathname.startsWith("/pricing") ||
+      pathname.startsWith("/content") ||
+      pathname.startsWith("/components-registry") ||
+      pathname.startsWith("/bookings") ||
+      pathname.startsWith("/live-users");
+
+    const isSuperAdminOnlyRoute =
+      pathname.startsWith("/security") ||
+      pathname === "/tabs/new" ||
+      (pathname.includes("/tabs/") && pathname.endsWith("/edit")) ||
+      isLegacyLabRoute;
+    if (isSuperAdminOnlyRoute && user.isSuperAdmin !== true) {
       router.push("/dashboard");
     }
   }, [router, user, mounted, authResolved, pathname]);

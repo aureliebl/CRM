@@ -573,6 +573,7 @@ export interface DynamicTab {
   subtitle?: string;
   icon?: string;
   enabled: boolean;
+  superAdminOnly: boolean;
   isSystem: boolean;
   createdBy: string;
   createdAt: string;

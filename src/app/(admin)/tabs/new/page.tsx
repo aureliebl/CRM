@@ -32,6 +32,7 @@ type PreviewRow = Record<string, string | number | boolean | null | undefined> &
 type SessionActor = {
   id: string;
   role: string;
+  isSuperAdmin?: boolean;
 };
 
 export default function NewTabPage() {
@@ -74,6 +75,7 @@ export default function NewTabPage() {
   // ── Groups & save ────────────────────────────────────────────
   const [groups, setGroups] = useState<UserGroup[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [superAdminOnly, setSuperAdminOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -105,7 +107,7 @@ export default function NewTabPage() {
     ? {
         title: "Créer un onglet",
         description: "Configurez la source, les colonnes, les jointures et l'affichage de votre onglet dynamique.",
-        forbidden: "Seuls les admins peuvent créer des onglets.",
+        forbidden: "Seuls les super admins peuvent créer des onglets.",
         titleLabel: "Titre", subtitleLabel: "Sous-titre", slugLabel: "Slug",
         iconLabel: "Icône de l'onglet", iconHelp: "Cliquez sur l'icône pour la changer.", iconPreview: "Aperçu",
         sourceLabel: "Source", connectorLabel: "Connecteur",
@@ -117,6 +119,7 @@ export default function NewTabPage() {
         joinColumnsLabel: "Colonnes à afficher depuis la jointure",
         addJoin: "Ajouter une jointure", removeJoin: "Retirer",
         visibilityLabel: "Groupes autorisés",
+        superAdminOnlyLabel: "Onglet privé super admin (invisible pour les autres)",
         submit: "Créer l'onglet", saving: "Création...", success: "Onglet créé", error: "Erreur lors de la création",
         columnsTitle: "Colonnes", preview: "Aperçu des données", loadPreview: "Charger l'aperçu",
         column: "Colonne source", displayName: "Nom affiché", format: "Format",
@@ -134,7 +137,7 @@ export default function NewTabPage() {
     : {
         title: "Create tab",
         description: "Configure the source, columns, joins and display for your dynamic tab.",
-        forbidden: "Only admins can create tabs.",
+        forbidden: "Only super admins can create tabs.",
         titleLabel: "Title", subtitleLabel: "Subtitle", slugLabel: "Slug",
         iconLabel: "Tab icon", iconHelp: "Click the icon to change it.", iconPreview: "Preview",
         sourceLabel: "Source", connectorLabel: "Connector",
@@ -146,6 +149,7 @@ export default function NewTabPage() {
         joinColumnsLabel: "Columns to display from join",
         addJoin: "Add join", removeJoin: "Remove",
         visibilityLabel: "Allowed groups",
+        superAdminOnlyLabel: "Super-admin private tab (hidden for other users)",
         submit: "Create tab", saving: "Creating...", success: "Tab created", error: "Failed to create tab",
         columnsTitle: "Columns", preview: "Data preview", loadPreview: "Load preview",
         column: "Source column", displayName: "Display name", format: "Format",
@@ -355,12 +359,12 @@ export default function NewTabPage() {
     try {
       const res = await fetch(`/api/tabs`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: normalizedSlug, title: title.trim(), subtitle: subtitle.trim() || undefined, icon: icon.trim() || undefined, config, groupIds: selectedGroupIds }),
+        body: JSON.stringify({ slug: normalizedSlug, title: title.trim(), subtitle: subtitle.trim() || undefined, icon: icon.trim() || undefined, config, groupIds: selectedGroupIds, superAdminOnly }),
       });
       if (!res.ok) { setMessage(labels.error); return; }
       setTitle(""); setSubtitle(""); setSlug(""); setIcon(APP_MATERIAL_SYMBOLS.navigation.components);
       setSelectedConnectorId(""); setExternalTable(""); setAvailableTables([]);
-      setSelectedGroupIds([]); setColumns([]); setPreviewRows([]); setJoins([]);
+      setSelectedGroupIds([]); setSuperAdminOnly(false); setColumns([]); setPreviewRows([]); setJoins([]);
       setMessage(labels.success); window.dispatchEvent(new Event("tabs:refresh"));
       setSaved(true);
       setTimeout(() => setSaved(false), 900);
@@ -424,7 +428,7 @@ export default function NewTabPage() {
     return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
-  if (actor?.role !== "admin") {
+  if (actor?.isSuperAdmin !== true) {
     return <div><h1 className="admin-page-title">{labels.title}</h1><p className="admin-page-description">{labels.forbidden}</p></div>;
   }
 
@@ -498,6 +502,27 @@ export default function NewTabPage() {
               </label>
             ))}
           </fieldset>
+
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.5rem 0.6rem",
+              borderRadius: "0.45rem",
+              border: "1px solid var(--border-color)",
+              background: superAdminOnly ? "rgba(239,68,68,0.08)" : "transparent",
+              cursor: "pointer",
+              fontSize: "0.85rem",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={superAdminOnly}
+              onChange={(event) => setSuperAdminOnly(event.target.checked)}
+            />
+            {labels.superAdminOnlyLabel}
+          </label>
         </div>
       </section>
 

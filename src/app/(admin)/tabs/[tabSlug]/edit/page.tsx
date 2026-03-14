@@ -12,6 +12,7 @@ import type { DynamicTabColumnConfig, DynamicTabConfig, DynamicTabFieldFormat, D
 type SessionActor = {
   id: string;
   role: string;
+  isSuperAdmin?: boolean;
 };
 
 function toTitleLabel(value: string) {
@@ -49,6 +50,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [superAdminOnly, setSuperAdminOnly] = useState(false);
   const [tabUpdatedAt, setTabUpdatedAt] = useState("");
   const [actor, setActor] = useState<SessionActor | null>(null);
   const [authResolved, setAuthResolved] = useState(false);
@@ -104,6 +106,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
         if (Array.isArray(tab.groupIds)) {
           setSelectedGroupIds(tab.groupIds);
         }
+        setSuperAdminOnly(Boolean(tab.superAdminOnly));
       } finally {
         setLoading(false);
       }
@@ -171,10 +174,10 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
     return <TabLoadingIndicator label="Chargement de l'onglet..." />;
   }
 
-  if (actor?.role !== "admin") {
+  if (actor?.isSuperAdmin !== true) {
     return (
       <section className="admin-placeholder-card">
-        Only admins can edit tab configuration.
+        Only super admins can edit tab configuration.
       </section>
     );
   }
@@ -451,6 +454,7 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
           icon: icon.trim() || undefined,
           config: parsedConfig,
           groupIds: selectedGroupIds,
+          superAdminOnly,
           expectedUpdatedAt: tabUpdatedAt || undefined,
         }),
       });
@@ -612,6 +616,27 @@ export default function EditTabPage({ params }: { params: Promise<{ tabSlug: str
             </label>
           ))}
         </fieldset>
+
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.5rem 0.6rem",
+            borderRadius: "0.45rem",
+            border: "1px solid var(--border-color)",
+            background: superAdminOnly ? "rgba(239,68,68,0.08)" : "transparent",
+            cursor: "pointer",
+            fontSize: "0.85rem",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={superAdminOnly}
+            onChange={(event) => setSuperAdminOnly(event.target.checked)}
+          />
+          Super-admin private tab (hidden for other users)
+        </label>
 
         <label style={{ display: "grid", gap: "0.25rem" }}>
           <span>Config JSON</span>

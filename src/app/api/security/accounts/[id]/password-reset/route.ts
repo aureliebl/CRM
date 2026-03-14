@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { addLog, createPasswordResetToken, getAccountById } from "@/lib/account-store";
 import { consumeAuthRateLimit, getClientIp, maybeCleanupAuthRateLimits } from "@/lib/auth-rate-limit";
 import { sendPasswordResetEmail } from "@/lib/mailer";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ function buildResetUrl(token: string): string {
 }
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

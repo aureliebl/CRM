@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
-import { isActorAdmin, getActorIdFromRequest } from "@/lib/server-permissions";
+import {
+  getActorFromRequest,
+  getActorIdFromRequest,
+  isAccountSuperAdmin,
+  isActorSuperAdmin,
+} from "@/lib/server-permissions";
 import { createTab, getAllTabs, getGroupIdsForTab, getTabsForGroup } from "@/lib/tabs-store";
 import { getGroupIdForAccount } from "@/lib/security-store";
 import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memory-cache";
@@ -8,17 +13,31 @@ import { clearMemoryCacheByPrefix, getOrSetMemoryCache } from "@/lib/server-memo
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const actorId = await getActorIdFromRequest(req);
-  if (!actorId) {
+  const actor = await getActorFromRequest(req);
+  if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const actorId = actor.id;
 
-  const adminMode = await isActorAdmin(req);
-  if (adminMode) {
-    const tabs = await getOrSetMemoryCache(`tabs:admin:${actorId}`, 3000, async () => {
+  const superAdminMode = isAccountSuperAdmin(actor);
+  if (superAdminMode) {
+    const tabs = await getOrSetMemoryCache(`tabs:super-admin:${actorId}`, 3000, async () => {
       const allTabs = await getAllTabs();
       return Promise.all(
         allTabs.map(async (tab) => ({
+          ...tab,
+          groupIds: await getGroupIdsForTab(tab.id),
+        }))
+      );
+    });
+    return NextResponse.json(tabs);
+  }
+
+  if (actor.role === "admin") {
+    const tabs = await getOrSetMemoryCache(`tabs:admin:${actorId}`, 3000, async () => {
+      const visibleTabs = (await getAllTabs()).filter((tab) => tab.enabled && !tab.superAdminOnly);
+      return Promise.all(
+        visibleTabs.map(async (tab) => ({
           ...tab,
           groupIds: await getGroupIdsForTab(tab.id),
         }))
@@ -43,7 +62,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -63,6 +82,7 @@ export async function POST(req: Request) {
     subtitle: body.subtitle,
     icon: body.icon,
     createdBy: actorId,
+    superAdminOnly: body.superAdminOnly === true,
     config: body.config,
     groupIds: Array.isArray(body.groupIds) ? body.groupIds : [],
   });

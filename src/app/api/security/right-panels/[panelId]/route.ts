@@ -3,12 +3,12 @@ import { isRegisteredRightPanel } from "@/lib/right-panel-registry";
 import { getMergedRightPanelConfig } from "@/lib/right-panel-config-service";
 import { upsertRightPanelConfigOverride } from "@/lib/right-panel-config-store";
 import { validateRightPanelConfigOverride } from "@/lib/right-panel-config-validation";
-import { getActorIdFromRequest, isActorAdmin } from "@/lib/server-permissions";
+import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: Promise<{ panelId: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ panelId:
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ panelId: string }> }) {
-  if (!(await isActorAdmin(req))) {
+  if (!(await isActorSuperAdmin(req))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

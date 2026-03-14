@@ -65,6 +65,7 @@ type TabRow = {
   subtitle?: string | null;
   icon?: string | null;
   enabled: number;
+  superAdminOnly: number;
   isSystem: number;
   createdBy: string;
   configJson: string;
@@ -80,6 +81,7 @@ function mapPgRow(row: Record<string, unknown>): TabRow {
     subtitle: (row.subtitle as string | null | undefined) ?? null,
     icon: (row.icon as string | null | undefined) ?? null,
     enabled: Number(row.enabled ?? 0),
+    superAdminOnly: Number(row.superadminonly ?? row.superAdminOnly ?? 0),
     isSystem: Number(row.issystem ?? row.isSystem ?? 0),
     createdBy: String(row.createdby ?? row.createdBy ?? ""),
     configJson: String(row.configjson ?? row.configJson ?? "{}"),
@@ -99,12 +101,18 @@ async function ensurePostgresSchema() {
       subtitle TEXT,
       icon TEXT,
       enabled INTEGER DEFAULT 1,
+      superAdminOnly INTEGER DEFAULT 0,
       isSystem INTEGER DEFAULT 0,
       createdBy TEXT NOT NULL,
       configJson TEXT NOT NULL,
       createdAt TEXT,
       updatedAt TEXT
     )
+  `);
+
+  await pgPool.query(`
+    ALTER TABLE app_tabs
+    ADD COLUMN IF NOT EXISTS superAdminOnly INTEGER DEFAULT 0
   `);
 
   await pgPool.query(`
@@ -133,6 +141,7 @@ function parseTabRow(row: TabRow): DynamicTab {
     subtitle: row.subtitle ?? undefined,
     icon: row.icon ?? undefined,
     enabled: row.enabled === 1,
+    superAdminOnly: row.superAdminOnly === 1,
     isSystem: row.isSystem === 1,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
@@ -198,6 +207,7 @@ export async function createTab(input: {
   subtitle?: string;
   icon?: string;
   createdBy: string;
+  superAdminOnly?: boolean;
   config?: DynamicTabConfig;
   groupIds?: string[];
 }): Promise<DynamicTab | undefined> {
@@ -208,7 +218,7 @@ export async function createTab(input: {
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "INSERT INTO app_tabs (id, slug, title, subtitle, icon, enabled, isSystem, createdBy, configJson, createdAt, updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+      "INSERT INTO app_tabs (id, slug, title, subtitle, icon, enabled, superAdminOnly, isSystem, createdBy, configJson, createdAt, updatedAt) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
       [
         id,
         input.slug,
@@ -216,6 +226,7 @@ export async function createTab(input: {
         input.subtitle ?? null,
         input.icon ?? null,
         1,
+        input.superAdminOnly ? 1 : 0,
         0,
         input.createdBy,
         JSON.stringify(config),
@@ -239,7 +250,7 @@ export async function createTab(input: {
   if (!sqliteDb) return undefined;
 
   sqliteDb.prepare(
-    "INSERT INTO app_tabs (id, slug, title, subtitle, icon, enabled, isSystem, createdBy, configJson, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+    "INSERT INTO app_tabs (id, slug, title, subtitle, icon, enabled, superAdminOnly, isSystem, createdBy, configJson, createdAt, updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
   ).run(
     id,
     input.slug,
@@ -247,6 +258,7 @@ export async function createTab(input: {
     input.subtitle ?? null,
     input.icon ?? null,
     1,
+    input.superAdminOnly ? 1 : 0,
     0,
     input.createdBy,
     JSON.stringify(config),
@@ -280,13 +292,14 @@ export async function updateTab(id: string, patch: Partial<DynamicTab> & { group
   if (usePostgres && pgPool) {
     await ensurePostgresReady();
     await pgPool.query(
-      "UPDATE app_tabs SET slug = $1, title = $2, subtitle = $3, icon = $4, enabled = $5, configJson = $6, updatedAt = $7 WHERE id = $8",
+      "UPDATE app_tabs SET slug = $1, title = $2, subtitle = $3, icon = $4, enabled = $5, superAdminOnly = $6, configJson = $7, updatedAt = $8 WHERE id = $9",
       [
         next.slug,
         next.title,
         next.subtitle ?? null,
         next.icon ?? null,
         next.enabled ? 1 : 0,
+        next.superAdminOnly ? 1 : 0,
         JSON.stringify(next.config),
         next.updatedAt,
         id,
@@ -309,13 +322,14 @@ export async function updateTab(id: string, patch: Partial<DynamicTab> & { group
   if (!sqliteDb) return undefined;
 
   sqliteDb.prepare(
-    "UPDATE app_tabs SET slug = ?, title = ?, subtitle = ?, icon = ?, enabled = ?, configJson = ?, updatedAt = ? WHERE id = ?"
+    "UPDATE app_tabs SET slug = ?, title = ?, subtitle = ?, icon = ?, enabled = ?, superAdminOnly = ?, configJson = ?, updatedAt = ? WHERE id = ?"
   ).run(
     next.slug,
     next.title,
     next.subtitle ?? null,
     next.icon ?? null,
     next.enabled ? 1 : 0,
+    next.superAdminOnly ? 1 : 0,
     JSON.stringify(next.config),
     next.updatedAt,
     id
@@ -375,8 +389,14 @@ async function getTabIdsWithVisibilityRules(): Promise<Set<string>> {
   return new Set(rows.map((row) => row.tabId));
 }
 
-export async function getTabsForGroup(groupId: string): Promise<DynamicTab[]> {
-  const allTabs = (await getAllTabs()).filter((tab) => tab.enabled);
+export async function getTabsForGroup(
+  groupId: string,
+  options?: { includeSuperAdminOnly?: boolean }
+): Promise<DynamicTab[]> {
+  const includeSuperAdminOnly = options?.includeSuperAdminOnly ?? false;
+  const allTabs = (await getAllTabs()).filter(
+    (tab) => tab.enabled && (includeSuperAdminOnly || !tab.superAdminOnly)
+  );
   const visibleIds = new Set(await getVisibleTabIdsForGroup(groupId));
   const restrictedTabIds = await getTabIdsWithVisibilityRules();
 
