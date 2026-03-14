@@ -111,6 +111,23 @@ async function ensurePostgresSchema() {
       PRIMARY KEY (groupId, routeKey)
     )
   `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility_state (
+      role TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility (
+      role TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (role, routeKey)
+    )
+  `);
 }
 
 async function ensureDefaultsPostgres() {
@@ -608,6 +625,140 @@ export async function setGroupRouteVisibility(groupId: string, routeKeys: string
     sqliteDb
       .prepare("INSERT INTO group_route_visibility_state (groupId, configured, updatedAt) VALUES (?,?,?)")
       .run(groupId, 1, now);
+  }
+
+  return { configured: true, routeKeys: normalized };
+}
+
+export async function getRoleRouteVisibility(role: string): Promise<{ configured: boolean; routeKeys: string[] }> {
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+    const stateResult = await pgPool.query(
+      "SELECT configured FROM role_route_visibility_state WHERE role = $1",
+      [role]
+    );
+    const configured = Number((stateResult.rows[0] as Record<string, unknown> | undefined)?.configured ?? 0) === 1;
+
+    if (!configured) {
+      return { configured: false, routeKeys: [] };
+    }
+
+    const rows = await pgPool.query(
+      "SELECT routeKey FROM role_route_visibility WHERE role = $1 ORDER BY routeKey ASC",
+      [role]
+    );
+
+    return {
+      configured: true,
+      routeKeys: rows.rows.map((row) =>
+        String((row as Record<string, unknown>).routekey ?? (row as Record<string, unknown>).routeKey ?? "")
+      ),
+    };
+  }
+
+  if (!sqliteDb) return { configured: false, routeKeys: [] };
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility_state (
+      role TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility (
+      role TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (role, routeKey)
+    )
+  `);
+
+  const state = sqliteDb
+    .prepare("SELECT configured FROM role_route_visibility_state WHERE role = ?")
+    .get(role) as { configured?: number } | undefined;
+  const configured = (state?.configured ?? 0) === 1;
+
+  if (!configured) {
+    return { configured: false, routeKeys: [] };
+  }
+
+  const rows = sqliteDb
+    .prepare("SELECT routeKey FROM role_route_visibility WHERE role = ? ORDER BY routeKey ASC")
+    .all(role) as Array<{ routeKey: string }>;
+
+  return { configured: true, routeKeys: rows.map((row) => row.routeKey) };
+}
+
+export async function setRoleRouteVisibility(role: string, routeKeys: string[]): Promise<{ configured: boolean; routeKeys: string[] }> {
+  const now = nowIso();
+  const normalized = Array.from(
+    new Set(
+      routeKeys
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (usePostgres && pgPool) {
+    await ensurePostgresReady();
+
+    await pgPool.query("DELETE FROM role_route_visibility WHERE role = $1", [role]);
+    for (const routeKey of normalized) {
+      await pgPool.query(
+        "INSERT INTO role_route_visibility (role, routeKey, createdAt) VALUES ($1,$2,$3) ON CONFLICT (role, routeKey) DO NOTHING",
+        [role, routeKey, now]
+      );
+    }
+
+    await pgPool.query(
+      `INSERT INTO role_route_visibility_state (role, configured, updatedAt)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (role) DO UPDATE SET configured = EXCLUDED.configured, updatedAt = EXCLUDED.updatedAt`,
+      [role, 1, now]
+    );
+
+    return { configured: true, routeKeys: normalized };
+  }
+
+  if (!sqliteDb) return { configured: true, routeKeys: normalized };
+
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility_state (
+      role TEXT PRIMARY KEY,
+      configured INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT
+    )
+  `);
+  sqliteDb.exec(`
+    CREATE TABLE IF NOT EXISTS role_route_visibility (
+      role TEXT NOT NULL,
+      routeKey TEXT NOT NULL,
+      createdAt TEXT,
+      PRIMARY KEY (role, routeKey)
+    )
+  `);
+
+  sqliteDb.prepare("DELETE FROM role_route_visibility WHERE role = ?").run(role);
+  const insert = sqliteDb.prepare(
+    "INSERT OR IGNORE INTO role_route_visibility (role, routeKey, createdAt) VALUES (?,?,?)"
+  );
+  for (const routeKey of normalized) {
+    insert.run(role, routeKey, now);
+  }
+
+  const existing = sqliteDb
+    .prepare("SELECT role FROM role_route_visibility_state WHERE role = ?")
+    .get(role) as { role?: string } | undefined;
+
+  if (existing?.role) {
+    sqliteDb
+      .prepare("UPDATE role_route_visibility_state SET configured = ?, updatedAt = ? WHERE role = ?")
+      .run(1, now, role);
+  } else {
+    sqliteDb
+      .prepare("INSERT INTO role_route_visibility_state (role, configured, updatedAt) VALUES (?,?,?)")
+      .run(role, 1, now);
   }
 
   return { configured: true, routeKeys: normalized };

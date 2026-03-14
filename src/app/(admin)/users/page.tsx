@@ -55,7 +55,9 @@ export default function UsersPage() {
   // Groups state
   const [groups, setGroups] = useState<GroupWithCount[]>([]);
   const [tabVisibilityRows, setTabVisibilityRows] = useState<TabVisibilityRow[]>([]);
+  const [visibilityMode, setVisibilityMode] = useState<"group" | "role">("group");
   const [selectedVisibilityGroupId, setSelectedVisibilityGroupId] = useState("");
+  const [selectedVisibilityRole, setSelectedVisibilityRole] = useState("");
   const [selectedGroupVisibilityConfigured, setSelectedGroupVisibilityConfigured] = useState(false);
   const [selectedGroupVisibleRouteKeys, setSelectedGroupVisibleRouteKeys] = useState<string[]>([]);
   const [tabVisibilitySavingId, setTabVisibilitySavingId] = useState<string | null>(null);
@@ -212,44 +214,89 @@ export default function UsersPage() {
     [groups, isSuperAdmin]
   );
 
+  const tabVisibilitySelectableRoles = useMemo(
+    () => {
+      // Super admins can configure both admin and operator roles
+      // Regular admins can only configure operator role
+      if (isSuperAdmin) return [{ value: "admin", label: "Admin" }, { value: "operator", label: "Operator" }];
+      return [{ value: "operator", label: "Operator" }];
+    },
+    [isSuperAdmin]
+  );
+
   useEffect(() => {
     if (selectedVisibilityGroupId) return;
     if (tabVisibilitySelectableGroups.length === 0) return;
     setSelectedVisibilityGroupId(tabVisibilitySelectableGroups[0].id);
   }, [tabVisibilitySelectableGroups, selectedVisibilityGroupId]);
 
-  const loadSelectedGroupRouteVisibility = useCallback(async () => {
-    if (!selectedVisibilityGroupId) return;
-    try {
-      const res = await fetch(`/api/users/tab-visibility?groupId=${encodeURIComponent(selectedVisibilityGroupId)}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) {
+  useEffect(() => {
+    if (selectedVisibilityRole) return;
+    if (tabVisibilitySelectableRoles.length === 0) return;
+    setSelectedVisibilityRole(tabVisibilitySelectableRoles[0].value);
+  }, [tabVisibilitySelectableRoles, selectedVisibilityRole]);
+
+  const loadSelectedRouteVisibility = useCallback(async () => {
+    if (visibilityMode === "role") {
+      if (!selectedVisibilityRole) return;
+      try {
+        const res = await fetch(`/api/users/tab-visibility?role=${encodeURIComponent(selectedVisibilityRole)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setSelectedGroupVisibilityConfigured(false);
+          setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+          return;
+        }
+
+        const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
+        const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
+        if (payload.configured === true) {
+          const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
+          const allowed = new Set(routeKeys);
+          setSelectedGroupVisibilityConfigured(true);
+          setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
+        } else {
+          setSelectedGroupVisibilityConfigured(false);
+          setSelectedGroupVisibleRouteKeys(allRouteKeys);
+        }
+      } catch {
         setSelectedGroupVisibilityConfigured(false);
         setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
-        return;
       }
+    } else {
+      if (!selectedVisibilityGroupId) return;
+      try {
+        const res = await fetch(`/api/users/tab-visibility?groupId=${encodeURIComponent(selectedVisibilityGroupId)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setSelectedGroupVisibilityConfigured(false);
+          setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+          return;
+        }
 
-      const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
-      const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
-      if (payload.configured === true) {
-        const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
-        const allowed = new Set(routeKeys);
-        setSelectedGroupVisibilityConfigured(true);
-        setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
-      } else {
+        const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
+        const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
+        if (payload.configured === true) {
+          const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
+          const allowed = new Set(routeKeys);
+          setSelectedGroupVisibilityConfigured(true);
+          setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
+        } else {
+          setSelectedGroupVisibilityConfigured(false);
+          setSelectedGroupVisibleRouteKeys(allRouteKeys);
+        }
+      } catch {
         setSelectedGroupVisibilityConfigured(false);
-        setSelectedGroupVisibleRouteKeys(allRouteKeys);
+        setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
       }
-    } catch {
-      setSelectedGroupVisibilityConfigured(false);
-      setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
     }
-  }, [selectedVisibilityGroupId, tabVisibilityRows]);
+  }, [visibilityMode, selectedVisibilityGroupId, selectedVisibilityRole, tabVisibilityRows]);
 
   useEffect(() => {
-    void loadSelectedGroupRouteVisibility();
-  }, [loadSelectedGroupRouteVisibility]);
+    void loadSelectedRouteVisibility();
+  }, [loadSelectedRouteVisibility]);
 
   const availableGroupsForChange = useCallback(
     (targetUser: UserRow) => {
@@ -439,32 +486,34 @@ export default function UsersPage() {
 
   const handleSaveTabVisibility = useCallback(
     async (tabId: string) => {
-      if (!selectedVisibilityGroupId) return;
+      if (visibilityMode === "role" && !selectedVisibilityRole) return;
+      if (visibilityMode === "group" && !selectedVisibilityGroupId) return;
 
       setTabVisibilitySavingId(tabId);
       setTabVisibilityError(null);
       try {
+        const bodyPayload = visibilityMode === "role"
+          ? { role: selectedVisibilityRole, routeKeys: selectedGroupVisibleRouteKeys }
+          : { groupId: selectedVisibilityGroupId, routeKeys: selectedGroupVisibleRouteKeys };
+
         const res = await fetch(`/api/users/tab-visibility`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            groupId: selectedVisibilityGroupId,
-            routeKeys: selectedGroupVisibleRouteKeys,
-          }),
+          body: JSON.stringify(bodyPayload),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           setTabVisibilityError(data?.error || "Error");
           return;
         }
-        await loadSelectedGroupRouteVisibility();
+        await loadSelectedRouteVisibility();
       } catch {
         setTabVisibilityError("Error");
       } finally {
         setTabVisibilitySavingId(null);
       }
     },
-    [loadSelectedGroupRouteVisibility, selectedGroupVisibleRouteKeys, selectedVisibilityGroupId]
+    [loadSelectedRouteVisibility, selectedGroupVisibleRouteKeys, selectedVisibilityGroupId, selectedVisibilityRole, visibilityMode]
   );
 
   // ── Helpers ──
@@ -1215,17 +1264,47 @@ export default function UsersPage() {
             }}
           >
             <select
-              style={{ ...inputStyle, maxWidth: 280 }}
-              value={selectedVisibilityGroupId}
-              onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
+              style={{ ...inputStyle, maxWidth: 200 }}
+              value={visibilityMode}
+              onChange={(e) => {
+                const mode = e.target.value as "group" | "role";
+                setVisibilityMode(mode);
+                setTabVisibilityError(null);
+              }}
             >
-              <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
-              {tabVisibilitySelectableGroups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
+              <option value="group">{locale === "fr" ? "Par groupe" : "By group"}</option>
+              <option value="role">{locale === "fr" ? "Par statut" : "By status"}</option>
             </select>
+
+            {visibilityMode === "group" && (
+              <select
+                style={{ ...inputStyle, maxWidth: 280 }}
+                value={selectedVisibilityGroupId}
+                onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
+              >
+                <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
+                {tabVisibilitySelectableGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {visibilityMode === "role" && (
+              <select
+                style={{ ...inputStyle, maxWidth: 280 }}
+                value={selectedVisibilityRole}
+                onChange={(e) => setSelectedVisibilityRole(e.target.value)}
+              >
+                <option value="">{locale === "fr" ? "Sélectionner un statut" : "Select a status"}</option>
+                {tabVisibilitySelectableRoles.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {tabVisibilityError && (
@@ -1258,8 +1337,9 @@ export default function UsersPage() {
                   </tr>
                 ) : (
                   tabVisibilityRows.map((row) => {
-                    const disabled = !selectedVisibilityGroupId;
-                    const checked = selectedVisibilityGroupId.length > 0 ? isGroupVisibleForTab(row.routeKey) : false;
+                    const hasSelection = visibilityMode === "role" ? selectedVisibilityRole.length > 0 : selectedVisibilityGroupId.length > 0;
+                    const disabled = !hasSelection;
+                    const checked = hasSelection ? isGroupVisibleForTab(row.routeKey) : false;
                     return (
                       <tr key={row.id} className="admin-table-row">
                         <td style={tdStyle}>{row.title}</td>
@@ -1270,7 +1350,7 @@ export default function UsersPage() {
                               checked={checked}
                               disabled={disabled}
                               onChange={() => {
-                                if (!selectedVisibilityGroupId) return;
+                                if (!hasSelection) return;
                                 toggleTabVisibilityForGroup(row.routeKey);
                               }}
                             />
@@ -1289,7 +1369,7 @@ export default function UsersPage() {
             <button
               type="button"
               style={{ ...btnPrimary, minWidth: 140, fontSize: "1rem" }}
-              disabled={tabVisibilitySavingId !== null || !selectedVisibilityGroupId}
+              disabled={tabVisibilitySavingId !== null || (visibilityMode === "role" ? !selectedVisibilityRole : !selectedVisibilityGroupId)}
               onClick={() => handleSaveTabVisibility("all")}
             >
               {tabVisibilitySavingId !== null
