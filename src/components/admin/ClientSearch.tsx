@@ -1,24 +1,45 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getClients } from "@/lib/mock/clients";
 import type { Client } from "@/lib/types";
+
+interface TicketVariable {
+  key: string;
+  value: string;
+  type: "badge" | "date" | "text" | "link" | "progress";
+}
+
+interface TicketSearchItem {
+  id: string;
+  title: string;
+  description: string | null;
+  variables: TicketVariable[];
+}
+
+type SearchResult =
+  | { kind: "client"; id: string; title: string; subtitle: string; client: Client }
+  | { kind: "ticket"; id: string; title: string; subtitle: string; ticket: TicketSearchItem };
 
 export function ClientSearch({
   inputId,
   placeholder,
   maxWidth,
   appearance = "default",
+  visibleRoutes,
 }: {
   inputId?: string;
   placeholder?: string;
   maxWidth?: string | number;
   appearance?: "default" | "embedded";
+  visibleRoutes?: string[];
 }) {
   const [query, setQuery] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [tickets, setTickets] = useState<TicketSearchItem[]>([]);
+  const [ticketsLoaded, setTicketsLoaded] = useState(false);
   const router = useRouter();
   const clients = getClients();
   const isMac = useMemo(() => {
@@ -28,18 +49,91 @@ export function ClientSearch({
     return /Mac|iPhone|iPad|iPod/.test(platform) || /Macintosh/.test(ua);
   }, []);
 
-  const filtered = useMemo(() => {
+  const canSearchClients = useMemo(() => {
+    if (!visibleRoutes || visibleRoutes.length === 0) return true;
+    return visibleRoutes.some((route) => route === "/crm" || route.startsWith("/crm/"));
+  }, [visibleRoutes]);
+
+  const canSearchTickets = useMemo(() => {
+    if (!visibleRoutes || visibleRoutes.length === 0) return true;
+    return visibleRoutes.some((route) => route === "/tickets" || route.startsWith("/tickets/"));
+  }, [visibleRoutes]);
+
+  const loadTickets = useCallback(async () => {
+    if (!canSearchTickets || ticketsLoaded) return;
+    try {
+      const response = await fetch("/api/tickets", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      const cards = Array.isArray(data?.cards) ? data.cards : [];
+      setTickets(
+        cards.map((card: Record<string, unknown>) => ({
+          id: String(card.id ?? ""),
+          title: String(card.title ?? ""),
+          description: card.description ? String(card.description) : null,
+          variables: Array.isArray(card.variables) ? card.variables : [],
+        }))
+      );
+      setTicketsLoaded(true);
+    } catch {
+      // ignore
+    }
+  }, [canSearchTickets, ticketsLoaded]);
+
+  useEffect(() => {
+    if (!query.trim() || !isOpen || !canSearchTickets) return;
+    void loadTickets();
+  }, [query, isOpen, canSearchTickets, loadTickets]);
+
+  const filtered = useMemo<SearchResult[]>(() => {
     if (!query.trim()) return [];
     const lowerQuery = query.toLowerCase();
-    return clients
-      .filter(
-        (c) =>
-          c.fullName.toLowerCase().includes(lowerQuery) ||
-          c.email.toLowerCase().includes(lowerQuery) ||
-          c.phone?.toLowerCase().includes(lowerQuery)
-      )
-      .slice(0, 5);
-  }, [query, clients]);
+    const items: SearchResult[] = [];
+
+    if (canSearchClients) {
+      const clientResults = clients
+        .filter(
+          (client) =>
+            client.fullName.toLowerCase().includes(lowerQuery) ||
+            client.email.toLowerCase().includes(lowerQuery) ||
+            client.phone?.toLowerCase().includes(lowerQuery)
+        )
+        .slice(0, 5)
+        .map((client) => ({
+          kind: "client" as const,
+          id: client.id,
+          title: client.fullName,
+          subtitle: `${client.email}${client.phone ? ` · ${client.phone}` : ""}`,
+          client,
+        }));
+      items.push(...clientResults);
+    }
+
+    if (canSearchTickets) {
+      const ticketResults = tickets
+        .filter((ticket) => {
+          const plainDescription = (ticket.description || "").replace(/<[^>]+>/g, " ");
+          const variablesText = ticket.variables
+            .map((variable) => `${variable.key} ${variable.value}`)
+            .join(" ");
+          const haystack = `${ticket.title} ${plainDescription} ${variablesText}`.toLowerCase();
+          return haystack.includes(lowerQuery);
+        })
+        .slice(0, 5)
+        .map((ticket) => ({
+          kind: "ticket" as const,
+          id: ticket.id,
+          title: ticket.title,
+          subtitle: ticket.description
+            ? ticket.description.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 90)
+            : "Ticket",
+          ticket,
+        }));
+      items.push(...ticketResults);
+    }
+
+    return items.slice(0, 8);
+  }, [query, clients, tickets, canSearchClients, canSearchTickets]);
 
   useEffect(() => {
     if (!isOpen || filtered.length === 0) {
@@ -52,8 +146,13 @@ export function ClientSearch({
     }
   }, [filtered, isOpen, activeIndex]);
 
-  const handleSelect = (client: Client) => {
-    router.push(`/crm/${client.id}`);
+  const handleSelect = (result: SearchResult) => {
+    if (result.kind === "client") {
+      router.push(`/crm/${result.client.id}`);
+    } else {
+      const searchValue = encodeURIComponent(result.ticket.title);
+      router.push(`/tickets?search=${searchValue}&ticketId=${encodeURIComponent(result.ticket.id)}`);
+    }
     setQuery("");
     setIsOpen(false);
   };
@@ -149,13 +248,13 @@ export function ClientSearch({
             overflowY: "auto",
           }}
         >
-          {filtered.map((client) => (
+          {filtered.map((item) => (
             <button
-              key={client.id}
+              key={`${item.kind}:${item.id}`}
               type="button"
-              onClick={() => handleSelect(client)}
+              onClick={() => handleSelect(item)}
               onMouseEnter={() => {
-                const index = filtered.findIndex((c) => c.id === client.id);
+                const index = filtered.findIndex((candidate) => candidate.id === item.id && candidate.kind === item.kind);
                 setActiveIndex(index);
               }}
               onMouseLeave={() => setActiveIndex(-1)}
@@ -164,23 +263,65 @@ export function ClientSearch({
                 padding: "0.75rem 1rem",
                 textAlign: "left",
                 border: "none",
-                background: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "var(--surface-secondary)" : "transparent",
+                background:
+                  activeIndex >= 0 &&
+                  filtered[activeIndex]?.id === item.id &&
+                  filtered[activeIndex]?.kind === item.kind
+                    ? "var(--surface-secondary)"
+                    : "transparent",
                 color: "var(--text-primary)",
                 cursor: "pointer",
                 fontSize: "0.85rem",
                 borderBottom: "1px solid var(--border-color)",
-                boxShadow: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "inset 3px 0 0 var(--accent-primary)" : "none",
+                boxShadow:
+                  activeIndex >= 0 &&
+                  filtered[activeIndex]?.id === item.id &&
+                  filtered[activeIndex]?.kind === item.kind
+                    ? "inset 3px 0 0 var(--accent-primary)"
+                    : "none",
               }}
             >
-              <div style={{ fontWeight: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? 600 : 500 }}>{client.fullName}</div>
+              <div
+                style={{
+                  fontWeight:
+                    activeIndex >= 0 &&
+                    filtered[activeIndex]?.id === item.id &&
+                    filtered[activeIndex]?.kind === item.kind
+                      ? 600
+                      : 500,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "0.65rem",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    padding: "2px 6px",
+                    borderRadius: 999,
+                    border: "1px solid var(--border-color)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {item.kind === "client" ? "CRM" : "Ticket"}
+                </span>
+                <span>{item.title}</span>
+              </div>
               <div
                 style={{
                   fontSize: "0.75rem",
-                  color: activeIndex >= 0 && filtered[activeIndex]?.id === client.id ? "var(--text-primary)" : "var(--text-secondary)",
+                  color:
+                    activeIndex >= 0 &&
+                    filtered[activeIndex]?.id === item.id &&
+                    filtered[activeIndex]?.kind === item.kind
+                      ? "var(--text-primary)"
+                      : "var(--text-secondary)",
                   marginTop: "0.15rem",
                 }}
               >
-                {client.email} {client.phone && `· ${client.phone}`}
+                {item.subtitle}
               </div>
             </button>
           ))}

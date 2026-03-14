@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 
 /* ─── Types ─── */
@@ -232,6 +234,7 @@ function TicketVariableDisplay({ v, locale }: { v: TicketVariable; locale: strin
 
 export default function TicketsPage() {
   const { locale } = useLocale();
+  const searchParams = useSearchParams();
   const t = labels[locale] || labels.fr;
 
   const [actor, setActor] = useState<SessionActor | null>(null);
@@ -326,6 +329,22 @@ export default function TicketsPage() {
     setSelectedCard(card);
     setModalView("detail");
   }, []);
+
+  useEffect(() => {
+    const headerSearch = searchParams.get("search");
+    if (headerSearch !== null) {
+      setSearch(headerSearch);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const ticketId = searchParams.get("ticketId");
+    if (!ticketId || cards.length === 0) return;
+    const found = cards.find((card) => card.id === ticketId);
+    if (found) {
+      openDetail(found);
+    }
+  }, [searchParams, cards, openDetail]);
 
   const openCreate = useCallback(() => {
     setFormTitle("");
@@ -564,9 +583,9 @@ export default function TicketsPage() {
             </button>
           )}
           {isAdmin && (
-            <button onClick={openCreate} className="admin-btn-primary" style={{ fontSize: 13, gap: 4 }}>
+            <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addTicket}
-            </button>
+            </AsyncButton>
           )}
         </div>
       </div>
@@ -1021,14 +1040,15 @@ function renderForm(
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
         <button onClick={closeModal} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
-        <button
+        <AsyncButton
           onClick={handleSave}
-          className="admin-btn-primary"
+          variant="primary"
+          isLoading={formSaving}
           disabled={formSaving || !formTitle}
-          style={{ fontSize: 13, opacity: formSaving ? 0.6 : 1 }}
+          style={{ fontSize: 13 }}
         >
-          {formSaving ? "…" : t.save}
-        </button>
+          {t.save}
+        </AsyncButton>
       </div>
     </div>
   );

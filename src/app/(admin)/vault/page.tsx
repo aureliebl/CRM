@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 
 /* ─── Types ─── */
@@ -312,6 +313,10 @@ export default function VaultPage() {
   const [_backupTotpId, setViewBackupTotpId] = useState("");
 
   // QR scanner
+  const qrScannerRef = useRef<{
+    stop: () => Promise<unknown>;
+    clear?: () => Promise<unknown> | void;
+  } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerActiveRef = useRef(false);
 
@@ -424,7 +429,33 @@ export default function VaultPage() {
 
   /* ─── Close modal ─── */
 
+  const stopQrScan = useCallback(async () => {
+    scannerActiveRef.current = false;
+
+    const scanner = qrScannerRef.current;
+    qrScannerRef.current = null;
+
+    if (scanner) {
+      try {
+        await scanner.stop();
+      } catch { /* ignore */ }
+      try {
+        if (scanner.clear) await scanner.clear();
+      } catch { /* ignore */ }
+    }
+
+    const qrReaderEl = document.getElementById("qr-reader");
+    if (qrReaderEl) qrReaderEl.innerHTML = "";
+
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
   const closeModal = useCallback(() => {
+    void stopQrScan();
     setModalView(null);
     setSelectedEntry(null);
     setSelectedTotps([]);
@@ -435,11 +466,19 @@ export default function VaultPage() {
     setTotpLabel("");
     setTotpVerifyCode("");
     setViewBackupCodes([]);
-    // Stop camera if active
-    if (scannerActiveRef.current) {
-      scannerActiveRef.current = false;
+  }, [stopQrScan]);
+
+  useEffect(() => {
+    if (modalView !== "add-totp" || totpMode !== "scan") {
+      void stopQrScan();
     }
-  }, []);
+  }, [modalView, totpMode, stopQrScan]);
+
+  useEffect(() => {
+    return () => {
+      void stopQrScan();
+    };
+  }, [stopQrScan]);
 
   /* ─── Create / Edit ─── */
 
@@ -627,6 +666,7 @@ export default function VaultPage() {
   /* ─── QR Scanner (basic using html5-qrcode) ─── */
 
   const startQrScan = useCallback(async () => {
+    await stopQrScan();
     setTotpMode("scan");
     scannerActiveRef.current = true;
 
@@ -634,11 +674,13 @@ export default function VaultPage() {
       // Dynamic import of html5-qrcode
       const { Html5Qrcode } = await import("html5-qrcode");
       const scanner = new Html5Qrcode("qr-reader");
+      qrScannerRef.current = scanner;
 
       await scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
         (decodedText) => {
+          if (!scannerActiveRef.current) return;
           // Parse otpauth:// URI
           try {
             const url = new URL(decodedText);
@@ -652,17 +694,16 @@ export default function VaultPage() {
             // Maybe it's just a base32 secret
             setTotpSecret(decodedText);
           }
-          scanner.stop().catch(() => {});
-          scannerActiveRef.current = false;
+          void stopQrScan();
           setTotpMode("manual");
         },
         () => {} // ignore scan errors
       );
     } catch {
+      void stopQrScan();
       setTotpMode("manual");
-      scannerActiveRef.current = false;
     }
-  }, []);
+  }, [stopQrScan]);
 
   /* ─── Export ─── */
 
@@ -1044,14 +1085,15 @@ export default function VaultPage() {
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button onClick={closeModal} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
-        <button
+        <AsyncButton
           onClick={handleSave}
-          className="admin-btn-primary"
+          variant="primary"
+          isLoading={formSaving}
           disabled={formSaving || !formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)}
-          style={{ fontSize: 13, opacity: formSaving ? 0.6 : 1 }}
+          style={{ fontSize: 13 }}
         >
-          {formSaving ? "…" : t.save}
-        </button>
+          {t.save}
+        </AsyncButton>
       </div>
     </div>
   );
@@ -1236,16 +1278,16 @@ export default function VaultPage() {
             </button>
           )}
           {isAdmin && (
-            <button onClick={openCreate} className="admin-btn-primary" style={{ fontSize: 13, gap: 4 }}>
+            <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addEntry}
-            </button>
+            </AsyncButton>
           )}
         </div>
       </div>
 
       {/* Search + filter */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <div style={{ flex: 1, position: "relative" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 280, position: "relative" }}>
           <MaterialSymbol name="search" size={18} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
           <input
             value={search}
@@ -1257,7 +1299,7 @@ export default function VaultPage() {
         <select
           value={filterGroup}
           onChange={(e) => setFilterGroup(e.target.value)}
-          style={{ ...inputStyle, marginBottom: 0, minWidth: 160 }}
+          style={{ ...inputStyle, marginBottom: 0, width: 210, minWidth: 180, flex: "0 0 auto" }}
         >
           <option value="">{t.allGroups}</option>
           {groups.map((g) => (
