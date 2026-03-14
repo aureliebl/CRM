@@ -54,5 +54,6 @@ export async function POST(
 
   await addLog(actor.id, "invitation.resent", `Resent invitation to ${updated.email}`);
 
-  return NextResponse.json(updated);
+  const { token, ...safeInvitation } = updated;
+  return NextResponse.json(safeInvitation);
 }
