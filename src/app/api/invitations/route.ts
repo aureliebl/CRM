@@ -35,6 +35,7 @@ export async function POST(req: Request) {
     emails?: string[];
     email?: string;
     groupId?: string;
+    role?: string;
   };
 
   const rawEmails = body.emails ?? (body.email ? [body.email] : []);
@@ -50,6 +51,16 @@ export async function POST(req: Request) {
   const { groupId } = body;
   if (!groupId) {
     return NextResponse.json({ error: "groupId is required" }, { status: 400 });
+  }
+
+  // Validate and normalize role
+  const actorIsSuperAdmin = isAccountSuperAdmin(actor);
+  const requestedRole = body.role === "admin" ? "admin" : "operator";
+  if (requestedRole === "admin" && !actorIsSuperAdmin) {
+    return NextResponse.json(
+      { error: "Only super admins can invite with admin role" },
+      { status: 403 }
+    );
   }
 
   // Validate email format
@@ -71,7 +82,6 @@ export async function POST(req: Request) {
   }
 
   // Admin (not super admin) cannot invite to admin groups
-  const actorIsSuperAdmin = isAccountSuperAdmin(actor);
   if (!actorIsSuperAdmin && group.isAdmin) {
     return NextResponse.json(
       { error: "Only super admins can invite to admin groups" },
@@ -111,6 +121,7 @@ export async function POST(req: Request) {
         email,
         groupId,
         invitedBy: actor.id,
+        role: requestedRole,
       });
 
       const invitationUrl = `${appBaseUrl}/invitation/${rawToken}`;

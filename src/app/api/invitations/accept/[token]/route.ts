@@ -90,7 +90,7 @@ export async function POST(
   const account = await createAccount({
     email: invitation.email,
     fullName: name.trim(),
-    role: "operator",
+    role: invitation.role ?? "operator",
     isActive: 1,
     profileImage: profilePhoto || null,
   });

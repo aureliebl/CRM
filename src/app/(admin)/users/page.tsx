@@ -65,6 +65,7 @@ export default function UsersPage() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmails, setInviteEmails] = useState("");
   const [inviteGroupId, setInviteGroupId] = useState("");
+  const [inviteRole, setInviteRole] = useState<"operator" | "admin">("operator");
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteResult, setInviteResult] = useState<string | null>(null);
 
@@ -273,7 +274,7 @@ export default function UsersPage() {
       const res = await fetch("/api/invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emails, groupId: inviteGroupId }),
+        body: JSON.stringify({ emails, groupId: inviteGroupId, role: inviteRole }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -332,6 +333,31 @@ export default function UsersPage() {
       body: JSON.stringify({ groupId }),
     });
     setChangingGroupUserId(null);
+    await loadUsers();
+  };
+
+  const handleChangeRole = async (userId: string, newRole: "admin" | "operator") => {
+    const user = users.find((u) => u.id === userId);
+    if (!user) return;
+    const roleLabel = newRole === "admin"
+      ? (locale === "fr" ? "Administrateur" : "Admin")
+      : (locale === "fr" ? "Opérateur" : "Operator");
+    const ok = window.confirm(
+      locale === "fr"
+        ? `Changer le rôle de ${user.fullName} en ${roleLabel} ?`
+        : `Change role of ${user.fullName} to ${roleLabel}?`
+    );
+    if (!ok) return;
+    const res = await fetch(`/api/security/accounts/${encodeURIComponent(userId)}/role`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: newRole }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      window.alert(data?.error || (locale === "fr" ? "Erreur lors du changement de rôle" : "Error changing role"));
+      return;
+    }
     await loadUsers();
   };
 
@@ -716,6 +742,21 @@ export default function UsersPage() {
             ))}
           </select>
         </div>
+        {isSuperAdmin && (
+          <div style={{ marginBottom: "1rem" }}>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: 4 }}>
+              {locale === "fr" ? "Rôle" : "Role"}
+            </label>
+            <select
+              style={inputStyle}
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as "operator" | "admin")}
+            >
+              <option value="operator">{locale === "fr" ? "Opérateur" : "Operator"}</option>
+              <option value="admin">{locale === "fr" ? "Administrateur" : "Admin"}</option>
+            </select>
+          </div>
+        )}
         {inviteResult && (
           <div
             style={{
@@ -737,6 +778,7 @@ export default function UsersPage() {
             onClick={() => {
               setShowInviteModal(false);
               setInviteResult(null);
+              setInviteRole("operator");
             }}
           >
             {locale === "fr" ? "Annuler" : "Cancel"}
@@ -842,6 +884,7 @@ export default function UsersPage() {
                   <th style={thStyle}>{locale === "fr" ? "Utilisateur" : "User"}</th>
                   <th style={thStyle}>Email</th>
                   <th style={thStyle}>{locale === "fr" ? "Groupe" : "Group"}</th>
+                  <th style={thStyle}>{locale === "fr" ? "Rôle" : "Role"}</th>
                   <th style={thStyle}>{locale === "fr" ? "Inscrit le" : "Joined"}</th>
                   <th style={thStyle}>Actions</th>
                 </tr>
@@ -849,7 +892,7 @@ export default function UsersPage() {
               <tbody>
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ ...tdStyle, textAlign: "center", color: "var(--text-secondary)" }}>
+                    <td colSpan={6} style={{ ...tdStyle, textAlign: "center", color: "var(--text-secondary)" }}>
                       {locale === "fr" ? "Aucun utilisateur trouvé" : "No users found"}
                     </td>
                   </tr>
@@ -892,17 +935,37 @@ export default function UsersPage() {
                       </td>
                       <td style={tdStyle}>{user.email}</td>
                       <td style={tdStyle}>{groupBadgeForUser(user)}</td>
+                      <td style={tdStyle}>
+                        <span style={badgeStyle(user.role === "admin" ? "#8b5cf6" : "#2563eb")}>
+                          {user.role === "admin"
+                            ? (locale === "fr" ? "Admin" : "Admin")
+                            : (locale === "fr" ? "Opérateur" : "Operator")}
+                        </span>
+                      </td>
                       <td style={tdStyle}>{formatDate(user.createdAt)}</td>
                       <td style={tdStyle}>
-                        {isSuperAdmin && user.id !== actor?.id && (
-                          <button
-                            type="button"
-                            style={{ ...btnDanger, ...btnSmall }}
-                            onClick={() => handleDeleteUser(user.id)}
-                          >
-                            {locale === "fr" ? "Supprimer" : "Delete"}
-                          </button>
-                        )}
+                        <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                          {isSuperAdmin && user.id !== actor?.id && (
+                            <button
+                              type="button"
+                              style={{ ...btnSmall, background: user.role === "admin" ? "#f59e0b" : "#8b5cf6", color: "#fff", border: "none", cursor: "pointer", borderRadius: "0.35rem", padding: "0.2rem 0.6rem", fontSize: "0.78rem" }}
+                              onClick={() => handleChangeRole(user.id, user.role === "admin" ? "operator" : "admin")}
+                            >
+                              {user.role === "admin"
+                                ? (locale === "fr" ? "Rétrograder" : "Demote")
+                                : (locale === "fr" ? "Promouvoir" : "Promote")}
+                            </button>
+                          )}
+                          {isSuperAdmin && user.id !== actor?.id && (
+                            <button
+                              type="button"
+                              style={{ ...btnDanger, ...btnSmall }}
+                              onClick={() => handleDeleteUser(user.id)}
+                            >
+                              {locale === "fr" ? "Supprimer" : "Delete"}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
