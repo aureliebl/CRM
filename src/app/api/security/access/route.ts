@@ -16,6 +16,7 @@ export async function GET(req: Request) {
       enabled: false,
       allowed: true,
       clientIp,
+      showAircallButton: settings.showAircallButton,
     });
   }
 
@@ -25,5 +26,6 @@ export async function GET(req: Request) {
     enabled: true,
     allowed,
     clientIp,
+    showAircallButton: settings.showAircallButton,
   });
 }

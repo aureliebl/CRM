@@ -133,6 +133,7 @@ export default function SecurityPage() {
           noGroup: "Aucun groupe",
           ipTitle: "Restriction IP",
           ipEnabled: "Activer la restriction d'accès par IP",
+          aircallButtonEnabled: "Afficher le bouton Aircall dans le header",
           ipInput: "IP ou CIDR",
           ipLabel: "Label",
           ipListTitle: "Entrées allowlist",
@@ -224,6 +225,7 @@ export default function SecurityPage() {
           noGroup: "No group",
           ipTitle: "IP restriction",
           ipEnabled: "Enable IP allowlist login restriction",
+          aircallButtonEnabled: "Show Aircall button in header",
           ipInput: "IP or CIDR",
           ipLabel: "Label",
           ipListTitle: "Allowlist entries",
@@ -778,6 +780,17 @@ export default function SecurityPage() {
       body: JSON.stringify({ ipAllowlistEnabled: enabled }),
     });
     await loadOverview();
+  };
+
+  const setAircallButtonEnabled = async (enabled: boolean) => {
+    if (!actor) return;
+    await fetch(`/api/security/ip-allowlist`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ showAircallButton: enabled }),
+    });
+    await loadOverview();
+    window.dispatchEvent(new Event("security:settings-updated"));
   };
 
   const addIpEntry = async () => {
@@ -1757,6 +1770,15 @@ export default function SecurityPage() {
                 onChange={(e) => setIpEnabled(e.target.checked)}
               />
               <span>{labels.ipEnabled}</span>
+            </label>
+
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", margin: "0 0 0.8rem" }}>
+              <input
+                type="checkbox"
+                checked={overview.settings.showAircallButton}
+                onChange={(e) => setAircallButtonEnabled(e.target.checked)}
+              />
+              <span>{labels.aircallButtonEnabled}</span>
             </label>
 
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.7rem" }}>

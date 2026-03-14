@@ -322,6 +322,7 @@ export interface IpAllowlistEntry {
 
 export interface SecuritySettings {
   ipAllowlistEnabled: boolean;
+  showAircallButton: boolean;
 }
 
 // ────────────────────────────────────────────────────────────

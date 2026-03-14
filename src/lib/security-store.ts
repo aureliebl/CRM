@@ -116,6 +116,14 @@ async function ensureDefaultsPostgres() {
       ["ipAllowlistEnabled", "0", nowIso()]
     );
   }
+
+  const aircallSetting = await pgPool.query("SELECT value FROM security_settings WHERE key = 'showAircallButton'");
+  if (!aircallSetting.rows[0]) {
+    await pgPool.query(
+      "INSERT INTO security_settings (key, value, updatedAt) VALUES ($1,$2,$3)",
+      ["showAircallButton", "1", nowIso()]
+    );
+  }
 }
 
 async function ensurePostgresReady() {
@@ -147,6 +155,17 @@ function ensureDefaults() {
     sqliteDb.prepare("INSERT INTO security_settings (key, value, updatedAt) VALUES (?,?,?)").run(
       "ipAllowlistEnabled",
       "0",
+      nowIso()
+    );
+  }
+
+  const aircallSetting = sqliteDb
+    .prepare("SELECT value FROM security_settings WHERE key = 'showAircallButton'")
+    .get() as { value?: string } | undefined;
+  if (!aircallSetting) {
+    sqliteDb.prepare("INSERT INTO security_settings (key, value, updatedAt) VALUES (?,?,?)").run(
+      "showAircallButton",
+      "1",
       nowIso()
     );
   }
@@ -377,14 +396,18 @@ export async function getSecuritySettings(): Promise<SecuritySettings> {
     await ensurePostgresReady();
     const result = await pgPool.query("SELECT value FROM security_settings WHERE key = 'ipAllowlistEnabled'");
     const row = result.rows[0] as Record<string, unknown> | undefined;
+    const aircallResult = await pgPool.query("SELECT value FROM security_settings WHERE key = 'showAircallButton'");
+    const aircallRow = aircallResult.rows[0] as Record<string, unknown> | undefined;
     return {
       ipAllowlistEnabled: String(row?.value ?? "0") === "1",
+      showAircallButton: String(aircallRow?.value ?? "1") === "1",
     };
   }
 
   if (!sqliteDb) {
     return {
       ipAllowlistEnabled: false,
+      showAircallButton: true,
     };
   }
 
@@ -392,8 +415,13 @@ export async function getSecuritySettings(): Promise<SecuritySettings> {
     .prepare("SELECT value FROM security_settings WHERE key = 'ipAllowlistEnabled'")
     .get() as { value?: string } | undefined;
 
+  const aircallRow = sqliteDb
+    .prepare("SELECT value FROM security_settings WHERE key = 'showAircallButton'")
+    .get() as { value?: string } | undefined;
+
   return {
     ipAllowlistEnabled: row?.value === "1",
+    showAircallButton: aircallRow?.value !== "0",
   };
 }
 
@@ -406,6 +434,13 @@ export async function updateSecuritySettings(patch: Partial<SecuritySettings>) {
         [patch.ipAllowlistEnabled ? "1" : "0", nowIso()]
       );
     }
+
+    if (patch.showAircallButton !== undefined) {
+      await pgPool.query(
+        "UPDATE security_settings SET value = $1, updatedAt = $2 WHERE key = 'showAircallButton'",
+        [patch.showAircallButton ? "1" : "0", nowIso()]
+      );
+    }
     return getSecuritySettings();
   }
 
@@ -414,6 +449,13 @@ export async function updateSecuritySettings(patch: Partial<SecuritySettings>) {
   if (patch.ipAllowlistEnabled !== undefined) {
     sqliteDb.prepare("UPDATE security_settings SET value = ?, updatedAt = ? WHERE key = 'ipAllowlistEnabled'").run(
       patch.ipAllowlistEnabled ? "1" : "0",
+      nowIso()
+    );
+  }
+
+  if (patch.showAircallButton !== undefined) {
+    sqliteDb.prepare("UPDATE security_settings SET value = ?, updatedAt = ? WHERE key = 'showAircallButton'").run(
+      patch.showAircallButton ? "1" : "0",
       nowIso()
     );
   }

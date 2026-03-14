@@ -186,13 +186,16 @@ export default function UsersPage() {
     return groups.filter((g) => !g.isAdmin);
   }, [groups, isSuperAdmin]);
 
-  const nonAdminGroups = useMemo(() => groups.filter((group) => !group.isAdmin), [groups]);
+  const tabVisibilitySelectableGroups = useMemo(
+    () => (isSuperAdmin ? groups : groups.filter((group) => !group.isAdmin)),
+    [groups, isSuperAdmin]
+  );
 
   useEffect(() => {
     if (selectedVisibilityGroupId) return;
-    if (nonAdminGroups.length === 0) return;
-    setSelectedVisibilityGroupId(nonAdminGroups[0].id);
-  }, [nonAdminGroups, selectedVisibilityGroupId]);
+    if (tabVisibilitySelectableGroups.length === 0) return;
+    setSelectedVisibilityGroupId(tabVisibilitySelectableGroups[0].id);
+  }, [tabVisibilitySelectableGroups, selectedVisibilityGroupId]);
 
   const availableGroupsForChange = useCallback(
     (targetUser: UserRow) => {
@@ -345,32 +348,32 @@ export default function UsersPage() {
 
   const toggleTabVisibilityForGroup = useCallback(
     (tabId: string, groupId: string) => {
-      const nonAdminGroupIdSet = new Set(nonAdminGroups.map((group) => group.id));
+      const selectableGroupIdSet = new Set(tabVisibilitySelectableGroups.map((group) => group.id));
       setTabVisibilityRows((prev) =>
         prev.map((row) => {
           if (row.id !== tabId) return row;
 
-          const adminGroupIds = row.groupIds.filter((id) => !nonAdminGroupIdSet.has(id));
-          const currentNonAdminGroupIds =
+          const preservedGroupIds = row.groupIds.filter((id) => !selectableGroupIdSet.has(id));
+          const currentSelectableGroupIds =
             row.groupIds.length === 0
-              ? nonAdminGroups.map((group) => group.id)
-              : row.groupIds.filter((id) => nonAdminGroupIdSet.has(id));
+              ? tabVisibilitySelectableGroups.map((group) => group.id)
+              : row.groupIds.filter((id) => selectableGroupIdSet.has(id));
 
           const isCurrentlyVisible =
-            row.groupIds.length === 0 ? true : currentNonAdminGroupIds.includes(groupId);
+            row.groupIds.length === 0 ? true : currentSelectableGroupIds.includes(groupId);
 
-          const nextNonAdminGroupIds = isCurrentlyVisible
-            ? currentNonAdminGroupIds.filter((id) => id !== groupId)
-            : Array.from(new Set([...currentNonAdminGroupIds, groupId]));
+          const nextSelectableGroupIds = isCurrentlyVisible
+            ? currentSelectableGroupIds.filter((id) => id !== groupId)
+            : Array.from(new Set([...currentSelectableGroupIds, groupId]));
 
           return {
             ...row,
-            groupIds: Array.from(new Set([...adminGroupIds, ...nextNonAdminGroupIds])),
+            groupIds: Array.from(new Set([...preservedGroupIds, ...nextSelectableGroupIds])),
           };
         })
       );
     },
-    [nonAdminGroups]
+    [tabVisibilitySelectableGroups]
   );
 
   const handleSaveTabVisibility = useCallback(
@@ -1117,7 +1120,7 @@ export default function UsersPage() {
               onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
             >
               <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
-              {nonAdminGroups.map((group) => (
+              {tabVisibilitySelectableGroups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name}
                 </option>

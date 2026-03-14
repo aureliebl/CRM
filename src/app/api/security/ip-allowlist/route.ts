@@ -56,9 +56,21 @@ export async function PATCH(req: Request) {
 
   const actorId = await getActorIdFromRequest(req);
   const body = await req.json();
-  const updatedSettings = await updateSecuritySettings({
-    ipAllowlistEnabled: !!body.ipAllowlistEnabled,
-  });
+  const patch: { ipAllowlistEnabled?: boolean; showAircallButton?: boolean } = {};
+
+  if (Object.prototype.hasOwnProperty.call(body, "ipAllowlistEnabled")) {
+    patch.ipAllowlistEnabled = !!body.ipAllowlistEnabled;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, "showAircallButton")) {
+    patch.showAircallButton = !!body.showAircallButton;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: "No valid settings provided" }, { status: 400 });
+  }
+
+  const updatedSettings = await updateSecuritySettings(patch);
 
   if (actorId) {
     await addLog(actorId, "security.ip_allowlist.settings_updated", `IP allowlist setting updated by ${actorId}`);

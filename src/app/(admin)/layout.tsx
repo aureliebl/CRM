@@ -357,11 +357,13 @@ function AdminTopbar({
   isSidebarCollapsed,
   onToggleSidebar,
   visibleRoutes,
+  showAircallButton,
 }: {
   user: LocalUser;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   visibleRoutes?: string[];
+  showAircallButton: boolean;
 }) {
   const [showBugModal, setShowBugModal] = useState(false);
   const { locale, t, setLocale } = useLocale();
@@ -433,7 +435,7 @@ function AdminTopbar({
           />
         </div>
         <div className="admin-topbar-controls">
-          <AircallButton />
+          {showAircallButton && <AircallButton />}
           <button
             type="button"
             onClick={toggleLocale}
@@ -553,6 +555,7 @@ export default function AdminLayout({
   const [mounted, setMounted] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [visibleRoutes, setVisibleRoutes] = useState<string[]>([]);
+  const [showAircallButton, setShowAircallButton] = useState(true);
 
   const handleVisibleRoutesChange = useCallback((routes: string[]) => {
     setVisibleRoutes((prev) => {
@@ -637,6 +640,17 @@ export default function AdminLayout({
     }
   }, []);
 
+  const loadUiSecuritySettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/security/access", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { showAircallButton?: boolean };
+      setShowAircallButton(data.showAircallButton !== false);
+    } catch {
+      setShowAircallButton(true);
+    }
+  }, []);
+
   useEffect(() => {
     const savedSidebarState = window.localStorage.getItem("admin:sidebar-collapsed");
     if (savedSidebarState !== null) {
@@ -644,7 +658,8 @@ export default function AdminLayout({
     }
     setMounted(true);
     void loadCurrentUser();
-  }, [loadCurrentUser]);
+    void loadUiSecuritySettings();
+  }, [loadCurrentUser, loadUiSecuritySettings]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -658,6 +673,14 @@ export default function AdminLayout({
     window.addEventListener("user:update", handler);
     return () => window.removeEventListener("user:update", handler);
   }, [loadCurrentUser]);
+
+  useEffect(() => {
+    const handler = () => {
+      void loadUiSecuritySettings();
+    };
+    window.addEventListener("security:settings-updated", handler);
+    return () => window.removeEventListener("security:settings-updated", handler);
+  }, [loadUiSecuritySettings]);
 
   useEffect(() => {
     if (!mounted || !authResolved) return;
@@ -706,6 +729,7 @@ export default function AdminLayout({
             isSidebarCollapsed={isSidebarCollapsed}
             onToggleSidebar={() => setIsSidebarCollapsed(false)}
             visibleRoutes={visibleRoutes}
+            showAircallButton={showAircallButton}
           />
           <Breadcrumb />
           <main className="admin-main">
