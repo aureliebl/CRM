@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { validateApiToken, createCard } from "@/lib/tickets-store";
+import { getAccountById } from "@/lib/account-store";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
  *   curl -X POST https://your-app.com/api/tickets/ingest \
  *     -H "Authorization: Bearer <TOKEN>" \
  *     -H "Content-Type: application/json" \
- *     -d '{"title":"Bug report","description":"<p>Details here</p>","variables":[{"key":"Priority","value":"High","type":"badge","color":"red"}]}'
+ *     -d '{"title":"Bug report","description":"<p>Details here</p>","variables":[{"key":"Priority","value":"High","type":"badge","color":"red"}],"createdBy":"<USER_ID>"}'
  */
 export async function POST(req: Request) {
   // Validate Bearer token
@@ -27,10 +28,19 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { title, description, variables, column } = body;
+  const { title, description, variables, column, createdBy } = body;
 
   if (!title) {
     return NextResponse.json({ error: "title is required" }, { status: 400 });
+  }
+
+  // Validate createdBy if provided — must reference an existing account
+  let resolvedCreatedBy: string | null = null;
+  if (createdBy && typeof createdBy === "string") {
+    const account = await getAccountById(createdBy);
+    if (account) {
+      resolvedCreatedBy = account.id;
+    }
   }
 
   const card = await createCard({
@@ -40,7 +50,7 @@ export async function POST(req: Request) {
     variables: Array.isArray(variables) ? variables : [],
     columnKey: column || "nouveau",
     source: "api",
-    createdBy: null,
+    createdBy: resolvedCreatedBy,
   });
 
   return NextResponse.json(card, { status: 201 });
