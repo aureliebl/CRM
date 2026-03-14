@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
+import { getActorFromRequest } from "@/lib/server-permissions";
 import { ensureDefaultBoard, getCards, createCard } from "@/lib/tickets-store";
 import { getAllAccounts } from "@/lib/account-store";
 
@@ -25,14 +25,11 @@ export async function GET(req: Request) {
   return NextResponse.json({ board, cards, users });
 }
 
-/* POST /api/tickets — create a card (admin+) */
+/* POST /api/tickets — create a card (any authenticated user) */
 export async function POST(req: Request) {
   const actor = await getActorFromRequest(req);
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json();

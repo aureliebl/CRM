@@ -88,8 +88,12 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   }
 
   if (!upstreamRes) {
+    const host = (process.env.FLOWISE_API_HOST || DEFAULT_UPSTREAM).replace(/\/$/, "");
     return NextResponse.json(
-      { error: "Flowise upstream unavailable" },
+      {
+        error: "Flowise upstream unavailable",
+        detail: `Could not reach Flowise at ${host}. Make sure the FLOWISE_API_HOST environment variable is correct and the Flowise instance is running.`,
+      },
       { status: 502 }
     );
   }
