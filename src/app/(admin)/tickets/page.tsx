@@ -107,6 +107,8 @@ const labels = {
     varValue: "Valeur",
     varType: "Type",
     varColor: "Couleur",
+    linkText: "Texte du lien",
+    linkUrl: "https://…",
     remove: "Retirer",
     priority: "Priorité",
     creator: "Créateur",
@@ -148,6 +150,8 @@ const labels = {
     varValue: "Value",
     varType: "Type",
     varColor: "Color",
+    linkText: "Link text",
+    linkUrl: "https://…",
     remove: "Remove",
     priority: "Priority",
     creator: "Creator",
@@ -1015,8 +1019,8 @@ function renderForm(
 
       {formVars.map((v, i) => (
         <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto auto auto", gap: 6, marginBottom: 6, alignItems: "center" }}>
-          <input value={v.key} onChange={(e) => updateVariable(i, { key: e.target.value })} placeholder={t.varKey} style={{ ...inputStyle, marginBottom: 0, fontSize: 12 }} />
-          <input value={v.value} onChange={(e) => updateVariable(i, { value: e.target.value })} placeholder={t.varValue} style={{ ...inputStyle, marginBottom: 0, fontSize: 12 }} />
+          <input value={v.key} onChange={(e) => updateVariable(i, { key: e.target.value })} placeholder={v.type === "link" ? t.linkText : t.varKey} style={{ ...inputStyle, marginBottom: 0, fontSize: 12 }} />
+          <input type={v.type === "link" ? "url" : "text"} value={v.value} onChange={(e) => updateVariable(i, { value: e.target.value })} placeholder={v.type === "link" ? t.linkUrl : t.varValue} style={{ ...inputStyle, marginBottom: 0, fontSize: 12 }} />
           <select value={v.type} onChange={(e) => updateVariable(i, { type: e.target.value as TicketVariable["type"] })} style={{ ...inputStyle, marginBottom: 0, fontSize: 12, width: 90 }}>
             <option value="badge">Badge</option>
             <option value="date">Date</option>
