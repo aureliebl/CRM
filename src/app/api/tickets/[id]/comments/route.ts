@@ -60,7 +60,7 @@ export async function POST(req: Request, context: Ctx) {
   // Send emails in the background
   if (recipientIds.size > 0) {
     (async () => {
-      for (const uid of recipientIds) {
+      const promises = Array.from(recipientIds).map(async (uid) => {
         try {
           const account = await getAccountById(uid);
           if (account?.email) {
@@ -74,7 +74,8 @@ export async function POST(req: Request, context: Ctx) {
         } catch (e) {
           console.error("[ticket-comment-email] failed for", uid, e);
         }
-      }
+      });
+      await Promise.all(promises);
     })();
   }
 
