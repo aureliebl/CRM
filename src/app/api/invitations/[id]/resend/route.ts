@@ -30,10 +30,12 @@ export async function POST(
     );
   }
 
-  const updated = await resendInvitation(id);
-  if (!updated) {
+  const result = await resendInvitation(id);
+  if (!result) {
     return NextResponse.json({ error: "Failed to resend invitation" }, { status: 500 });
   }
+
+  const { invitation: updated, rawToken } = result;
 
   const groups = await getUserGroups();
   const group = groups.find((g) => g.id === updated.groupId);
@@ -43,7 +45,7 @@ export async function POST(
     process.env.PASSWORD_RESET_URL_BASE?.replace("/resetlogin", "") ||
     "http://localhost:3000";
 
-  const invitationUrl = `${appBaseUrl}/invitation/${updated.token}`;
+  const invitationUrl = `${appBaseUrl}/invitation/${rawToken}`;
 
   await sendInvitationEmail({
     to: updated.email,
@@ -54,6 +56,5 @@ export async function POST(
 
   await addLog(actor.id, "invitation.resent", `Resent invitation to ${updated.email}`);
 
-  const { token, ...safeInvitation } = updated;
-  return NextResponse.json(safeInvitation);
+  return NextResponse.json(updated);
 }

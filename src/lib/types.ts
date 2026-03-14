@@ -304,7 +304,6 @@ export interface UserInvitation {
   id: string;
   email: string;
   groupId: string;
-  token: string;
   expiresAt: string;
   status: InvitationStatus;
   invitedBy: string;

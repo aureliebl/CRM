@@ -1,5 +1,13 @@
 import nodemailer from "nodemailer";
-import he from "he";
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 type SendResetParams = {
   to: string;
@@ -122,10 +130,10 @@ export async function sendInvitationEmail({
     `— L'équipe ${appName}`,
   ].join("\n");
 
-  const safeAppName = he.escape(appName);
-  const safeInviterName = inviterName ? he.escape(inviterName) : "";
-  const safeGroupName = groupName ? he.escape(groupName) : "";
-  const safeInvitationUrl = he.escape(encodeURI(invitationUrl));
+  const safeAppName = escapeHtml(appName);
+  const safeInviterName = inviterName ? escapeHtml(inviterName) : "";
+  const safeGroupName = groupName ? escapeHtml(groupName) : "";
+  const safeInvitationUrl = escapeHtml(encodeURI(invitationUrl));
 
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">

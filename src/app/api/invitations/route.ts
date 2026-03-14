@@ -22,8 +22,7 @@ export async function GET(req: Request) {
   await expireOldInvitations();
 
   const invitations = await getAllInvitations();
-  const safeInvitations = invitations.map(({ token, ...rest }) => rest);
-  return NextResponse.json(safeInvitations);
+  return NextResponse.json(invitations);
 }
 
 export async function POST(req: Request) {
@@ -82,8 +81,9 @@ export async function POST(req: Request) {
 
   const results: Array<{
     email: string;
-    status: "sent" | "already_exists" | "already_invited" | "error";
+    status: "sent" | "already_exists" | "already_invited" | "delivery_failed" | "error";
     error?: string;
+    mode?: string;
   }> = [];
 
   const appBaseUrl =
@@ -107,13 +107,13 @@ export async function POST(req: Request) {
     }
 
     try {
-      const invitation = await createInvitation({
+      const { rawToken } = await createInvitation({
         email,
         groupId,
         invitedBy: actor.id,
       });
 
-      const invitationUrl = `${appBaseUrl}/invitation/${invitation.token}`;
+      const invitationUrl = `${appBaseUrl}/invitation/${rawToken}`;
 
       const emailResult = await sendInvitationEmail({
         to: email,
