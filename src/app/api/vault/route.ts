@@ -30,9 +30,10 @@ export async function POST(req: Request) {
     if (!actor) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+
+    const actorIsAdmin = actor.role === "admin";
+    const actorIsSuperAdmin = isAccountSuperAdmin(actor);
+    const actorCanUseAdminOnly = actorIsAdmin || actorIsSuperAdmin;
 
     const body = await req.json();
     const { serviceName, serviceUrl, login, password, notes, groupIds, adminOnly, passwordOwnerOnly } = body;
@@ -50,14 +51,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const adminOnlyFlag = Boolean(adminOnly);
+    const adminOnlyFlag = actorCanUseAdminOnly ? Boolean(adminOnly) : false;
     let normalizedGroupIds = groupIds
       .map((value) => String(value || "").trim())
       .filter(Boolean);
 
+    const actorGroupId = await getGroupIdForAccount(actor.id);
+
+    if (!actorCanUseAdminOnly) {
+      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
+    }
+
     if (!adminOnlyFlag && normalizedGroupIds.length === 0) {
-      const fallbackGroupId = await getGroupIdForAccount(actor.id);
-      if (fallbackGroupId) normalizedGroupIds = [fallbackGroupId];
+      if (actorGroupId) normalizedGroupIds = [actorGroupId];
     }
 
     if (!adminOnlyFlag && normalizedGroupIds.length === 0) {

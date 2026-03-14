@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { addLog } from "@/lib/account-store";
 import { deleteTab, getGroupIdsForTab, getTabById, updateTab } from "@/lib/tabs-store";
-import { getActorIdFromRequest, isActorSuperAdmin } from "@/lib/server-permissions";
+import { getActorFromRequest, getActorIdFromRequest, isAccountSuperAdmin, isActorSuperAdmin } from "@/lib/server-permissions";
 import { getExpectedUpdatedAt, isStaleWrite } from "@/lib/optimistic-concurrency";
 import { clearMemoryCacheByPrefix } from "@/lib/server-memory-cache";
+import { getUserGroups } from "@/lib/security-store";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +20,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 }
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  if (!(await isActorSuperAdmin(req))) {
+  const actor = await getActorFromRequest(req);
+  if (!actor || actor.role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  const actorIsSuperAdmin = isAccountSuperAdmin(actor);
 
   const actorId = await getActorIdFromRequest(req);
   const { id } = await params;
@@ -29,21 +32,45 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   const existing = await getTabById(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  if (!actorIsSuperAdmin && existing.superAdminOnly) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const expectedUpdatedAt = getExpectedUpdatedAt(req, body);
   if (isStaleWrite(expectedUpdatedAt, existing.updatedAt ?? null)) {
     return NextResponse.json({ error: "Conflict: resource has been modified", code: "CONFLICT" }, { status: 409 });
   }
 
-  const updated = await updateTab(id, {
-    slug: body.slug,
-    title: body.title,
-    subtitle: body.subtitle,
-    icon: body.icon,
-    enabled: body.enabled,
-    superAdminOnly: body.superAdminOnly,
-    config: body.config,
-    groupIds: Array.isArray(body.groupIds) ? body.groupIds : undefined,
-  });
+  let updated;
+  if (!actorIsSuperAdmin) {
+    if (!Array.isArray(body.groupIds)) {
+      return NextResponse.json({ error: "groupIds is required" }, { status: 400 });
+    }
+
+    const groups = await getUserGroups();
+    const nonAdminGroupIds = new Set(groups.filter((group) => !group.isAdmin).map((group) => group.id));
+    const existingGroupIds = await getGroupIdsForTab(id);
+    const preservedAdminGroupIds = existingGroupIds.filter((groupId) => !nonAdminGroupIds.has(groupId));
+    const sanitizedNonAdminGroupIds = body.groupIds
+      .map((value: unknown) => String(value || "").trim())
+      .filter((value: string) => value.length > 0)
+      .filter((value: string) => nonAdminGroupIds.has(value));
+
+    updated = await updateTab(id, {
+      groupIds: Array.from(new Set([...preservedAdminGroupIds, ...sanitizedNonAdminGroupIds])),
+    });
+  } else {
+    updated = await updateTab(id, {
+      slug: body.slug,
+      title: body.title,
+      subtitle: body.subtitle,
+      icon: body.icon,
+      enabled: body.enabled,
+      superAdminOnly: body.superAdminOnly,
+      config: body.config,
+      groupIds: Array.isArray(body.groupIds) ? body.groupIds : undefined,
+    });
+  }
 
   if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
   clearMemoryCacheByPrefix("tabs:");

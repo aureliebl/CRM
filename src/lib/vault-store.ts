@@ -202,27 +202,14 @@ export async function getVaultEntriesForActor(
     );
     rows = result.rows;
   } else {
-    // get group for actor
-    const groupId = await getGroupIdForAccount(actor.id);
     if (actor.role === "admin") {
-      if (groupId) {
-        const result = await pgPool.query(
-          `SELECT DISTINCT ve.* FROM vault_entries ve
-           LEFT JOIN vault_entry_groups veg ON veg.vault_entry_id = ve.id
-           WHERE veg.group_id = $1 OR ve.admin_only = 1
-           ORDER BY ve.service_name ASC`,
-          [groupId]
-        );
-        rows = result.rows;
-      } else {
-        const result = await pgPool.query(
-          `SELECT * FROM vault_entries
-           WHERE admin_only = 1
-           ORDER BY service_name ASC`
-        );
-        rows = result.rows;
-      }
+      const result = await pgPool.query(
+        "SELECT * FROM vault_entries ORDER BY service_name ASC"
+      );
+      rows = result.rows;
     } else {
+      // get group for actor
+      const groupId = await getGroupIdForAccount(actor.id);
       if (!groupId) return [];
       const result = await pgPool.query(
         `SELECT ve.* FROM vault_entries ve
@@ -291,6 +278,7 @@ export async function canActorAccessEntry(
   entryId: string
 ): Promise<boolean> {
   if (isAccountSuperAdmin(actor)) return true;
+  if (actor.role === "admin") return true;
 
   const entryResult = await pgPool.query(
     "SELECT admin_only FROM vault_entries WHERE id = $1 LIMIT 1",

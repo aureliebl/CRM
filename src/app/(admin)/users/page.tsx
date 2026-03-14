@@ -29,7 +29,15 @@ type SessionActor = {
   fullName?: string;
 };
 
-type SubTab = "users" | "invitations" | "groups";
+type TabVisibilityRow = {
+  id: string;
+  title: string;
+  enabled: boolean;
+  superAdminOnly?: boolean;
+  groupIds: string[];
+};
+
+type SubTab = "users" | "invitations" | "groups" | "tab-visibility";
 
 export default function UsersPage() {
   const { locale } = useLocale();
@@ -48,6 +56,10 @@ export default function UsersPage() {
 
   // Groups state
   const [groups, setGroups] = useState<GroupWithCount[]>([]);
+  const [tabVisibilityRows, setTabVisibilityRows] = useState<TabVisibilityRow[]>([]);
+  const [selectedVisibilityGroupId, setSelectedVisibilityGroupId] = useState("");
+  const [tabVisibilitySavingId, setTabVisibilitySavingId] = useState<string | null>(null);
+  const [tabVisibilityError, setTabVisibilityError] = useState<string | null>(null);
 
   // Modal state
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -106,15 +118,46 @@ export default function UsersPage() {
     } catch { /* ignore */ }
   }, []);
 
+  const loadTabVisibilityRows = useCallback(async () => {
+    try {
+      const res = await fetch("/api/tabs", { cache: "no-store" });
+      if (!res.ok) {
+        setTabVisibilityRows([]);
+        return;
+      }
+      const rows = (await res.json()) as Array<{
+        id: string;
+        title: string;
+        enabled?: boolean;
+        superAdminOnly?: boolean;
+        groupIds?: string[];
+      }>;
+      setTabVisibilityRows(
+        rows
+          .filter((row) => row.enabled !== false)
+          .filter((row) => row.superAdminOnly !== true)
+          .map((row) => ({
+            id: row.id,
+            title: row.title,
+            enabled: row.enabled !== false,
+            superAdminOnly: row.superAdminOnly,
+            groupIds: Array.isArray(row.groupIds) ? row.groupIds : [],
+          }))
+      );
+    } catch {
+      setTabVisibilityRows([]);
+    }
+  }, []);
+
   useEffect(() => {
     const init = async () => {
       setLoading(true);
       await loadSession();
-      await Promise.all([loadUsers(), loadInvitations(), loadGroups()]);
+      await Promise.all([loadUsers(), loadInvitations(), loadGroups(), loadTabVisibilityRows()]);
       setLoading(false);
     };
     init();
-  }, [loadSession, loadUsers, loadInvitations, loadGroups]);
+  }, [loadSession, loadUsers, loadInvitations, loadGroups, loadTabVisibilityRows]);
 
   // ── Filtered data ──
   const filteredUsers = useMemo(() => {
@@ -142,6 +185,14 @@ export default function UsersPage() {
     if (isSuperAdmin) return groups;
     return groups.filter((g) => !g.isAdmin);
   }, [groups, isSuperAdmin]);
+
+  const nonAdminGroups = useMemo(() => groups.filter((group) => !group.isAdmin), [groups]);
+
+  useEffect(() => {
+    if (selectedVisibilityGroupId) return;
+    if (nonAdminGroups.length === 0) return;
+    setSelectedVisibilityGroupId(nonAdminGroups[0].id);
+  }, [nonAdminGroups, selectedVisibilityGroupId]);
 
   const availableGroupsForChange = useCallback(
     (targetUser: UserRow) => {
@@ -283,6 +334,72 @@ export default function UsersPage() {
     }
     await loadGroups();
   };
+
+  const isGroupVisibleForTab = useCallback(
+    (row: TabVisibilityRow, groupId: string) => {
+      if (row.groupIds.length === 0) return true;
+      return row.groupIds.includes(groupId);
+    },
+    []
+  );
+
+  const toggleTabVisibilityForGroup = useCallback(
+    (tabId: string, groupId: string) => {
+      const nonAdminGroupIdSet = new Set(nonAdminGroups.map((group) => group.id));
+      setTabVisibilityRows((prev) =>
+        prev.map((row) => {
+          if (row.id !== tabId) return row;
+
+          const adminGroupIds = row.groupIds.filter((id) => !nonAdminGroupIdSet.has(id));
+          const currentNonAdminGroupIds =
+            row.groupIds.length === 0
+              ? nonAdminGroups.map((group) => group.id)
+              : row.groupIds.filter((id) => nonAdminGroupIdSet.has(id));
+
+          const isCurrentlyVisible =
+            row.groupIds.length === 0 ? true : currentNonAdminGroupIds.includes(groupId);
+
+          const nextNonAdminGroupIds = isCurrentlyVisible
+            ? currentNonAdminGroupIds.filter((id) => id !== groupId)
+            : Array.from(new Set([...currentNonAdminGroupIds, groupId]));
+
+          return {
+            ...row,
+            groupIds: Array.from(new Set([...adminGroupIds, ...nextNonAdminGroupIds])),
+          };
+        })
+      );
+    },
+    [nonAdminGroups]
+  );
+
+  const handleSaveTabVisibility = useCallback(
+    async (tabId: string) => {
+      const row = tabVisibilityRows.find((item) => item.id === tabId);
+      if (!row) return;
+
+      setTabVisibilitySavingId(tabId);
+      setTabVisibilityError(null);
+      try {
+        const res = await fetch(`/api/tabs/${tabId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groupIds: row.groupIds }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setTabVisibilityError(data?.error || "Error");
+          return;
+        }
+        await loadTabVisibilityRows();
+      } catch {
+        setTabVisibilityError("Error");
+      } finally {
+        setTabVisibilitySavingId(null);
+      }
+    },
+    [loadTabVisibilityRows, tabVisibilityRows]
+  );
 
   // ── Helpers ──
   const getInitials = (name: string) =>
@@ -628,6 +745,7 @@ export default function UsersPage() {
             { key: "users" as SubTab, label: locale === "fr" ? "Utilisateurs" : "Users" },
             { key: "invitations" as SubTab, label: "Invitations" },
             { key: "groups" as SubTab, label: locale === "fr" ? "Groupes" : "Groups" },
+            { key: "tab-visibility" as SubTab, label: locale === "fr" ? "Visibilité des onglets" : "Tab visibility" },
           ] as const
         ).map((tab) => (
           <button
@@ -902,9 +1020,11 @@ export default function UsersPage() {
                             onChange={(e) => setEditingGroupName(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter") handleRenameGroup(group.id);
-                              if (e.key === "Escape") setEditingGroupId(null);
+                              if (e.key === "Escape") {
+                                setEditingGroupId(null);
+                                setEditingGroupName("");
+                              }
                             }}
-                            onBlur={() => handleRenameGroup(group.id)}
                           />
                         </div>
                       ) : (
@@ -925,19 +1045,42 @@ export default function UsersPage() {
                     <td style={tdStyle}>{group.memberCount}</td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: 4 }}>
-                        {!group.isAdmin && (
-                          <button
-                            type="button"
-                            style={{ ...btnSecondary, ...btnSmall }}
-                            onClick={() => {
-                              setEditingGroupId(group.id);
-                              setEditingGroupName(group.name);
-                            }}
-                          >
-                            {locale === "fr" ? "Renommer" : "Rename"}
-                          </button>
+                        {editingGroupId === group.id ? (
+                          <>
+                            <button
+                              type="button"
+                              style={{ ...btnPrimary, ...btnSmall }}
+                              disabled={!editingGroupName.trim()}
+                              onClick={() => handleRenameGroup(group.id)}
+                            >
+                              {locale === "fr" ? "Enregistrer" : "Save"}
+                            </button>
+                            <button
+                              type="button"
+                              style={{ ...btnSecondary, ...btnSmall }}
+                              onClick={() => {
+                                setEditingGroupId(null);
+                                setEditingGroupName("");
+                              }}
+                            >
+                              {locale === "fr" ? "Annuler" : "Cancel"}
+                            </button>
+                          </>
+                        ) : (
+                          !group.isAdmin && (
+                            <button
+                              type="button"
+                              style={{ ...btnSecondary, ...btnSmall }}
+                              onClick={() => {
+                                setEditingGroupId(group.id);
+                                setEditingGroupName(group.name);
+                              }}
+                            >
+                              {locale === "fr" ? "Renommer" : "Rename"}
+                            </button>
+                          )
                         )}
-                        {isSuperAdmin && !group.isAdmin && group.memberCount === 0 && (
+                        {editingGroupId !== group.id && isSuperAdmin && !group.isAdmin && group.memberCount === 0 && (
                           <button
                             type="button"
                             style={{ ...btnDanger, ...btnSmall }}
@@ -950,6 +1093,111 @@ export default function UsersPage() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ Tab visibility Tab ═══════ */}
+      {activeTab === "tab-visibility" && (
+        <div>
+          <div
+            style={{
+              display: "flex",
+              gap: "0.75rem",
+              alignItems: "center",
+              marginBottom: "1rem",
+              flexWrap: "wrap",
+            }}
+          >
+            <select
+              style={{ ...inputStyle, maxWidth: 280 }}
+              value={selectedVisibilityGroupId}
+              onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
+            >
+              <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
+              {nonAdminGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {tabVisibilityError && (
+            <div
+              style={{
+                marginBottom: "0.75rem",
+                color: "#ef4444",
+                fontSize: "0.85rem",
+              }}
+            >
+              {tabVisibilityError}
+            </div>
+          )}
+
+          <div style={cardStyle}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>{locale === "fr" ? "Onglet" : "Tab"}</th>
+                  <th style={thStyle}>{locale === "fr" ? "Visible" : "Visible"}</th>
+                  <th style={thStyle}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tabVisibilityRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} style={{ ...tdStyle, textAlign: "center", color: "var(--text-secondary)" }}>
+                      {locale === "fr" ? "Aucun onglet dynamique" : "No dynamic tabs"}
+                    </td>
+                  </tr>
+                ) : (
+                  tabVisibilityRows.map((row) => {
+                    const disabled = !selectedVisibilityGroupId;
+                    const checked =
+                      selectedVisibilityGroupId.length > 0
+                        ? isGroupVisibleForTab(row, selectedVisibilityGroupId)
+                        : false;
+
+                    return (
+                      <tr key={row.id} className="admin-table-row">
+                        <td style={tdStyle}>{row.title}</td>
+                        <td style={tdStyle}>
+                          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: disabled ? "not-allowed" : "pointer" }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              disabled={disabled}
+                              onChange={() => {
+                                if (!selectedVisibilityGroupId) return;
+                                toggleTabVisibilityForGroup(row.id, selectedVisibilityGroupId);
+                              }}
+                            />
+                            <span>{checked ? (locale === "fr" ? "Oui" : "Yes") : (locale === "fr" ? "Non" : "No")}</span>
+                          </label>
+                        </td>
+                        <td style={tdStyle}>
+                          <button
+                            type="button"
+                            style={{ ...btnPrimary, ...btnSmall }}
+                            disabled={tabVisibilitySavingId === row.id}
+                            onClick={() => handleSaveTabVisibility(row.id)}
+                          >
+                            {tabVisibilitySavingId === row.id
+                              ? locale === "fr"
+                                ? "Enregistrement…"
+                                : "Saving…"
+                              : locale === "fr"
+                              ? "Enregistrer"
+                              : "Save"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

@@ -119,6 +119,7 @@ const labels = {
     deleteConfirm: "Supprimer définitivement ce credential et tous ses TOTP ?",
     requiredField: "Champ requis",
     selectGroups: "Sélectionnez au moins un groupe",
+    autoShareInfo: "Partage automatique: votre groupe + admins/super-admins",
     saveFailed: "Échec de l'enregistrement",
     passwordHiddenByPolicy: "Mot de passe masqué (visible uniquement par le créateur).",
     totpOptionalAtSave: "Secret TOTP (optionnel à la création)",
@@ -173,6 +174,7 @@ const labels = {
     deleteConfirm: "Permanently delete this credential and all its TOTP?",
     requiredField: "Required",
     selectGroups: "Select at least one group",
+    autoShareInfo: "Auto-shared: your group + admins/super-admins",
     saveFailed: "Save failed",
     passwordHiddenByPolicy: "Password hidden (visible only to creator).",
     totpOptionalAtSave: "TOTP secret (optional on save)",
@@ -322,6 +324,7 @@ export default function VaultPage() {
 
   const isAdmin = actor?.role === "admin";
   const isSuperAdmin = actor?.isSuperAdmin === true;
+  const canManageGroupSelection = isAdmin || isSuperAdmin;
 
   /* ─── Data loading ─── */
 
@@ -1016,42 +1019,56 @@ export default function VaultPage() {
 
       {/* Groups */}
       <label style={labelStyle}>{t.groups} *</label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        <button
-          onClick={() => setFormAdminOnly((value) => !value)}
-          style={{
-            padding: "4px 12px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            border: formAdminOnly ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
-            background: formAdminOnly ? "var(--accent-primary)" : "transparent",
-            color: formAdminOnly ? "#fff" : "var(--text-secondary)",
-            transition: "all 0.15s",
-          }}
-        >
-          {t.adminOnly}
-        </button>
-        {groups.map((g) => {
-          const active = formGroupIds.includes(g.id);
-          return (
-            <button
-              key={g.id}
-              onClick={() => {
-                setFormGroupIds((prev) =>
-                  active ? prev.filter((x) => x !== g.id) : [...prev, g.id]
-                );
-              }}
-              style={{
-                padding: "4px 12px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                border: active ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
-                background: active ? "var(--accent-primary)" : "transparent",
-                color: active ? "#fff" : "var(--text-secondary)",
-                transition: "all 0.15s",
-              }}
-            >
-              {g.name}
-            </button>
-          );
-        })}
-      </div>
+      {canManageGroupSelection ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+          <button
+            onClick={() =>
+              setFormAdminOnly((value) => {
+                const next = !value;
+                if (next) setFormGroupIds([]);
+                return next;
+              })
+            }
+            style={{
+              padding: "4px 12px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              border: formAdminOnly ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+              background: formAdminOnly ? "var(--accent-primary)" : "transparent",
+              color: formAdminOnly ? "#fff" : "var(--text-secondary)",
+              transition: "all 0.15s",
+            }}
+          >
+            {t.adminOnly}
+          </button>
+          {groups.map((g) => {
+            const active = formGroupIds.includes(g.id);
+            return (
+              <button
+                key={g.id}
+                onClick={() => {
+                  if (formAdminOnly) setFormAdminOnly(false);
+                  setFormGroupIds((prev) =>
+                    active ? prev.filter((x) => x !== g.id) : [...prev, g.id]
+                  );
+                }}
+                style={{
+                  padding: "4px 12px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  border: active ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                  background: active ? "var(--accent-primary)" : "transparent",
+                  color: active ? "#fff" : "var(--text-secondary)",
+                  transition: "all 0.15s",
+                  opacity: formAdminOnly ? 0.5 : 1,
+                }}
+              >
+                {g.name}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ marginBottom: 20, fontSize: 12, color: "var(--text-muted)" }}>
+          {t.autoShareInfo}
+        </div>
+      )}
 
       <label style={labelStyle}>{t.ownerOnlyPassword}</label>
       <div style={{ marginBottom: 14 }}>
@@ -1272,16 +1289,9 @@ export default function VaultPage() {
           <p className="admin-page-description" style={{ margin: "4px 0 0" }}>{t.description}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {isSuperAdmin && (
-            <button onClick={() => setModalView("export-confirm")} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
-              <MaterialSymbol name="download" size={16} /> {t.exportAll}
-            </button>
-          )}
-          {isAdmin && (
-            <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
-              <MaterialSymbol name="add" size={16} /> {t.addEntry}
-            </AsyncButton>
-          )}
+          <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
+            <MaterialSymbol name="add" size={16} /> {t.addEntry}
+          </AsyncButton>
         </div>
       </div>
 
@@ -1296,16 +1306,18 @@ export default function VaultPage() {
             style={{ ...inputStyle, marginBottom: 0, paddingLeft: 36, width: "100%", boxSizing: "border-box" }}
           />
         </div>
-        <select
-          value={filterGroup}
-          onChange={(e) => setFilterGroup(e.target.value)}
-          style={{ ...inputStyle, marginBottom: 0, width: 210, minWidth: 180, flex: "0 0 auto" }}
-        >
-          <option value="">{t.allGroups}</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>{g.name}</option>
-          ))}
-        </select>
+        {(isAdmin || isSuperAdmin) && (
+          <select
+            value={filterGroup}
+            onChange={(e) => setFilterGroup(e.target.value)}
+            style={{ ...inputStyle, marginBottom: 0, width: 210, minWidth: 180, flex: "0 0 auto" }}
+          >
+            <option value="">{t.allGroups}</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* List */}
