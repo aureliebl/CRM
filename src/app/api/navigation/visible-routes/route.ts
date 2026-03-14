@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
-import { getGroupIdForAccount, getGroupRouteVisibility } from "@/lib/security-store";
+import { getGroupIdForAccount, getGroupRouteVisibility, getRoleRouteVisibility } from "@/lib/security-store";
 
 export const dynamic = "force-dynamic";
 
@@ -10,15 +10,37 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Super admins always see all tabs
   if (isAccountSuperAdmin(actor)) {
     return NextResponse.json({ configured: false, routeKeys: [] });
   }
 
   const groupId = await getGroupIdForAccount(actor.id);
-  if (!groupId) {
+  const groupVisibility = groupId
+    ? await getGroupRouteVisibility(groupId)
+    : { configured: false, routeKeys: [] as string[] };
+
+  const roleVisibility = actor.role
+    ? await getRoleRouteVisibility(actor.role)
+    : { configured: false, routeKeys: [] as string[] };
+
+  // If neither is configured, show everything
+  if (!groupVisibility.configured && !roleVisibility.configured) {
     return NextResponse.json({ configured: false, routeKeys: [] });
   }
 
-  const visibility = await getGroupRouteVisibility(groupId);
-  return NextResponse.json(visibility);
+  // If only one is configured, use that one
+  if (groupVisibility.configured && !roleVisibility.configured) {
+    return NextResponse.json(groupVisibility);
+  }
+  if (!groupVisibility.configured && roleVisibility.configured) {
+    return NextResponse.json(roleVisibility);
+  }
+
+  // Both are configured: use intersection (most restrictive)
+  // A user only sees routes allowed by BOTH their role and their group.
+  // An empty intersection means no routes are visible under these combined restrictions.
+  const roleSet = new Set(roleVisibility.routeKeys);
+  const intersected = groupVisibility.routeKeys.filter((key) => roleSet.has(key));
+  return NextResponse.json({ configured: true, routeKeys: intersected });
 }
