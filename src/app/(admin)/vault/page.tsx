@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
 
 /* ─── Types ─── */
@@ -1044,14 +1045,15 @@ export default function VaultPage() {
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button onClick={closeModal} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
-        <button
+        <AsyncButton
           onClick={handleSave}
-          className="admin-btn-primary"
+          variant="primary"
+          isLoading={formSaving}
           disabled={formSaving || !formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)}
-          style={{ fontSize: 13, opacity: formSaving ? 0.6 : 1 }}
+          style={{ fontSize: 13 }}
         >
-          {formSaving ? "…" : t.save}
-        </button>
+          {t.save}
+        </AsyncButton>
       </div>
     </div>
   );
@@ -1236,9 +1238,9 @@ export default function VaultPage() {
             </button>
           )}
           {isAdmin && (
-            <button onClick={openCreate} className="admin-btn-primary" style={{ fontSize: 13, gap: 4 }}>
+            <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addEntry}
-            </button>
+            </AsyncButton>
           )}
         </div>
       </div>
