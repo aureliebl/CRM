@@ -287,7 +287,7 @@ Le proxy retourne :
 ```json
 {
   "error": "Flowise upstream unavailable",
-  "detail": "Could not reach Flowise at https://flowise.costockage.fr. Make sure the FLOWISE_API_HOST environment variable is correct and the Flowise instance is running."
+  "detail": "Could not reach Flowise at https://flowise.costockage.fr. Make sure the FLOWISE_API_HOST environment variable is correct and the Flowise instance is running. Tried 2 time(s) with a timeout of 20000ms. Last error: getaddrinfo ENOTFOUND flowise.costockage.fr"
 }
 ```
 **Status** : `502 Bad Gateway`
@@ -296,6 +296,7 @@ Le proxy retourne :
 1. Vérifier que l'instance Flowise (`FLOWISE_API_HOST`) est bien en ligne
 2. Vérifier les variables `FLOWISE_API_KEY` / `FLOWISE_AUTHORIZATION` si l'instance nécessite une authentification
 3. Augmenter `FLOWISE_TIMEOUT_MS` si l'instance est lente à répondre
+4. Si la valeur par défaut (`https://flowise.costockage.fr`) ne résout pas, définissez explicitement `FLOWISE_API_HOST` sur l'URL de votre instance
 
 ---
 

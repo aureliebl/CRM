@@ -19,9 +19,18 @@ function isTransientError(error: unknown) {
     message.includes("fetch failed") ||
     message.includes("ECONNRESET") ||
     message.includes("ETIMEDOUT") ||
+    message.includes("ECONNREFUSED") ||
+    message.includes("EAI_AGAIN") ||
     message.includes("ENOTFOUND") ||
     message.includes("socket hang up")
   );
+}
+
+function errorMessage(error: unknown) {
+  if (!error) return "";
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return String(error);
 }
 
 function buildUpstreamUrl(pathSegments: string[] | undefined, search: string) {
@@ -55,6 +64,8 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   const body = hasBody ? await req.arrayBuffer() : undefined;
 
   let upstreamRes: Response | null = null;
+  let lastError: unknown;
+  let aborted = false;
 
   for (let attempt = 1; attempt <= FLOWISE_RETRY_ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
@@ -77,6 +88,8 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
     } catch (error) {
       const retriable = isTransientError(error);
       const isLast = attempt === FLOWISE_RETRY_ATTEMPTS;
+      lastError = error;
+      aborted = controller.signal.aborted;
       if (!retriable || isLast) {
         break;
       }
@@ -88,10 +101,31 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
 
   if (!upstreamRes) {
     const host = (process.env.FLOWISE_API_HOST || DEFAULT_UPSTREAM).replace(/\/$/, "");
+    const isDefaultHost = !process.env.FLOWISE_API_HOST;
+
+    const details: string[] = [
+      `Could not reach Flowise at ${host}.`,
+      "Make sure the FLOWISE_API_HOST environment variable is correct and the Flowise instance is running.",
+      `Tried ${FLOWISE_RETRY_ATTEMPTS} time(s) with a timeout of ${FLOWISE_TIMEOUT_MS}ms.`,
+    ];
+
+    if (isDefaultHost) {
+      details.push(`Set FLOWISE_API_HOST to your Flowise URL instead of relying on the default (${DEFAULT_UPSTREAM}).`);
+    }
+
+    if (aborted) {
+      details.push("Last attempt timed out.");
+    }
+
+    const message = errorMessage(lastError);
+    if (message) {
+      details.push(`Last error: ${message}`);
+    }
+
     return NextResponse.json(
       {
         error: "Flowise upstream unavailable",
-        detail: `Could not reach Flowise at ${host}. Make sure the FLOWISE_API_HOST environment variable is correct and the Flowise instance is running.`,
+        detail: details.join(" "),
       },
       { status: 502 }
     );
