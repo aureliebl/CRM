@@ -58,7 +58,6 @@ export async function middleware(req: NextRequest) {
     pathname === "/login" ||
     pathname === "/resetlogin" ||
     pathname.startsWith("/invitation/") ||
-    pathname.startsWith("/api/flowise") ||
     pathname === "/api/security/access" ||
     pathname === "/api/auth/login" ||
     pathname === "/api/auth/password-login" ||

@@ -45,11 +45,10 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
 
   const flowiseApiKey = process.env.FLOWISE_API_KEY?.trim();
   const flowiseAuthorization = process.env.FLOWISE_AUTHORIZATION?.trim();
-  if (flowiseApiKey) {
-    headers.set("x-api-key", flowiseApiKey);
-  }
   if (flowiseAuthorization) {
     headers.set("authorization", flowiseAuthorization);
+  } else if (flowiseApiKey) {
+    headers.set("authorization", `Bearer ${flowiseApiKey}`);
   }
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
