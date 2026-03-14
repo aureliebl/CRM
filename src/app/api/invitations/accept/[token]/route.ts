@@ -105,8 +105,22 @@ export async function POST(
   // Set password
   await setAccountPassword(account.id, password);
 
-  // Set group membership
-  await setAccountGroupMembership(account.id, invitation.groupId);
+  // Ensure the invitation has a valid group and set group membership
+  if (!invitation.groupId) {
+    return NextResponse.json(
+      { error: "The group linked to this invitation is no longer available." },
+      { status: 400 }
+    );
+  }
+
+  try {
+    await setAccountGroupMembership(account.id, invitation.groupId);
+  } catch (error) {
+    return NextResponse.json(
+      { error: "The group linked to this invitation is no longer available." },
+      { status: 400 }
+    );
+  }
 
   // Mark invitation as accepted
   await acceptInvitation(invitation.id);
