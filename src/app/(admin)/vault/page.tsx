@@ -580,7 +580,7 @@ export default function VaultPage() {
           setSelectedEntry(updated);
           // Reload TOTP data so newly added or existing TOTPs display correctly
           try {
-            const totpRes = await fetch(`/api/vault/${selectedEntry.id}/totp`);
+            const totpRes = await fetch(`/api/vault/${updated.id}/totp`);
             if (totpRes.ok) {
               setSelectedTotps(await totpRes.json());
             }
