@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
+import { getActorFromRequest } from "@/lib/server-permissions";
 import { getCardById, updateCard, deleteCard } from "@/lib/tickets-store";
 
 export const dynamic = "force-dynamic";
@@ -22,15 +22,12 @@ export async function GET(req: Request, context: Ctx) {
   return NextResponse.json(card);
 }
 
-/* PATCH /api/tickets/:id — update (admin+) */
+/* PATCH /api/tickets/:id — update (any authenticated user) */
 export async function PATCH(req: Request, context: Ctx) {
   const { id } = await context.params;
   const actor = await getActorFromRequest(req);
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json();
@@ -48,15 +45,12 @@ export async function PATCH(req: Request, context: Ctx) {
   return NextResponse.json(updated);
 }
 
-/* DELETE /api/tickets/:id — delete (admin+) */
+/* DELETE /api/tickets/:id — delete (any authenticated user) */
 export async function DELETE(req: Request, context: Ctx) {
   const { id } = await context.params;
   const actor = await getActorFromRequest(req);
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   await deleteCard(id);

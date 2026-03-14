@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
-import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
+import { getActorFromRequest } from "@/lib/server-permissions";
 import { moveCard } from "@/lib/tickets-store";
 
 export const dynamic = "force-dynamic";
 
-/* POST /api/tickets/move — move a card to a column + position */
+/* POST /api/tickets/move — move a card to a column + position (any authenticated user) */
 export async function POST(req: Request) {
   const actor = await getActorFromRequest(req);
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-  if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const body = await req.json();

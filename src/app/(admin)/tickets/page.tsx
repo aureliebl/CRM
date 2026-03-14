@@ -188,6 +188,15 @@ const BADGE_COLORS: Record<string, { bg: string; text: string }> = {
   purple: { bg: "#f3e8ff", text: "#6b21a8" },
 };
 
+/* ─── URL helper ─── */
+
+function ensureAbsoluteUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^\/\//.test(trimmed)) return `https:${trimmed}`;
+  return `https://${trimmed}`;
+}
+
 /* ─── Variable renderer ─── */
 
 function TicketVariableDisplay({ v, locale }: { v: TicketVariable; locale: string }) {
@@ -215,7 +224,7 @@ function TicketVariableDisplay({ v, locale }: { v: TicketVariable; locale: strin
   if (v.type === "link") {
     return (
       <a
-        href={v.value}
+        href={ensureAbsoluteUrl(v.value)}
         target="_blank"
         rel="noopener noreferrer"
         style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--accent-primary)", textDecoration: "none" }}
@@ -483,7 +492,7 @@ export default function TicketsPage() {
 
   const onColumnDrop = useCallback((e: React.DragEvent, colKey: string) => {
     e.preventDefault();
-    if (!draggingId || !isAdmin) return;
+    if (!draggingId) return;
 
     // If dropping on a specific card, compute position
     if (dragOverCardId && (dragOverColumn === colKey || !dragOverColumn)) {
@@ -498,7 +507,7 @@ export default function TicketsPage() {
     }
 
     onDragEnd();
-  }, [draggingId, dragOverCardId, dragOverColumn, dragInsertSide, cards, isAdmin, handleMoveCard, onDragEnd]);
+  }, [draggingId, dragOverCardId, dragOverColumn, dragInsertSide, cards, handleMoveCard, onDragEnd]);
 
   /* ─── API Tokens ─── */
 
@@ -608,12 +617,12 @@ export default function TicketsPage() {
               <MaterialSymbol name="vpn_key" size={14} /> {t.apiTokens}
             </button>
           )}
-          {isAdmin && (
+          {actor && (
             <button onClick={openFlowiseChat} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="smart_toy" size={16} /> {t.aiChat}
             </button>
           )}
-          {isAdmin && (
+          {actor && (
             <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addTicket}
             </AsyncButton>
@@ -687,7 +696,7 @@ export default function TicketsPage() {
                       )}
 
                       <div
-                        draggable={isAdmin}
+                        draggable
                         onDragStart={() => onDragStart(card.id)}
                         onDragEnd={onDragEnd}
                         onDragOver={(e) => onCardDragOver(e, card.id)}
@@ -882,35 +891,29 @@ function renderDetail(
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
-        {isAdmin && (
-          <select
-            onChange={(e) => {
-              if (e.target.value) {
-                handleMoveCard(card.id, e.target.value, 0);
-                // Update locally
-                setTimeout(loadBoard, 300);
-              }
-            }}
-            value=""
-            style={{ ...inputStyle, marginBottom: 0, fontSize: 12, width: "auto" }}
-          >
-            <option value="">{t.moveTo}…</option>
-            {columns.filter((c) => c.key !== card.columnKey).map((c) => (
-              <option key={c.key} value={c.key}>{colLabel(c)}</option>
-            ))}
-          </select>
-        )}
+        <select
+          onChange={(e) => {
+            if (e.target.value) {
+              handleMoveCard(card.id, e.target.value, 0);
+              // Update locally
+              setTimeout(loadBoard, 300);
+            }
+          }}
+          value=""
+          style={{ ...inputStyle, marginBottom: 0, fontSize: 12, width: "auto" }}
+        >
+          <option value="">{t.moveTo}…</option>
+          {columns.filter((c) => c.key !== card.columnKey).map((c) => (
+            <option key={c.key} value={c.key}>{colLabel(c)}</option>
+          ))}
+        </select>
         <div style={{ flex: 1 }} />
-        {isAdmin && (
-          <button onClick={openEdit} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
-            <MaterialSymbol name="edit" size={16} /> {t.edit}
-          </button>
-        )}
-        {isAdmin && (
-          <button onClick={handleDelete} className="admin-btn" style={{ fontSize: 13, gap: 4, color: "var(--color-error, #dc2626)" }}>
-            <MaterialSymbol name="delete" size={16} /> {t.delete}
-          </button>
-        )}
+        <button onClick={openEdit} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
+          <MaterialSymbol name="edit" size={16} /> {t.edit}
+        </button>
+        <button onClick={handleDelete} className="admin-btn" style={{ fontSize: 13, gap: 4, color: "var(--color-error, #dc2626)" }}>
+          <MaterialSymbol name="delete" size={16} /> {t.delete}
+        </button>
       </div>
     </div>
   );
