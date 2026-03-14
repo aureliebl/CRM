@@ -512,7 +512,7 @@ export default function VaultPage() {
   }, [selectedEntry]);
 
   const handleSave = useCallback(async () => {
-    if (!formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)) return;
+    if (!formServiceName || !formLogin || !formPassword) return;
     setFormSaving(true);
     setSaveError(null);
 
@@ -1089,7 +1089,7 @@ export default function VaultPage() {
           onClick={handleSave}
           variant="primary"
           isLoading={formSaving}
-          disabled={formSaving || !formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)}
+          disabled={formSaving || !formServiceName || !formLogin || !formPassword}
           style={{ fontSize: 13 }}
         >
           {t.save}

@@ -40,7 +40,7 @@ export function isAccountSuperAdmin(actor: ActorLike | null | undefined): boolea
   const configuredEmails = getConfiguredSuperAdminEmails();
 
   if (configuredIds.size === 0 && configuredEmails.size === 0) {
-    return true;
+    return false;
   }
 
   const actorId = String(actor.id || "").trim().toLowerCase();

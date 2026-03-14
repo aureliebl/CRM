@@ -47,9 +47,17 @@ export async function PATCH(
   }
 
   const actorIsSuperAdmin = isAccountSuperAdmin(actor);
+  const targetIsSuperAdmin = isAccountSuperAdmin(targetAccount);
 
   // If actor is NOT super admin (just admin):
   if (!actorIsSuperAdmin) {
+    if (targetIsSuperAdmin) {
+      return NextResponse.json(
+        { error: "Only super admins can modify super admin users" },
+        { status: 403 }
+      );
+    }
+
     // Cannot modify the group of an admin/super admin
     if (targetAccount.role === "admin") {
       return NextResponse.json(

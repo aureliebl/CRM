@@ -462,8 +462,8 @@ export default function UsersPage() {
 
   const groupBadgeForUser = (user: UserRow) => {
     const isChanging = changingGroupUserId === user.id;
-    const canChange = user.id !== actor?.id;
     const availableGroups = availableGroupsForChange(user);
+    const canChange = user.id !== actor?.id && availableGroups.length > 0;
 
     if (isChanging && canChange && availableGroups.length > 0) {
       return (
