@@ -353,7 +353,7 @@ export default function VaultPage() {
 
   const loadGroups = useCallback(async () => {
     try {
-      const res = await fetch("/api/security/groups");
+      const res = await fetch("/api/vault/groups");
       if (res.ok) {
         const data = await res.json();
         setGroups(data);
@@ -578,6 +578,13 @@ export default function VaultPage() {
             });
           }
           setSelectedEntry(updated);
+          // Reload TOTP data so newly added or existing TOTPs display correctly
+          try {
+            const totpRes = await fetch(`/api/vault/${selectedEntry.id}/totp`);
+            if (totpRes.ok) {
+              setSelectedTotps(await totpRes.json());
+            }
+          } catch { /* ignore */ }
           setModalView("detail");
           await loadEntries();
         } else {
@@ -969,12 +976,12 @@ export default function VaultPage() {
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
           {canManageEntry && (
-            <button onClick={startAddTotp} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
+            <button onClick={startAddTotp} className="admin-btn admin-btn-secondary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addTotp}
             </button>
           )}
           {canManageEntry && (
-            <button onClick={openEdit} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
+            <button onClick={openEdit} className="admin-btn admin-btn-primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="edit" size={16} /> {t.edit}
             </button>
           )}
