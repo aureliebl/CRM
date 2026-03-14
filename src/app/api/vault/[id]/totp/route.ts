@@ -6,7 +6,7 @@ import {
 import {
   canActorAccessEntry,
   addTotp,
-  getTotpForEntry,
+  getTotpForEntryForActor,
 } from "@/lib/vault-store";
 import { addLog } from "@/lib/account-store";
 
@@ -27,7 +27,7 @@ export async function GET(req: Request, context: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const totps = await getTotpForEntry(id);
+  const totps = await getTotpForEntryForActor(id, actor);
   return NextResponse.json(totps);
 }
 

@@ -40,6 +40,8 @@ export async function PATCH(req: Request, context: Ctx) {
     variables: body.variables,
     columnKey: body.columnKey,
     position: body.position,
+    assigneeId: body.assigneeId,
+    followerIds: body.followerIds,
   });
 
   const updated = await getCardById(id);

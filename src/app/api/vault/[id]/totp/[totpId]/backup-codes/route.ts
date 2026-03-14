@@ -3,7 +3,7 @@ import {
   getActorFromRequest,
   isAccountSuperAdmin,
 } from "@/lib/server-permissions";
-import { getBackupCodes } from "@/lib/vault-store";
+import { canActorAccessEntry, getBackupCodes, getVaultEntryById } from "@/lib/vault-store";
 
 export const dynamic = "force-dynamic";
 
@@ -11,11 +11,26 @@ type Ctx = { params: Promise<{ id: string; totpId: string }> };
 
 /* GET /api/vault/:id/totp/:totpId/backup-codes — admin+ */
 export async function GET(req: Request, context: Ctx) {
-  const { totpId } = await context.params;
+  const { id, totpId } = await context.params;
   const actor = await getActorFromRequest(req);
   if (!actor) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const canAccess = await canActorAccessEntry(actor, id);
+  if (!canAccess) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const entry = await getVaultEntryById(id, actor);
+  if (!entry) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (!entry.canViewPassword) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

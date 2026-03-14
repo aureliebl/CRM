@@ -28,7 +28,7 @@ export async function GET(req: Request, context: Ctx) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const entry = await getVaultEntryById(id);
+  const entry = await getVaultEntryById(id, actor);
   if (!entry) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -50,7 +50,7 @@ export async function PUT(req: Request, context: Ctx) {
   }
 
   const body = await req.json();
-  const { serviceName, serviceUrl, login, password, notes, groupIds } = body;
+  const { serviceName, serviceUrl, login, password, notes, groupIds, adminOnly, passwordOwnerOnly } = body;
 
   await updateVaultEntry(id, {
     serviceName,
@@ -59,11 +59,13 @@ export async function PUT(req: Request, context: Ctx) {
     password,
     notes,
     groupIds,
+    adminOnly,
+    passwordOwnerOnly,
   });
 
   await addLog(actor.id, "vault_update", `Updated vault entry ${id}`);
 
-  const updated = await getVaultEntryById(id);
+  const updated = await getVaultEntryById(id, actor);
   return NextResponse.json(updated);
 }
 

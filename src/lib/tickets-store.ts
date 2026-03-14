@@ -54,6 +54,8 @@ async function ensurePostgresSchema() {
       title TEXT NOT NULL,
       description TEXT,
       variables TEXT DEFAULT '[]',
+      assignee_id TEXT,
+      follower_ids TEXT NOT NULL DEFAULT '[]',
       source TEXT NOT NULL DEFAULT 'manual',
       created_by TEXT,
       created_at TEXT,
@@ -61,8 +63,12 @@ async function ensurePostgresSchema() {
     )
   `);
 
+  await pgPool.query("ALTER TABLE ticket_cards ADD COLUMN IF NOT EXISTS assignee_id TEXT");
+  await pgPool.query("ALTER TABLE ticket_cards ADD COLUMN IF NOT EXISTS follower_ids TEXT NOT NULL DEFAULT '[]'");
+
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_cards_board ON ticket_cards(board_id)`);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_cards_column ON ticket_cards(board_id, column_key, position)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_cards_assignee ON ticket_cards(assignee_id)`);
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS ticket_api_tokens (
@@ -99,6 +105,8 @@ export interface TicketCard {
   title: string;
   description: string | null;
   variables: TicketVariable[];
+  assigneeId: string | null;
+  followerIds: string[];
   source: string;
   createdBy: string | null;
   createdAt: string;
@@ -130,9 +138,20 @@ function genId(prefix: string): string {
 
 function parseRow(row: Record<string, unknown>): TicketCard {
   let variables: TicketVariable[] = [];
+  let followerIds: string[] = [];
   try {
     const raw = String(row.variables ?? "[]");
     variables = JSON.parse(raw);
+  } catch { /* default empty */ }
+
+  try {
+    const rawFollowers = String(row.follower_ids ?? "[]");
+    const parsed = JSON.parse(rawFollowers);
+    if (Array.isArray(parsed)) {
+      followerIds = parsed
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+    }
   } catch { /* default empty */ }
 
   return {
@@ -143,6 +162,8 @@ function parseRow(row: Record<string, unknown>): TicketCard {
     title: String(row.title ?? ""),
     description: row.description ? String(row.description) : null,
     variables,
+    assigneeId: row.assignee_id ? String(row.assignee_id) : null,
+    followerIds,
     source: String(row.source ?? "manual"),
     createdBy: row.created_by ? String(row.created_by) : null,
     createdAt: String(row.created_at ?? ""),
@@ -203,6 +224,8 @@ export async function createCard(input: {
   description?: string | null;
   variables?: TicketVariable[];
   columnKey?: string;
+  assigneeId?: string | null;
+  followerIds?: string[];
   source?: string;
   createdBy?: string | null;
 }): Promise<TicketCard> {
@@ -221,10 +244,12 @@ export async function createCard(input: {
   const desc = input.description ? sanitizeHtml(input.description) : null;
   const vars = JSON.stringify(input.variables || []);
 
+  const followerIds = Array.from(new Set((input.followerIds || []).map((value) => String(value || "").trim()).filter(Boolean)));
+
   await pgPool.query(
-    `INSERT INTO ticket_cards (id, board_id, column_key, position, title, description, variables, source, created_by, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [id, input.boardId, col, position, input.title, desc, vars, input.source || "manual", input.createdBy || null, ts, ts]
+    `INSERT INTO ticket_cards (id, board_id, column_key, position, title, description, variables, assignee_id, follower_ids, source, created_by, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+    [id, input.boardId, col, position, input.title, desc, vars, input.assigneeId || null, JSON.stringify(followerIds), input.source || "manual", input.createdBy || null, ts, ts]
   );
 
   return {
@@ -235,6 +260,8 @@ export async function createCard(input: {
     title: input.title,
     description: desc,
     variables: input.variables || [],
+    assigneeId: input.assigneeId || null,
+    followerIds,
     source: input.source || "manual",
     createdBy: input.createdBy || null,
     createdAt: ts,
@@ -250,6 +277,8 @@ export async function updateCard(
     variables?: TicketVariable[];
     columnKey?: string;
     position?: number;
+    assigneeId?: string | null;
+    followerIds?: string[];
   }
 ): Promise<void> {
   await ensurePostgresReady();
@@ -270,6 +299,15 @@ export async function updateCard(
   if (patch.variables !== undefined) {
     sets.push(`variables = $${idx++}`);
     params.push(JSON.stringify(patch.variables));
+  }
+  if (patch.assigneeId !== undefined) {
+    sets.push(`assignee_id = $${idx++}`);
+    params.push(patch.assigneeId || null);
+  }
+  if (patch.followerIds !== undefined) {
+    sets.push(`follower_ids = $${idx++}`);
+    const followerIds = Array.from(new Set(patch.followerIds.map((value) => String(value || "").trim()).filter(Boolean)));
+    params.push(JSON.stringify(followerIds));
   }
   if (patch.columnKey !== undefined) {
     sets.push(`column_key = $${idx++}`);

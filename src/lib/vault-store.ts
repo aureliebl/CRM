@@ -38,11 +38,16 @@ async function ensurePostgresSchema() {
       encrypted_notes TEXT,
       notes_iv TEXT,
       notes_auth_tag TEXT,
+      admin_only INTEGER NOT NULL DEFAULT 0,
+      password_owner_only INTEGER NOT NULL DEFAULT 0,
       created_by TEXT,
       created_at TEXT,
       updated_at TEXT
     )
   `);
+
+  await pgPool.query(`ALTER TABLE vault_entries ADD COLUMN IF NOT EXISTS admin_only INTEGER NOT NULL DEFAULT 0`);
+  await pgPool.query(`ALTER TABLE vault_entries ADD COLUMN IF NOT EXISTS password_owner_only INTEGER NOT NULL DEFAULT 0`);
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS vault_totp (
@@ -102,6 +107,9 @@ export interface VaultEntry {
   notes: string | null;   // decrypted
   groupIds: string[];
   hasTotp: boolean;
+  adminOnly: boolean;
+  passwordOwnerOnly: boolean;
+  canViewPassword: boolean;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -114,6 +122,8 @@ export interface VaultEntryListItem {
   loginMasked: string;
   groupIds: string[];
   hasTotp: boolean;
+  adminOnly: boolean;
+  passwordOwnerOnly: boolean;
   createdAt: string;
 }
 
@@ -148,6 +158,14 @@ function maskLogin(login: string): string {
     return login.slice(0, 2) + "***" + login.slice(at);
   }
   return login.slice(0, 2) + "***" + login.slice(-2);
+}
+
+function canActorViewEntrySecrets(actor: ActorLike, row: { created_by?: string | null; password_owner_only?: number | string | null }): boolean {
+  const ownerOnly = Number(row.password_owner_only ?? 0) === 1;
+  if (!ownerOnly) return true;
+  const ownerId = row.created_by ? String(row.created_by) : "";
+  if (!ownerId) return false;
+  return ownerId === actor.id;
 }
 
 async function getGroupIdsForEntry(entryId: string): Promise<string[]> {
@@ -186,16 +204,36 @@ export async function getVaultEntriesForActor(
   } else {
     // get group for actor
     const groupId = await getGroupIdForAccount(actor.id);
-    if (!groupId) return [];
-
-    const result = await pgPool.query(
-      `SELECT ve.* FROM vault_entries ve
-       INNER JOIN vault_entry_groups veg ON veg.vault_entry_id = ve.id
-       WHERE veg.group_id = $1
-       ORDER BY ve.service_name ASC`,
-      [groupId]
-    );
-    rows = result.rows;
+    if (actor.role === "admin") {
+      if (groupId) {
+        const result = await pgPool.query(
+          `SELECT DISTINCT ve.* FROM vault_entries ve
+           LEFT JOIN vault_entry_groups veg ON veg.vault_entry_id = ve.id
+           WHERE veg.group_id = $1 OR ve.admin_only = 1
+           ORDER BY ve.service_name ASC`,
+          [groupId]
+        );
+        rows = result.rows;
+      } else {
+        const result = await pgPool.query(
+          `SELECT * FROM vault_entries
+           WHERE admin_only = 1
+           ORDER BY service_name ASC`
+        );
+        rows = result.rows;
+      }
+    } else {
+      if (!groupId) return [];
+      const result = await pgPool.query(
+        `SELECT ve.* FROM vault_entries ve
+         INNER JOIN vault_entry_groups veg ON veg.vault_entry_id = ve.id
+         WHERE veg.group_id = $1
+           AND ve.admin_only = 0
+         ORDER BY ve.service_name ASC`,
+        [groupId]
+      );
+      rows = result.rows;
+    }
   }
 
   const items: VaultEntryListItem[] = [];
@@ -212,6 +250,8 @@ export async function getVaultEntriesForActor(
       loginMasked: maskLogin(loginDecrypted),
       groupIds: await getGroupIdsForEntry(String(row.id)),
       hasTotp: await entryHasTotp(String(row.id)),
+      adminOnly: Number(row.admin_only ?? 0) === 1,
+      passwordOwnerOnly: Number(row.password_owner_only ?? 0) === 1,
       createdAt: String(row.created_at ?? ""),
     });
   }
@@ -219,23 +259,27 @@ export async function getVaultEntriesForActor(
   return items;
 }
 
-export async function getVaultEntryById(entryId: string): Promise<VaultEntry | null> {
+export async function getVaultEntryById(entryId: string, actor?: ActorLike): Promise<VaultEntry | null> {
   await ensurePostgresReady();
   const result = await pgPool.query("SELECT * FROM vault_entries WHERE id = $1", [entryId]);
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
+  const canViewPassword = actor ? canActorViewEntrySecrets(actor, row) : true;
   return {
     id: String(row.id),
     serviceName: String(row.service_name ?? ""),
     serviceUrl: row.service_url ? String(row.service_url) : null,
     login: vaultDecrypt(row.encrypted_login, row.login_iv, row.login_auth_tag),
-    password: vaultDecrypt(row.encrypted_password, row.password_iv, row.password_auth_tag),
+    password: canViewPassword ? vaultDecrypt(row.encrypted_password, row.password_iv, row.password_auth_tag) : "",
     notes: row.encrypted_notes
       ? vaultDecrypt(row.encrypted_notes, row.notes_iv, row.notes_auth_tag)
       : null,
     groupIds: await getGroupIdsForEntry(entryId),
     hasTotp: await entryHasTotp(entryId),
+    adminOnly: Number(row.admin_only ?? 0) === 1,
+    passwordOwnerOnly: Number(row.password_owner_only ?? 0) === 1,
+    canViewPassword,
     createdBy: row.created_by ? String(row.created_by) : null,
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
@@ -247,6 +291,15 @@ export async function canActorAccessEntry(
   entryId: string
 ): Promise<boolean> {
   if (isAccountSuperAdmin(actor)) return true;
+
+  const entryResult = await pgPool.query(
+    "SELECT admin_only FROM vault_entries WHERE id = $1 LIMIT 1",
+    [entryId]
+  );
+  if (entryResult.rows.length === 0) return false;
+  const adminOnly = Number(entryResult.rows[0].admin_only ?? 0) === 1;
+  if (adminOnly && actor.role !== "admin") return false;
+  if (adminOnly && actor.role === "admin") return true;
 
   const groupId = await getGroupIdForAccount(actor.id);
   if (!groupId) return false;
@@ -265,6 +318,8 @@ export async function createVaultEntry(input: {
   password: string;
   notes?: string | null;
   groupIds: string[];
+  adminOnly?: boolean;
+  passwordOwnerOnly?: boolean;
   createdBy: string;
 }): Promise<VaultEntry> {
   await ensurePostgresReady();
@@ -281,8 +336,9 @@ export async function createVaultEntry(input: {
       encrypted_login, login_iv, login_auth_tag,
       encrypted_password, password_iv, password_auth_tag,
       encrypted_notes, notes_iv, notes_auth_tag,
+      admin_only, password_owner_only,
       created_by, created_at, updated_at
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
     [
       id,
       input.serviceName,
@@ -290,6 +346,8 @@ export async function createVaultEntry(input: {
       encLogin.encrypted, encLogin.iv, encLogin.authTag,
       encPassword.encrypted, encPassword.iv, encPassword.authTag,
       encNotes?.encrypted || null, encNotes?.iv || null, encNotes?.authTag || null,
+      input.adminOnly ? 1 : 0,
+      input.passwordOwnerOnly ? 1 : 0,
       input.createdBy,
       ts, ts,
     ]
@@ -312,6 +370,9 @@ export async function createVaultEntry(input: {
     notes: input.notes || null,
     groupIds: input.groupIds,
     hasTotp: false,
+    adminOnly: input.adminOnly === true,
+    passwordOwnerOnly: input.passwordOwnerOnly === true,
+    canViewPassword: true,
     createdBy: input.createdBy,
     createdAt: ts,
     updatedAt: ts,
@@ -327,6 +388,8 @@ export async function updateVaultEntry(
     password?: string;
     notes?: string | null;
     groupIds?: string[];
+    adminOnly?: boolean;
+    passwordOwnerOnly?: boolean;
   }
 ): Promise<void> {
   await ensurePostgresReady();
@@ -380,6 +443,16 @@ export async function updateVaultEntry(
       sets.push(`notes_auth_tag = $${idx++}`);
       params.push(null);
     }
+  }
+
+  if (patch.adminOnly !== undefined) {
+    sets.push(`admin_only = $${idx++}`);
+    params.push(patch.adminOnly ? 1 : 0);
+  }
+
+  if (patch.passwordOwnerOnly !== undefined) {
+    sets.push(`password_owner_only = $${idx++}`);
+    params.push(patch.passwordOwnerOnly ? 1 : 0);
   }
 
   params.push(id);
@@ -492,6 +565,13 @@ export async function getTotpForEntry(entryId: string): Promise<VaultTotp[]> {
     period: Number(row.period ?? 30),
     createdAt: String(row.created_at ?? ""),
   }));
+}
+
+export async function getTotpForEntryForActor(entryId: string, actor: ActorLike): Promise<VaultTotp[]> {
+  await ensurePostgresReady();
+  const entry = await getVaultEntryById(entryId, actor);
+  if (!entry || !entry.canViewPassword) return [];
+  return getTotpForEntry(entryId);
 }
 
 export async function getBackupCodes(totpId: string): Promise<VaultBackupCode[]> {

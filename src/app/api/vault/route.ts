@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { serviceName, serviceUrl, login, password, notes, groupIds } = body;
+  const { serviceName, serviceUrl, login, password, notes, groupIds, adminOnly, passwordOwnerOnly } = body;
 
   if (!serviceName || !login || !password) {
     return NextResponse.json(
@@ -41,7 +41,13 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
-  if (!Array.isArray(groupIds) || groupIds.length === 0) {
+  if (!Array.isArray(groupIds)) {
+    return NextResponse.json(
+      { error: "groupIds must be an array" },
+      { status: 400 }
+    );
+  }
+  if (!Boolean(adminOnly) && groupIds.length === 0) {
     return NextResponse.json(
       { error: "At least one groupId is required" },
       { status: 400 }
@@ -55,6 +61,8 @@ export async function POST(req: Request) {
     password,
     notes: notes || null,
     groupIds,
+    adminOnly: Boolean(adminOnly),
+    passwordOwnerOnly: Boolean(passwordOwnerOnly),
     createdBy: actor.id,
   });
 

@@ -21,10 +21,20 @@ interface TicketCard {
   title: string;
   description: string | null;
   variables: TicketVariable[];
+  assigneeId: string | null;
+  followerIds: string[];
   source: string;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface TicketUser {
+  id: string;
+  firstName: string | null;
+  fullName: string;
+  profileImage: string | null;
+  isActive: boolean;
 }
 
 interface BoardColumn {
@@ -96,6 +106,10 @@ const labels = {
     varColor: "Couleur",
     remove: "Retirer",
     priority: "Priorité",
+    creator: "Créateur",
+    assignee: "Assigné",
+    followers: "Followers",
+    unassigned: "Non assigné",
     close: "Fermer",
   },
   en: {
@@ -133,6 +147,10 @@ const labels = {
     varColor: "Color",
     remove: "Remove",
     priority: "Priority",
+    creator: "Creator",
+    assignee: "Assignee",
+    followers: "Followers",
+    unassigned: "Unassigned",
     close: "Close",
   },
 };
@@ -218,6 +236,7 @@ export default function TicketsPage() {
   const [actor, setActor] = useState<SessionActor | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [cards, setCards] = useState<TicketCard[]>([]);
+  const [users, setUsers] = useState<TicketUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -231,6 +250,8 @@ export default function TicketsPage() {
   const [formDesc, setFormDesc] = useState("");
   const [formVars, setFormVars] = useState<TicketVariable[]>([]);
   const [formColumn, setFormColumn] = useState("nouveau");
+  const [formAssigneeId, setFormAssigneeId] = useState("");
+  const [formFollowerIds, setFormFollowerIds] = useState<string[]>([]);
   const [formSaving, setFormSaving] = useState(false);
 
   // API tokens
@@ -264,6 +285,7 @@ export default function TicketsPage() {
         const data = await res.json();
         setBoard(data.board);
         setCards(data.cards);
+        setUsers(Array.isArray(data.users) ? data.users : []);
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -309,6 +331,8 @@ export default function TicketsPage() {
     setFormDesc("");
     setFormVars([]);
     setFormColumn("nouveau");
+    setFormAssigneeId("");
+    setFormFollowerIds([]);
     setModalView("create");
   }, []);
 
@@ -318,6 +342,8 @@ export default function TicketsPage() {
     setFormDesc(selectedCard.description || "");
     setFormVars([...selectedCard.variables]);
     setFormColumn(selectedCard.columnKey);
+    setFormAssigneeId(selectedCard.assigneeId || "");
+    setFormFollowerIds(selectedCard.followerIds || []);
     setModalView("edit");
   }, [selectedCard]);
 
@@ -330,6 +356,8 @@ export default function TicketsPage() {
         description: formDesc || null,
         variables: formVars,
         columnKey: formColumn,
+        assigneeId: formAssigneeId || null,
+        followerIds: formFollowerIds,
       };
 
       if (modalView === "create") {
@@ -357,7 +385,7 @@ export default function TicketsPage() {
       }
     } catch { /* ignore */ }
     setFormSaving(false);
-  }, [modalView, selectedCard, formTitle, formDesc, formVars, formColumn, loadBoard, closeModal]);
+  }, [modalView, selectedCard, formTitle, formDesc, formVars, formColumn, formAssigneeId, formFollowerIds, loadBoard, closeModal]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedCard) return;
@@ -491,6 +519,9 @@ export default function TicketsPage() {
         );
       })
     : cards;
+
+  const usersById: Record<string, TicketUser> = {};
+  for (const user of users) usersById[user.id] = user;
 
   /* ─── Column label helper ─── */
 
@@ -653,6 +684,11 @@ export default function TicketsPage() {
                           <span>{card.source === "api" ? "API" : ""}</span>
                           <span>{new Date(card.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short" })}</span>
                         </div>
+
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                          <UserInlineChip user={card.createdBy ? usersById[card.createdBy] : undefined} fallbackLabel={t.unassigned} />
+                          <UserInlineChip user={card.assigneeId ? usersById[card.assigneeId] : undefined} fallbackLabel={t.unassigned} />
+                        </div>
                       </div>
 
                       {/* Insert indicator after */}
@@ -694,8 +730,8 @@ export default function TicketsPage() {
               </button>
             </div>
 
-            {modalView === "detail" && selectedCard && renderDetail(selectedCard, locale, t, columns, colLabel, isAdmin, isSuperAdmin, openEdit, handleDelete, handleMoveCard, loadBoard)}
-            {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView)}
+            {modalView === "detail" && selectedCard && renderDetail(selectedCard, locale, t, columns, colLabel, isAdmin, isSuperAdmin, openEdit, handleDelete, handleMoveCard, loadBoard, usersById)}
+            {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, formAssigneeId, setFormAssigneeId, formFollowerIds, setFormFollowerIds, users, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView)}
             {modalView === "tokens" && renderTokens(t, tokens, newTokenLabel, setNewTokenLabel, newTokenValue, handleCreateToken, handleDeactivateToken, copyToClipboard, copiedField)}
           </div>
         </div>
@@ -718,6 +754,7 @@ function renderDetail(
   handleDelete: () => void,
   handleMoveCard: (id: string, col: string, pos: number) => void,
   loadBoard: () => void,
+  usersById: Record<string, TicketUser>,
 ) {
   const currentCol = columns.find((c) => c.key === card.columnKey);
 
@@ -764,8 +801,28 @@ function renderDetail(
       )}
 
       {/* Metadata */}
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>
-        {t.createdAt}: {new Date(card.createdAt).toLocaleString(locale)}
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div>{t.createdAt}: {new Date(card.createdAt).toLocaleString(locale)}</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <strong>{t.creator}:</strong>
+            <UserInlineChip user={card.createdBy ? usersById[card.createdBy] : undefined} fallbackLabel={t.unassigned} />
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <strong>{t.assignee}:</strong>
+            <UserInlineChip user={card.assigneeId ? usersById[card.assigneeId] : undefined} fallbackLabel={t.unassigned} />
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <strong>{t.followers}:</strong>
+          {card.followerIds.length === 0 ? (
+            <span>{t.unassigned}</span>
+          ) : (
+            card.followerIds.map((userId) => (
+              <UserInlineChip key={userId} user={usersById[userId]} fallbackLabel={t.unassigned} />
+            ))
+          )}
+        </div>
       </div>
 
       {/* Actions */}
@@ -814,6 +871,9 @@ function renderForm(
   formTitle: string, setFormTitle: (v: string) => void,
   formDesc: string, setFormDesc: (v: string) => void,
   formVars: TicketVariable[], formColumn: string, setFormColumn: (v: string) => void,
+  formAssigneeId: string, setFormAssigneeId: (v: string) => void,
+  formFollowerIds: string[], setFormFollowerIds: (v: string[]) => void,
+  users: TicketUser[],
   addVariable: () => void,
   updateVariable: (i: number, p: Partial<TicketVariable>) => void,
   removeVariable: (i: number) => void,
@@ -840,6 +900,49 @@ function renderForm(
           <option key={c.key} value={c.key}>{colLabel(c)}</option>
         ))}
       </select>
+
+      <label style={labelStyle}>{t.assignee}</label>
+      <select value={formAssigneeId} onChange={(e) => setFormAssigneeId(e.target.value)} style={{ ...inputStyle }}>
+        <option value="">{t.unassigned}</option>
+        {users.filter((user) => user.isActive).map((user) => (
+          <option key={user.id} value={user.id}>{displayUserName(user)}</option>
+        ))}
+      </select>
+
+      <label style={labelStyle}>{t.followers}</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+        {users.filter((user) => user.isActive).map((user) => {
+          const active = formFollowerIds.includes(user.id);
+          return (
+            <button
+              key={user.id}
+              onClick={() => {
+                setFormFollowerIds(
+                  active
+                    ? formFollowerIds.filter((value) => value !== user.id)
+                    : [...formFollowerIds, user.id]
+                );
+              }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: active ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                background: active ? "var(--accent-primary)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <InlineAvatar user={user} size={20} />
+              {displayUserName(user)}
+            </button>
+          );
+        })}
+      </div>
 
       {/* Variables */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -966,6 +1069,61 @@ function renderTokens(
         </div>
       )}
     </div>
+  );
+}
+
+function displayUserName(user?: TicketUser | null): string {
+  if (!user) return "-";
+  const first = (user.firstName || "").trim();
+  if (first) return first;
+  const full = (user.fullName || "").trim();
+  return full ? full.split(/\s+/)[0] : user.id;
+}
+
+function InlineAvatar({ user, size = 18 }: { user?: TicketUser | null; size?: number }) {
+  if (user?.profileImage) {
+    return (
+      <img
+        src={user.profileImage}
+        alt={displayUserName(user)}
+        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+      />
+    );
+  }
+
+  const fallback = displayUserName(user);
+  const initial = fallback && fallback !== "-" ? fallback[0].toUpperCase() : "?";
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--surface-secondary, #2a2a3d)",
+        color: "var(--text-secondary)",
+        fontSize: Math.max(10, Math.floor(size * 0.55)),
+        fontWeight: 700,
+        flexShrink: 0,
+      }}
+    >
+      {initial}
+    </span>
+  );
+}
+
+function UserInlineChip({ user, fallbackLabel }: { user?: TicketUser | null; fallbackLabel: string }) {
+  if (!user) {
+    return <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{fallbackLabel}</span>;
+  }
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+      <InlineAvatar user={user} size={18} />
+      {displayUserName(user)}
+    </span>
   );
 }
 

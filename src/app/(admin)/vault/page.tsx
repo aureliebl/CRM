@@ -13,6 +13,8 @@ interface VaultListItem {
   loginMasked: string;
   groupIds: string[];
   hasTotp: boolean;
+  adminOnly: boolean;
+  passwordOwnerOnly: boolean;
   createdAt: string;
 }
 
@@ -25,6 +27,9 @@ interface VaultEntry {
   notes: string | null;
   groupIds: string[];
   hasTotp: boolean;
+  adminOnly: boolean;
+  passwordOwnerOnly: boolean;
+  canViewPassword: boolean;
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -80,6 +85,8 @@ const labels = {
     password: "Mot de passe",
     notes: "Notes",
     groups: "Groupes autorisés",
+    adminOnly: "Admin only",
+    ownerOnlyPassword: "Mot de passe visible uniquement par le créateur",
     totp: "TOTP",
     copied: "Copié !",
     copy: "Copier",
@@ -110,6 +117,9 @@ const labels = {
     deleteConfirm: "Supprimer définitivement ce credential et tous ses TOTP ?",
     requiredField: "Champ requis",
     selectGroups: "Sélectionnez au moins un groupe",
+    saveFailed: "Échec de l'enregistrement",
+    passwordHiddenByPolicy: "Mot de passe masqué (visible uniquement par le créateur).",
+    totpOptionalAtSave: "Secret TOTP (optionnel à la création)",
     totpConfigured: "TOTP configuré",
     createdAt: "Créé le",
     updatedAt: "Modifié le",
@@ -129,6 +139,8 @@ const labels = {
     password: "Password",
     notes: "Notes",
     groups: "Authorized groups",
+    adminOnly: "Admin only",
+    ownerOnlyPassword: "Password visible only to creator",
     totp: "TOTP",
     copied: "Copied!",
     copy: "Copy",
@@ -159,6 +171,9 @@ const labels = {
     deleteConfirm: "Permanently delete this credential and all its TOTP?",
     requiredField: "Required",
     selectGroups: "Select at least one group",
+    saveFailed: "Save failed",
+    passwordHiddenByPolicy: "Password hidden (visible only to creator).",
+    totpOptionalAtSave: "TOTP secret (optional on save)",
     totpConfigured: "TOTP configured",
     createdAt: "Created",
     updatedAt: "Modified",
@@ -275,7 +290,11 @@ export default function VaultPage() {
   const [formPassword, setFormPassword] = useState("");
   const [formNotes, setFormNotes] = useState("");
   const [formGroupIds, setFormGroupIds] = useState<string[]>([]);
+  const [formAdminOnly, setFormAdminOnly] = useState(false);
+  const [formPasswordOwnerOnly, setFormPasswordOwnerOnly] = useState(false);
+  const [formTotpSecret, setFormTotpSecret] = useState("");
   const [formSaving, setFormSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // TOTP add state
   const [totpMode, setTotpMode] = useState<"manual" | "scan">("manual");
@@ -430,6 +449,10 @@ export default function VaultPage() {
     setFormPassword("");
     setFormNotes("");
     setFormGroupIds([]);
+    setFormAdminOnly(false);
+    setFormPasswordOwnerOnly(false);
+    setFormTotpSecret("");
+    setSaveError(null);
     setModalView("create");
   }, []);
 
@@ -441,12 +464,17 @@ export default function VaultPage() {
     setFormPassword(selectedEntry.password);
     setFormNotes(selectedEntry.notes || "");
     setFormGroupIds(selectedEntry.groupIds);
+    setFormAdminOnly(selectedEntry.adminOnly === true);
+    setFormPasswordOwnerOnly(selectedEntry.passwordOwnerOnly === true);
+    setFormTotpSecret("");
+    setSaveError(null);
     setModalView("edit");
   }, [selectedEntry]);
 
   const handleSave = useCallback(async () => {
-    if (!formServiceName || !formLogin || !formPassword || formGroupIds.length === 0) return;
+    if (!formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)) return;
     setFormSaving(true);
+    setSaveError(null);
 
     try {
       const body = {
@@ -456,6 +484,8 @@ export default function VaultPage() {
         password: formPassword,
         notes: formNotes || null,
         groupIds: formGroupIds,
+        adminOnly: formAdminOnly,
+        passwordOwnerOnly: formPasswordOwnerOnly,
       };
 
       if (modalView === "create") {
@@ -465,8 +495,22 @@ export default function VaultPage() {
           body: JSON.stringify(body),
         });
         if (res.ok) {
+          const created = await res.json();
+          if (formTotpSecret.trim().length >= 16) {
+            await fetch(`/api/vault/${created.id}/totp`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                label: "TOTP principal",
+                secret: formTotpSecret.trim().replace(/\s/g, "").toUpperCase(),
+              }),
+            });
+          }
           await loadEntries();
           closeModal();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setSaveError(data?.error || t.saveFailed);
         }
       } else if (modalView === "edit" && selectedEntry) {
         const res = await fetch(`/api/vault/${selectedEntry.id}`, {
@@ -476,14 +520,29 @@ export default function VaultPage() {
         });
         if (res.ok) {
           const updated = await res.json();
+          if (formTotpSecret.trim().length >= 16) {
+            await fetch(`/api/vault/${selectedEntry.id}/totp`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                label: "TOTP principal",
+                secret: formTotpSecret.trim().replace(/\s/g, "").toUpperCase(),
+              }),
+            });
+          }
           setSelectedEntry(updated);
           setModalView("detail");
           await loadEntries();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          setSaveError(data?.error || t.saveFailed);
         }
       }
-    } catch { /* ignore */ }
+    } catch {
+      setSaveError(t.saveFailed);
+    }
     setFormSaving(false);
-  }, [modalView, selectedEntry, formServiceName, formServiceUrl, formLogin, formPassword, formNotes, formGroupIds, loadEntries, closeModal]);
+  }, [modalView, selectedEntry, formServiceName, formServiceUrl, formLogin, formPassword, formNotes, formGroupIds, formAdminOnly, formPasswordOwnerOnly, formTotpSecret, loadEntries, closeModal, t.saveFailed]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedEntry) return;
@@ -724,6 +783,18 @@ export default function VaultPage() {
             TOTP
           </span>
         )}
+        {entry.adminOnly && (
+          <span
+            style={{
+              fontSize: 11, padding: "2px 8px", borderRadius: 12,
+              background: "var(--badge-orange-bg, #ffedd5)",
+              color: "var(--badge-orange-text, #9a3412)",
+              fontWeight: 600,
+            }}
+          >
+            {t.adminOnly}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -769,15 +840,19 @@ export default function VaultPage() {
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>{t.password}</div>
               <div style={{ fontFamily: "monospace", fontSize: 14, color: "var(--text-primary)" }}>
-                {showPwd ? selectedEntry.password : "••••••••••••"}
+                {selectedEntry.canViewPassword ? (showPwd ? selectedEntry.password : "••••••••••••") : t.passwordHiddenByPolicy}
               </div>
             </div>
-            <button onClick={() => setShowPwd((v) => !v)} style={copyBtnStyle}>
-              <MaterialSymbol name={showPwd ? "visibility_off" : "visibility"} size={16} />
-            </button>
-            <button onClick={() => copyToClipboard(selectedEntry.password, "pwd")} style={copyBtnStyle}>
-              <MaterialSymbol name={copiedField === "pwd" ? "check" : "content_copy"} size={16} />
-            </button>
+            {selectedEntry.canViewPassword && (
+              <>
+                <button onClick={() => setShowPwd((v) => !v)} style={copyBtnStyle}>
+                  <MaterialSymbol name={showPwd ? "visibility_off" : "visibility"} size={16} />
+                </button>
+                <button onClick={() => copyToClipboard(selectedEntry.password, "pwd")} style={copyBtnStyle}>
+                  <MaterialSymbol name={copiedField === "pwd" ? "check" : "content_copy"} size={16} />
+                </button>
+              </>
+            )}
           </div>
 
           {/* Notes */}
@@ -798,6 +873,16 @@ export default function VaultPage() {
                 {groupNameMap[gid] || gid}
               </span>
             ))}
+            {selectedEntry.adminOnly && (
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--badge-orange-bg, #ffedd5)", color: "var(--badge-orange-text, #9a3412)", fontWeight: 600 }}>
+                {t.adminOnly}
+              </span>
+            )}
+            {selectedEntry.passwordOwnerOnly && (
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--surface-secondary, #2a2a3d)", color: "var(--text-secondary)", fontWeight: 600 }}>
+                {t.ownerOnlyPassword}
+              </span>
+            )}
           </div>
         </div>
 
@@ -890,6 +975,18 @@ export default function VaultPage() {
       {/* Groups */}
       <label style={labelStyle}>{t.groups} *</label>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        <button
+          onClick={() => setFormAdminOnly((value) => !value)}
+          style={{
+            padding: "4px 12px", borderRadius: 14, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: formAdminOnly ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+            background: formAdminOnly ? "var(--accent-primary)" : "transparent",
+            color: formAdminOnly ? "#fff" : "var(--text-secondary)",
+            transition: "all 0.15s",
+          }}
+        >
+          {t.adminOnly}
+        </button>
         {groups.map((g) => {
           const active = formGroupIds.includes(g.id);
           return (
@@ -914,12 +1011,42 @@ export default function VaultPage() {
         })}
       </div>
 
+      <label style={labelStyle}>{t.ownerOnlyPassword}</label>
+      <div style={{ marginBottom: 14 }}>
+        <button
+          onClick={() => setFormPasswordOwnerOnly((v) => !v)}
+          style={{
+            padding: "6px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: formPasswordOwnerOnly ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+            background: formPasswordOwnerOnly ? "var(--accent-primary)" : "transparent",
+            color: formPasswordOwnerOnly ? "#fff" : "var(--text-secondary)",
+            transition: "all 0.15s",
+          }}
+        >
+          {formPasswordOwnerOnly ? "ON" : "OFF"}
+        </button>
+      </div>
+
+      <label style={labelStyle}>{t.totpOptionalAtSave}</label>
+      <input
+        value={formTotpSecret}
+        onChange={(e) => setFormTotpSecret(e.target.value)}
+        style={{ ...inputStyle, fontFamily: "monospace" }}
+        placeholder="JBSWY3DPEHPK3PXP..."
+      />
+
+      {saveError && (
+        <div style={{ marginBottom: 10, color: "var(--color-error, #dc2626)", fontSize: 12 }}>
+          {saveError}
+        </div>
+      )}
+
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button onClick={closeModal} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
         <button
           onClick={handleSave}
           className="admin-btn-primary"
-          disabled={formSaving || !formServiceName || !formLogin || !formPassword || formGroupIds.length === 0}
+          disabled={formSaving || !formServiceName || !formLogin || !formPassword || (!formAdminOnly && formGroupIds.length === 0)}
           style={{ fontSize: 13, opacity: formSaving ? 0.6 : 1 }}
         >
           {formSaving ? "…" : t.save}
@@ -1160,6 +1287,8 @@ export default function VaultPage() {
           style={{
             position: "fixed", inset: 0, backgroundColor: "var(--overlay-bg, rgba(0,0,0,0.6))",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000,
+            padding: "20px 14px",
+            overflowY: "auto",
           }}
         >
           <div
@@ -1167,7 +1296,7 @@ export default function VaultPage() {
             style={{
               background: "var(--modal-bg, #1a1a2e)",
               borderRadius: 16, padding: 28,
-              width: "100%", maxWidth: 520, maxHeight: "85vh", overflowY: "auto",
+              width: "min(680px, calc(100vw - 28px))", maxHeight: "calc(100vh - 40px)", overflowY: "auto",
               border: "1px solid var(--border-color)",
               boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
             }}
