@@ -12,6 +12,19 @@ export type ResetEmailResult = {
   error?: string;
 };
 
+type SendInvitationParams = {
+  to: string;
+  inviterName: string;
+  groupName: string;
+  invitationUrl: string;
+};
+
+export type InvitationEmailResult = {
+  delivered: boolean;
+  mode: "smtp" | "log";
+  error?: string;
+};
+
 function buildTransport() {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT ?? 587);
@@ -77,6 +90,63 @@ export async function sendPasswordResetEmail({ to, fullName, resetUrl }: SendRes
       secure: process.env.SMTP_SECURE,
       message,
     });
+    return { delivered: false, mode: "log", error: message };
+  }
+
+  return { delivered: true, mode: "smtp" };
+}
+
+export async function sendInvitationEmail({
+  to,
+  inviterName,
+  groupName,
+  invitationUrl,
+}: SendInvitationParams): Promise<InvitationEmailResult> {
+  const transport = buildTransport();
+  const appName = process.env.APP_NAME || "CostOP";
+  const from = process.env.SMTP_FROM || `no-reply@costockage.local`;
+
+  const subject = `Vous êtes invité(e) à rejoindre ${appName}`;
+  const text = [
+    `Bonjour,`,
+    "",
+    `${inviterName} vous invite à rejoindre ${appName}.`,
+    `Vous avez été assigné(e) au groupe : ${groupName}.`,
+    "",
+    "Cliquez sur le lien ci-dessous pour créer votre compte :",
+    invitationUrl,
+    "",
+    "Ce lien expire dans 7 jours.",
+    "",
+    `— L'équipe ${appName}`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #1a1a1a;">Vous êtes invité(e) à rejoindre ${appName}</h2>
+      <p>${inviterName} vous invite à rejoindre <strong>${appName}</strong>.</p>
+      <p>Vous avez été assigné(e) au groupe : <strong>${groupName}</strong>.</p>
+      <p style="margin: 24px 0;">
+        <a href="${invitationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500;">
+          Créer mon compte
+        </a>
+      </p>
+      <p style="color: #666; font-size: 14px;">Ce lien expire dans 7 jours.</p>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+      <p style="color: #999; font-size: 12px;">— L'équipe ${appName}</p>
+    </div>
+  `;
+
+  if (!transport) {
+    console.info("[invitation][dev]", { to, invitationUrl });
+    return { delivered: false, mode: "log" };
+  }
+
+  try {
+    await transport.sendMail({ from, to, subject, text, html });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "SMTP send failed";
+    console.error("[invitation][smtp] send failed", { to, message });
     return { delivered: false, mode: "log", error: message };
   }
 

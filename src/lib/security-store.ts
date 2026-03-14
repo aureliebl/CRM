@@ -59,10 +59,13 @@ async function ensurePostgresSchema() {
       name TEXT NOT NULL,
       description TEXT,
       isDefault INTEGER DEFAULT 0,
+      isAdmin INTEGER DEFAULT 0,
       createdAt TEXT,
       updatedAt TEXT
     )
   `);
+
+  await pgPool.query("ALTER TABLE user_groups ADD COLUMN IF NOT EXISTS isAdmin INTEGER DEFAULT 0");
 
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS account_group_memberships (
@@ -160,6 +163,7 @@ export async function getUserGroups(): Promise<UserGroup[]> {
       name: String((row as Record<string, unknown>).name ?? ""),
       description: ((row as Record<string, unknown>).description as string | null | undefined) ?? undefined,
       isDefault: Number((row as Record<string, unknown>).isdefault ?? (row as Record<string, unknown>).isDefault ?? 0) === 1,
+      isAdmin: Number((row as Record<string, unknown>).isadmin ?? (row as Record<string, unknown>).isAdmin ?? 0) === 1,
       createdAt: String((row as Record<string, unknown>).createdat ?? (row as Record<string, unknown>).createdAt ?? ""),
       updatedAt: String((row as Record<string, unknown>).updatedat ?? (row as Record<string, unknown>).updatedAt ?? ""),
     }));
@@ -173,6 +177,7 @@ export async function getUserGroups(): Promise<UserGroup[]> {
       name: string;
       description?: string | null;
       isDefault: number;
+      isAdmin?: number;
       createdAt: string;
       updatedAt: string;
     }>;
@@ -182,6 +187,7 @@ export async function getUserGroups(): Promise<UserGroup[]> {
     name: row.name,
     description: row.description ?? undefined,
     isDefault: row.isDefault === 1,
+    isAdmin: (row.isAdmin ?? 0) === 1,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }));

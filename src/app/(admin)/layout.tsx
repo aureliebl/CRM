@@ -100,6 +100,15 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
       icon: "smart_toy",
     },
     { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
+    ...(user?.role === "admin"
+      ? [
+          {
+            href: "/users",
+            label: locale === "fr" ? "Utilisateurs" : "Users",
+            icon: "group",
+          },
+        ]
+      : []),
     ...(isSuperAdmin
       ? [
           {
