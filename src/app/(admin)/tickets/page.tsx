@@ -3,9 +3,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
+import nextDynamic from "next/dynamic";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { AsyncButton } from "@/components/admin/AsyncButton";
 import { useLocale } from "@/lib/use-locale";
+
+const FullPageChat = nextDynamic(
+  () => import("flowise-embed-react").then((module) => module.FullPageChat),
+  { ssr: false },
+);
 
 /* ─── Types ─── */
 
@@ -69,7 +75,7 @@ interface SessionActor {
   isSuperAdmin?: boolean;
 }
 
-type ModalView = "detail" | "create" | "edit" | "tokens";
+type ModalView = "detail" | "create" | "edit" | "tokens" | "flowise";
 
 /* ─── i18n ─── */
 
@@ -114,6 +120,10 @@ const labels = {
     followers: "Followers",
     unassigned: "Non assigné",
     close: "Fermer",
+    aiChat: "Chat AI",
+    aiChatTitle: "Créer un ticket via Chat AI",
+    aiChatCreator: "Créateur du ticket",
+    aiChatSelectUser: "Sélectionnez un utilisateur…",
   },
   en: {
     title: "Tickets",
@@ -155,6 +165,10 @@ const labels = {
     followers: "Followers",
     unassigned: "Unassigned",
     close: "Close",
+    aiChat: "AI Chat",
+    aiChatTitle: "Create a ticket via AI Chat",
+    aiChatCreator: "Ticket creator",
+    aiChatSelectUser: "Select a user…",
   },
 };
 
@@ -263,6 +277,9 @@ export default function TicketsPage() {
   const [newTokenLabel, setNewTokenLabel] = useState("");
   const [newTokenValue, setNewTokenValue] = useState<string | null>(null);
 
+  // Flowise chat
+  const [flowiseCreatorId, setFlowiseCreatorId] = useState("");
+
   // DnD state
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -354,6 +371,11 @@ export default function TicketsPage() {
     setFormAssigneeId("");
     setFormFollowerIds([]);
     setModalView("create");
+  }, []);
+
+  const openFlowiseChat = useCallback(() => {
+    setFlowiseCreatorId("");
+    setModalView("flowise");
   }, []);
 
   const openEdit = useCallback(() => {
@@ -583,6 +605,11 @@ export default function TicketsPage() {
             </button>
           )}
           {isAdmin && (
+            <button onClick={openFlowiseChat} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
+              <MaterialSymbol name="smart_toy" size={16} /> {t.aiChat}
+            </button>
+          )}
+          {isAdmin && (
             <AsyncButton onClick={openCreate} variant="primary" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addTicket}
             </AsyncButton>
@@ -740,7 +767,8 @@ export default function TicketsPage() {
             style={{
               background: "var(--modal-bg, #1a1a2e)",
               borderRadius: 16, padding: 28,
-              width: "min(760px, calc(100vw - 28px))", maxHeight: "calc(100vh - 40px)", overflowY: "auto",
+              width: modalView === "flowise" ? "min(900px, calc(100vw - 28px))" : "min(760px, calc(100vw - 28px))",
+              maxHeight: "calc(100vh - 40px)", overflowY: "auto",
               border: "1px solid var(--border-color)",
               boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
             }}
@@ -755,6 +783,7 @@ export default function TicketsPage() {
             {modalView === "detail" && selectedCard && renderDetail(selectedCard, locale, t, columns, colLabel, isAdmin, isSuperAdmin, openEdit, handleDelete, handleMoveCard, loadBoard, usersById)}
             {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, formAssigneeId, setFormAssigneeId, formFollowerIds, setFormFollowerIds, users, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView)}
             {modalView === "tokens" && renderTokens(t, tokens, newTokenLabel, setNewTokenLabel, newTokenValue, handleCreateToken, handleDeactivateToken, copyToClipboard, copiedField)}
+            {modalView === "flowise" && renderFlowiseChat(t, users, flowiseCreatorId, setFlowiseCreatorId)}
           </div>
         </div>
       ), document.body)}
@@ -1135,6 +1164,86 @@ function renderTokens(
           Aucun token
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── Flowise chat render ─── */
+
+const FLOWISE_TICKET_CHATFLOW_ID = "e86ba344-9e5d-4cdc-b6e5-2f55481f1c0f";
+
+function renderFlowiseChat(
+  t: typeof labels.fr,
+  users: TicketUser[],
+  flowiseCreatorId: string,
+  setFlowiseCreatorId: (v: string) => void,
+) {
+  const selectedUser = users.find((u) => u.id === flowiseCreatorId);
+
+  return (
+    <div>
+      <h2 style={{ margin: "0 0 16px", fontSize: 18, color: "var(--text-primary)" }}>
+        {t.aiChatTitle}
+      </h2>
+
+      {/* User selector */}
+      <label style={labelStyle}>{t.aiChatCreator}</label>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+        {users.filter((user) => user.isActive).map((user) => {
+          const active = flowiseCreatorId === user.id;
+          return (
+            <button
+              key={user.id}
+              onClick={() => setFlowiseCreatorId(active ? "" : user.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: active ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                background: active ? "var(--accent-primary)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <InlineAvatar user={user} size={20} />
+              {displayUserName(user)}
+            </button>
+          );
+        })}
+      </div>
+
+      {selectedUser && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "8px 12px", background: "var(--surface-secondary, #2a2a3d)", borderRadius: 8, fontSize: 13 }}>
+          <InlineAvatar user={selectedUser} size={24} />
+          <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>
+            {displayUserName(selectedUser)}
+          </span>
+          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
+            — {t.aiChatCreator}
+          </span>
+        </div>
+      )}
+
+      {/* Flowise chat embed */}
+      <div
+        style={{
+          overflow: "hidden",
+          borderRadius: 12,
+          height: 500,
+          border: "1px solid var(--border-color)",
+        }}
+      >
+        <FullPageChat
+          chatflowid={FLOWISE_TICKET_CHATFLOW_ID}
+          apiHost="/api/flowise"
+          chatflowConfig={flowiseCreatorId ? { createdBy: flowiseCreatorId } : {}}
+          theme={{ chatWindow: { height: 500 } }}
+        />
+      </div>
     </div>
   );
 }
