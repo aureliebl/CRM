@@ -67,7 +67,8 @@ export async function middleware(req: NextRequest) {
     pathname === "/api/auth/logout-all" ||
     pathname === "/api/auth/logout" ||
     pathname.startsWith("/api/invitations/verify/") ||
-    pathname.startsWith("/api/invitations/accept/");
+    pathname.startsWith("/api/invitations/accept/") ||
+    pathname === "/api/tickets/ingest";
 
   if (isPublicPath) {
     return NextResponse.next();
