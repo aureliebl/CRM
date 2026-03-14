@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useLocale } from "@/lib/use-locale";
 
@@ -1281,7 +1282,7 @@ export default function VaultPage() {
       )}
 
       {/* Modal overlay */}
-      {modalView && (
+      {modalView && typeof document !== "undefined" && createPortal((
         <div
           onClick={closeModal}
           style={{
@@ -1315,7 +1316,7 @@ export default function VaultPage() {
             {modalView === "export-confirm" && renderExportConfirm()}
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }

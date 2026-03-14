@@ -7,6 +7,8 @@ import { useLocale } from "@/lib/use-locale";
 
 export default function FlowisePage() {
   const { t } = useLocale();
+  const tr = (key: string) =>
+    (t as Record<string, string>)[key] ?? key;
 
   return (
     <div style={{ padding: "0 1.5rem 1rem" }}>
@@ -18,7 +20,7 @@ export default function FlowisePage() {
           margin: "0 0 0.25rem",
         }}
       >
-        {t("assistant_page_title")}
+        {tr("assistant_page_title")}
       </h2>
       <p
         style={{
@@ -27,7 +29,7 @@ export default function FlowisePage() {
           margin: "0 0 1.5rem",
         }}
       >
-        {t("assistant_page_description")}
+        {tr("assistant_page_description")}
       </p>
 
       <div

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { useLocale } from "@/lib/use-locale";
 
@@ -705,12 +706,14 @@ export default function TicketsPage() {
       )}
 
       {/* Modal overlay */}
-      {modalView && (
+      {modalView && typeof document !== "undefined" && createPortal((
         <div
           onClick={closeModal}
           style={{
             position: "fixed", inset: 0, backgroundColor: "var(--overlay-bg, rgba(0,0,0,0.6))",
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000,
+            padding: "20px 14px",
+            overflowY: "auto",
           }}
         >
           <div
@@ -718,7 +721,7 @@ export default function TicketsPage() {
             style={{
               background: "var(--modal-bg, #1a1a2e)",
               borderRadius: 16, padding: 28,
-              width: "100%", maxWidth: 600, maxHeight: "85vh", overflowY: "auto",
+              width: "min(760px, calc(100vw - 28px))", maxHeight: "calc(100vh - 40px)", overflowY: "auto",
               border: "1px solid var(--border-color)",
               boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
             }}
@@ -735,7 +738,7 @@ export default function TicketsPage() {
             {modalView === "tokens" && renderTokens(t, tokens, newTokenLabel, setNewTokenLabel, newTokenValue, handleCreateToken, handleDeactivateToken, copyToClipboard, copiedField)}
           </div>
         </div>
-      )}
+      ), document.body)}
     </div>
   );
 }
@@ -902,12 +905,51 @@ function renderForm(
       </select>
 
       <label style={labelStyle}>{t.assignee}</label>
-      <select value={formAssigneeId} onChange={(e) => setFormAssigneeId(e.target.value)} style={{ ...inputStyle }}>
-        <option value="">{t.unassigned}</option>
-        {users.filter((user) => user.isActive).map((user) => (
-          <option key={user.id} value={user.id}>{displayUserName(user)}</option>
-        ))}
-      </select>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
+        <button
+          onClick={() => setFormAssigneeId("")}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "4px 8px",
+            borderRadius: 999,
+            border: !formAssigneeId ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+            background: !formAssigneeId ? "var(--accent-primary)" : "transparent",
+            color: !formAssigneeId ? "#fff" : "var(--text-secondary)",
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          {t.unassigned}
+        </button>
+        {users.filter((user) => user.isActive).map((user) => {
+          const active = formAssigneeId === user.id;
+          return (
+            <button
+              key={user.id}
+              onClick={() => setFormAssigneeId(active ? "" : user.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: active ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",
+                background: active ? "var(--accent-primary)" : "transparent",
+                color: active ? "#fff" : "var(--text-secondary)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              <InlineAvatar user={user} size={20} />
+              {displayUserName(user)}
+            </button>
+          );
+        })}
+      </div>
 
       <label style={labelStyle}>{t.followers}</label>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>

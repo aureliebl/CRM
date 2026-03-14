@@ -48,6 +48,8 @@ export default function AssistantDetailPage() {
   const { assistantId } = useParams<{ assistantId: string }>();
   const assistant = ASSISTANTS_BY_ID[assistantId];
   const { t, locale } = useLocale();
+  const tr = (key: string) =>
+    (t as Record<string, string>)[key] ?? key;
 
   /* ---------- state ---------- */
   const [chatHeight, setChatHeight] = useState(420);
@@ -66,6 +68,12 @@ export default function AssistantDetailPage() {
     setEntries(loadEntries(assistantId));
   }, [assistantId]);
 
+  useEffect(() => {
+    setJsonText("");
+    setJsonError(null);
+    setSelectedId(null);
+  }, [assistantId]);
+
   /* responsive chat height */
   useEffect(() => {
     const recompute = () => setChatHeight(Math.max(350, window.innerHeight - 340));
@@ -81,7 +89,7 @@ export default function AssistantDetailPage() {
     try {
       parsed = JSON.parse(jsonText);
     } catch {
-      setJsonError(t("assistant_json_invalid"));
+      setJsonError(tr("assistant_json_invalid"));
       return;
     }
     if (
@@ -89,7 +97,7 @@ export default function AssistantDetailPage() {
       typeof parsed.title !== "string" ||
       typeof parsed.description !== "string"
     ) {
-      setJsonError(t("assistant_json_missing_fields"));
+      setJsonError(tr("assistant_json_missing_fields"));
       return;
     }
     const entry: SavedEntry = {
@@ -131,10 +139,10 @@ export default function AssistantDetailPage() {
           }}
         >
           <MaterialSymbol name="arrow_back" size={18} />
-          {t("assistant_back_all")}
+          {tr("assistant_back_all")}
         </Link>
         <p style={{ color: "var(--text-secondary)" }}>
-          {t("assistant_not_found")}
+          {tr("assistant_not_found")}
         </p>
       </div>
     );
@@ -157,7 +165,7 @@ export default function AssistantDetailPage() {
           }}
         >
           <MaterialSymbol name="arrow_back" size={18} />
-          {t("assistant_back")}
+          {tr("assistant_back")}
         </Link>
         <span style={{ color: "var(--text-secondary)", fontSize: "0.85rem" }}>
           /
@@ -188,8 +196,9 @@ export default function AssistantDetailPage() {
         }}
       >
         <FullPageChat
+          key={assistantId}
           chatflowid={assistant.chatflowid}
-          apiHost="https://flowise.costockage.fr"
+          apiHost="/api/flowise"
           theme={{ chatWindow: { height: chatHeight } }}
         />
       </div>
@@ -212,7 +221,7 @@ export default function AssistantDetailPage() {
             fontSize: "0.95rem",
           }}
         >
-          {t("assistant_paste_label")}
+          {tr("assistant_paste_label")}
         </label>
         <p
           style={{
@@ -221,7 +230,7 @@ export default function AssistantDetailPage() {
             margin: "0 0 8px",
           }}
         >
-          {t("assistant_paste_hint")}{" "}
+          {tr("assistant_paste_hint")}{" "}
           <code
             style={{
               background: "var(--surface-primary)",
@@ -230,14 +239,14 @@ export default function AssistantDetailPage() {
               fontSize: "0.8rem",
             }}
           >
-            {t("assistant_format_hint_example")}
+            {tr("assistant_format_hint_example")}
           </code>
         </p>
         <textarea
           value={jsonText}
           onChange={(e) => setJsonText(e.target.value)}
           rows={4}
-          placeholder={t("assistant_placeholder")}
+          placeholder={tr("assistant_placeholder")}
           style={{
             width: "100%",
             fontFamily: "monospace",
@@ -275,7 +284,7 @@ export default function AssistantDetailPage() {
             transition: "background 0.15s",
           }}
         >
-          {t("assistant_save")}
+          {tr("assistant_save")}
         </button>
       </div>
 
@@ -314,7 +323,7 @@ export default function AssistantDetailPage() {
                       color: "var(--text-primary)",
                     }}
                   >
-                    {t("assistant_table_title")}
+                    {tr("assistant_table_title")}
                   </th>
                   <th
                     style={{
@@ -325,7 +334,7 @@ export default function AssistantDetailPage() {
                       width: 140,
                     }}
                   >
-                    {t("assistant_table_date")}
+                    {tr("assistant_table_date")}
                   </th>
                   <th
                     style={{
@@ -382,7 +391,7 @@ export default function AssistantDetailPage() {
                     <td style={{ padding: "0.55rem 0.8rem", textAlign: "center" }}>
                       <button
                         type="button"
-                        title={t("assistant_delete")}
+                        title={tr("assistant_delete")}
                         onClick={(ev) => {
                           ev.stopPropagation();
                           handleDelete(e.id);
@@ -477,7 +486,7 @@ export default function AssistantDetailPage() {
                   color: "var(--text-secondary)",
                 }}
               >
-                {t("assistant_created_at")}{" "}
+                {tr("assistant_created_at")}{" "}
                 {new Date(selectedEntry.createdAt).toLocaleString(locale)}
               </div>
             </div>
@@ -494,7 +503,7 @@ export default function AssistantDetailPage() {
             padding: "1.5rem 0",
           }}
         >
-          {t("assistant_no_entries")}
+          {tr("assistant_no_entries")}
         </p>
       )}
     </div>
