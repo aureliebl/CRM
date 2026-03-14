@@ -461,7 +461,7 @@ function AdminTopbar({
               justifyContent: "center",
               fontSize: "1.1rem",
               lineHeight: 1,
-              color: "var(--text-primary)",
+              color: "var(--topbar-language-color, var(--text-primary))",
               minWidth: "3.2rem",
             }}
           >
