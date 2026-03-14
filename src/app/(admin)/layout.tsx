@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Breadcrumb } from "@/components/admin/Breadcrumb";
 import { ClientSearch } from "@/components/admin/ClientSearch";
 import { BugReportModal } from "@/components/admin/BugReportModal";
@@ -83,54 +83,76 @@ function AdminSidebar({
     return () => window.removeEventListener("tabs:refresh", refresh);
   }, [user?.id]);
 
-  const navItems = [
-    { href: "/dashboard", label: t.navigation.dashboard, icon: APP_MATERIAL_SYMBOLS.navigation.dashboard },
-    { href: "/geo", label: t.navigation.geo ?? "GEO", icon: APP_MATERIAL_SYMBOLS.navigation.geo },
-    ...dynamicTabs.map((tab) => ({
-      href: `/tabs/${tab.slug}`,
-      label: tab.title,
-      icon: tab.icon || APP_MATERIAL_SYMBOLS.navigation.components,
-      deletable: true,
-      tabId: tab.id,
-    })),
-    { href: "/vault", label: locale === "fr" ? "Coffre-fort" : "Vault", icon: "lock" },
-    { href: "/tickets", label: "Tickets", icon: "confirmation_number" },
-    { href: "/crm", label: locale === "fr" ? "Fiche client" : "Client file", icon: "person" },
-    { href: "/acquisition", label: locale === "fr" ? "Lead" : "Lead", icon: "trending_up" },
-    {
-      href: "/documentation",
-      label: t.navigation.documentation ?? "Documentation",
-      icon: APP_MATERIAL_SYMBOLS.navigation.documentation,
-    },
-    {
-      href: "/flowise",
-      label: t.navigation.assistant ?? "Assistant",
-      icon: "smart_toy",
-    },
-    { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
-    ...(isSuperAdmin
-      ? [
-          {
-            href: "/security",
-            label: t.navigation.security,
-            icon: APP_MATERIAL_SYMBOLS.navigation.security,
-          },
-        ]
-      : []),
-  ];
+  const navItems = useMemo(
+    () => [
+      { href: "/dashboard", label: t.navigation.dashboard, icon: APP_MATERIAL_SYMBOLS.navigation.dashboard },
+      { href: "/geo", label: t.navigation.geo ?? "GEO", icon: APP_MATERIAL_SYMBOLS.navigation.geo },
+      ...dynamicTabs.map((tab) => ({
+        href: `/tabs/${tab.slug}`,
+        label: tab.title,
+        icon: tab.icon || APP_MATERIAL_SYMBOLS.navigation.components,
+        deletable: true,
+        tabId: tab.id,
+      })),
+      { href: "/vault", label: locale === "fr" ? "Coffre-fort" : "Vault", icon: "lock" },
+      { href: "/tickets", label: "Tickets", icon: "confirmation_number" },
+      { href: "/crm", label: locale === "fr" ? "Fiche client" : "Client file", icon: "person" },
+      { href: "/acquisition", label: locale === "fr" ? "Lead" : "Lead", icon: "trending_up" },
+      {
+        href: "/documentation",
+        label: t.navigation.documentation ?? "Documentation",
+        icon: APP_MATERIAL_SYMBOLS.navigation.documentation,
+      },
+      {
+        href: "/flowise",
+        label: t.navigation.assistant ?? "Assistant",
+        icon: "smart_toy",
+      },
+      { href: "/tarifs", label: locale === "fr" ? "Grille tarifaire" : "Pricing grid", icon: "payments" },
+      ...(isSuperAdmin
+        ? [
+            {
+              href: "/security",
+              label: t.navigation.security,
+              icon: APP_MATERIAL_SYMBOLS.navigation.security,
+            },
+          ]
+        : []),
+    ],
+    [
+      dynamicTabs,
+      isSuperAdmin,
+      locale,
+      t.navigation.dashboard,
+      t.navigation.geo,
+      t.navigation.documentation,
+      t.navigation.assistant,
+      t.navigation.security,
+    ]
+  );
 
-  const legacyTestItems = [
-    { href: "/clients", label: t.navigation.clients, icon: APP_MATERIAL_SYMBOLS.navigation.clients },
-    { href: "/pricing", label: t.navigation.pricing, icon: APP_MATERIAL_SYMBOLS.navigation.pricing },
-    { href: "/content", label: t.navigation.content, icon: APP_MATERIAL_SYMBOLS.navigation.content },
-    {
-      href: "/components-registry",
-      label: t.navigation.components,
-      icon: APP_MATERIAL_SYMBOLS.navigation.components,
-    },
-    { href: "/bookings", label: t.navigation.bookings, icon: APP_MATERIAL_SYMBOLS.navigation.bookings },
-    { href: "/live-users", label: t.navigation.live_users, icon: APP_MATERIAL_SYMBOLS.navigation.liveUsers },
-  ];
+  const legacyTestItems = useMemo(
+    () => [
+      { href: "/clients", label: t.navigation.clients, icon: APP_MATERIAL_SYMBOLS.navigation.clients },
+      { href: "/pricing", label: t.navigation.pricing, icon: APP_MATERIAL_SYMBOLS.navigation.pricing },
+      { href: "/content", label: t.navigation.content, icon: APP_MATERIAL_SYMBOLS.navigation.content },
+      {
+        href: "/components-registry",
+        label: t.navigation.components,
+        icon: APP_MATERIAL_SYMBOLS.navigation.components,
+      },
+      { href: "/bookings", label: t.navigation.bookings, icon: APP_MATERIAL_SYMBOLS.navigation.bookings },
+      { href: "/live-users", label: t.navigation.live_users, icon: APP_MATERIAL_SYMBOLS.navigation.liveUsers },
+    ],
+    [
+      t.navigation.clients,
+      t.navigation.pricing,
+      t.navigation.content,
+      t.navigation.components,
+      t.navigation.bookings,
+      t.navigation.live_users,
+    ]
+  );
 
   const isTestSectionActive = legacyTestItems.some(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
@@ -523,6 +545,15 @@ export default function AdminLayout({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [visibleRoutes, setVisibleRoutes] = useState<string[]>([]);
 
+  const handleVisibleRoutesChange = useCallback((routes: string[]) => {
+    setVisibleRoutes((prev) => {
+      if (prev.length === routes.length && prev.every((value, index) => value === routes[index])) {
+        return prev;
+      }
+      return routes;
+    });
+  }, []);
+
   const loadCurrentUser = useCallback(async () => {
     try {
       const sessionRes = await fetch("/api/auth/session", { cache: "no-store" });
@@ -652,7 +683,7 @@ export default function AdminLayout({
         <AdminSidebar
           user={user}
           onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
-          onVisibleRoutesChange={setVisibleRoutes}
+          onVisibleRoutesChange={handleVisibleRoutesChange}
         />
         <div className="admin-content-shell">
           <AdminTopbar

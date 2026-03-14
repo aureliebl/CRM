@@ -1286,8 +1286,8 @@ export default function VaultPage() {
       </div>
 
       {/* Search + filter */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <div style={{ flex: 1, position: "relative" }}>
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, alignItems: "center" }}>
+        <div style={{ flex: "1 1 auto", minWidth: 280, position: "relative" }}>
           <MaterialSymbol name="search" size={18} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
           <input
             value={search}
@@ -1299,7 +1299,7 @@ export default function VaultPage() {
         <select
           value={filterGroup}
           onChange={(e) => setFilterGroup(e.target.value)}
-          style={{ ...inputStyle, marginBottom: 0, minWidth: 160 }}
+          style={{ ...inputStyle, marginBottom: 0, width: 210, minWidth: 180, flex: "0 0 auto" }}
         >
           <option value="">{t.allGroups}</option>
           {groups.map((g) => (
