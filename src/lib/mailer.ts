@@ -166,3 +166,72 @@ export async function sendInvitationEmail({
 
   return { delivered: true, mode: "smtp" };
 }
+
+/* ─── Ticket comment notification ─── */
+
+type SendTicketCommentParams = {
+  to: string;
+  ticketTitle: string;
+  commentBody: string;
+  authorName: string;
+};
+
+export type TicketCommentEmailResult = {
+  delivered: boolean;
+  mode: "smtp" | "log";
+  error?: string;
+};
+
+export async function sendTicketCommentEmail({
+  to,
+  ticketTitle,
+  commentBody,
+  authorName,
+}: SendTicketCommentParams): Promise<TicketCommentEmailResult> {
+  const transport = buildTransport();
+  const appName = process.env.APP_NAME || "CostOP";
+  const from = process.env.SMTP_FROM || `no-reply@costockage.local`;
+
+  const safeAppName = escapeHtml(appName);
+  const safeTicketTitle = escapeHtml(ticketTitle);
+  const safeAuthorName = escapeHtml(authorName);
+  const safeCommentBody = escapeHtml(commentBody);
+
+  const subject = `[${appName}] Nouveau commentaire sur « ${ticketTitle} »`;
+
+  const text = [
+    `Nouveau commentaire sur le ticket « ${ticketTitle} »`,
+    "",
+    `${authorName} a écrit :`,
+    commentBody,
+    "",
+    `— ${appName}`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #1a1a1a; font-size: 16px;">Nouveau commentaire sur le ticket « ${safeTicketTitle} »</h2>
+      <p><strong>${safeAuthorName}</strong> a écrit :</p>
+      <div style="padding: 12px 16px; background: #f4f4f5; border-radius: 8px; border-left: 4px solid #6366f1; margin: 16px 0; white-space: pre-wrap; color: #1a1a1a;">
+        ${safeCommentBody}
+      </div>
+      <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
+      <p style="color: #999; font-size: 12px;">— ${safeAppName}</p>
+    </div>
+  `;
+
+  if (!transport) {
+    console.info("[ticket-comment][dev]", { to, ticketTitle, authorName });
+    return { delivered: false, mode: "log" };
+  }
+
+  try {
+    await transport.sendMail({ from, to, subject, text, html });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "SMTP send failed";
+    console.error("[ticket-comment][smtp] send failed", { to, message });
+    return { delivered: false, mode: "log", error: message };
+  }
+
+  return { delivered: true, mode: "smtp" };
+}

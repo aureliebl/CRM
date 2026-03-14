@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getActorFromRequest } from "@/lib/server-permissions";
-import { ensureDefaultBoard, getCards, createCard } from "@/lib/tickets-store";
+import { ensureDefaultBoard, getCards, createCard, getCommentCountsByBoardId } from "@/lib/tickets-store";
 import { getAllAccounts } from "@/lib/account-store";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,10 @@ export async function GET(req: Request) {
   }
 
   const board = await ensureDefaultBoard();
-  const cards = await getCards(board.id);
+  const [cards, commentCounts] = await Promise.all([
+    getCards(board.id),
+    getCommentCountsByBoardId(board.id),
+  ]);
   const users = (await getAllAccounts()).map((account) => ({
     id: account.id,
     firstName: account.firstName ?? null,
@@ -22,7 +25,7 @@ export async function GET(req: Request) {
     isActive: Number(account.isActive) === 1,
   }));
 
-  return NextResponse.json({ board, cards, users });
+  return NextResponse.json({ board, cards, users, commentCounts });
 }
 
 /* POST /api/tickets — create a card (any authenticated user) */

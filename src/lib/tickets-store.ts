@@ -81,6 +81,17 @@ async function ensurePostgresSchema() {
       created_at TEXT
     )
   `);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_comments (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_comments_card ON ticket_comments(card_id)`);
 }
 
 async function ensurePostgresReady() {
@@ -127,6 +138,14 @@ export interface TicketApiToken {
   boardId: string;
   createdBy: string | null;
   isActive: boolean;
+  createdAt: string;
+}
+
+export interface TicketComment {
+  id: string;
+  cardId: string;
+  authorId: string;
+  body: string;
   createdAt: string;
 }
 
@@ -327,6 +346,7 @@ export async function updateCard(
 
 export async function deleteCard(cardId: string): Promise<void> {
   await ensurePostgresReady();
+  await pgPool.query("DELETE FROM ticket_comments WHERE card_id = $1", [cardId]);
   await pgPool.query("DELETE FROM ticket_cards WHERE id = $1", [cardId]);
 }
 
@@ -413,4 +433,55 @@ export async function getApiTokens(boardId: string): Promise<TicketApiToken[]> {
 export async function deactivateApiToken(tokenId: string): Promise<void> {
   await ensurePostgresReady();
   await pgPool.query("UPDATE ticket_api_tokens SET is_active = 0 WHERE id = $1", [tokenId]);
+}
+
+/* ─────────── Comments ─────────── */
+
+export async function createComment(input: {
+  cardId: string;
+  authorId: string;
+  body: string;
+}): Promise<TicketComment> {
+  await ensurePostgresReady();
+  const id = genId("tcm");
+  const ts = now();
+
+  await pgPool.query(
+    "INSERT INTO ticket_comments (id, card_id, author_id, body, created_at) VALUES ($1,$2,$3,$4,$5)",
+    [id, input.cardId, input.authorId, input.body, ts]
+  );
+
+  return { id, cardId: input.cardId, authorId: input.authorId, body: input.body, createdAt: ts };
+}
+
+export async function getCommentsByCardId(cardId: string): Promise<TicketComment[]> {
+  await ensurePostgresReady();
+  const result = await pgPool.query(
+    "SELECT * FROM ticket_comments WHERE card_id = $1 ORDER BY created_at ASC",
+    [cardId]
+  );
+  return result.rows.map((row) => ({
+    id: String(row.id),
+    cardId: String(row.card_id),
+    authorId: String(row.author_id),
+    body: String(row.body),
+    createdAt: String(row.created_at),
+  }));
+}
+
+export async function getCommentCountsByBoardId(boardId: string): Promise<Record<string, number>> {
+  await ensurePostgresReady();
+  const result = await pgPool.query(
+    `SELECT tc.card_id, COUNT(*)::int as cnt
+     FROM ticket_comments tc
+     JOIN ticket_cards tk ON tk.id = tc.card_id
+     WHERE tk.board_id = $1
+     GROUP BY tc.card_id`,
+    [boardId]
+  );
+  const counts: Record<string, number> = {};
+  for (const row of result.rows) {
+    counts[String(row.card_id)] = Number(row.cnt);
+  }
+  return counts;
 }
