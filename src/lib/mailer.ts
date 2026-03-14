@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import he from "he";
 
 type SendResetParams = {
   to: string;
@@ -121,19 +122,24 @@ export async function sendInvitationEmail({
     `— L'équipe ${appName}`,
   ].join("\n");
 
+  const safeAppName = he.escape(appName);
+  const safeInviterName = inviterName ? he.escape(inviterName) : "";
+  const safeGroupName = groupName ? he.escape(groupName) : "";
+  const safeInvitationUrl = he.escape(encodeURI(invitationUrl));
+
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-      <h2 style="color: #1a1a1a;">Vous êtes invité(e) à rejoindre ${appName}</h2>
-      <p>${inviterName} vous invite à rejoindre <strong>${appName}</strong>.</p>
-      <p>Vous avez été assigné(e) au groupe : <strong>${groupName}</strong>.</p>
+      <h2 style="color: #1a1a1a;">Vous êtes invité(e) à rejoindre ${safeAppName}</h2>
+      <p>${safeInviterName} vous invite à rejoindre <strong>${safeAppName}</strong>.</p>
+      <p>Vous avez été assigné(e) au groupe : <strong>${safeGroupName}</strong>.</p>
       <p style="margin: 24px 0;">
-        <a href="${invitationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500;">
+        <a href="${safeInvitationUrl}" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 500;">
           Créer mon compte
         </a>
       </p>
       <p style="color: #666; font-size: 14px;">Ce lien expire dans 7 jours.</p>
       <hr style="border: none; border-top: 1px solid #eee; margin: 24px 0;" />
-      <p style="color: #999; font-size: 12px;">— L'équipe ${appName}</p>
+      <p style="color: #999; font-size: 12px;">— L'équipe ${safeAppName}</p>
     </div>
   `;
 
