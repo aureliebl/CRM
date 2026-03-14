@@ -313,6 +313,10 @@ export default function VaultPage() {
   const [_backupTotpId, setViewBackupTotpId] = useState("");
 
   // QR scanner
+  const qrScannerRef = useRef<{
+    stop: () => Promise<unknown>;
+    clear?: () => Promise<unknown> | void;
+  } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scannerActiveRef = useRef(false);
 
@@ -425,7 +429,33 @@ export default function VaultPage() {
 
   /* ─── Close modal ─── */
 
+  const stopQrScan = useCallback(async () => {
+    scannerActiveRef.current = false;
+
+    const scanner = qrScannerRef.current;
+    qrScannerRef.current = null;
+
+    if (scanner) {
+      try {
+        await scanner.stop();
+      } catch { /* ignore */ }
+      try {
+        if (scanner.clear) await scanner.clear();
+      } catch { /* ignore */ }
+    }
+
+    const qrReaderEl = document.getElementById("qr-reader");
+    if (qrReaderEl) qrReaderEl.innerHTML = "";
+
+    if (videoRef.current?.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
   const closeModal = useCallback(() => {
+    void stopQrScan();
     setModalView(null);
     setSelectedEntry(null);
     setSelectedTotps([]);
@@ -436,11 +466,19 @@ export default function VaultPage() {
     setTotpLabel("");
     setTotpVerifyCode("");
     setViewBackupCodes([]);
-    // Stop camera if active
-    if (scannerActiveRef.current) {
-      scannerActiveRef.current = false;
+  }, [stopQrScan]);
+
+  useEffect(() => {
+    if (modalView !== "add-totp" || totpMode !== "scan") {
+      void stopQrScan();
     }
-  }, []);
+  }, [modalView, totpMode, stopQrScan]);
+
+  useEffect(() => {
+    return () => {
+      void stopQrScan();
+    };
+  }, [stopQrScan]);
 
   /* ─── Create / Edit ─── */
 
@@ -628,6 +666,7 @@ export default function VaultPage() {
   /* ─── QR Scanner (basic using html5-qrcode) ─── */
 
   const startQrScan = useCallback(async () => {
+    await stopQrScan();
     setTotpMode("scan");
     scannerActiveRef.current = true;
 
@@ -635,11 +674,13 @@ export default function VaultPage() {
       // Dynamic import of html5-qrcode
       const { Html5Qrcode } = await import("html5-qrcode");
       const scanner = new Html5Qrcode("qr-reader");
+      qrScannerRef.current = scanner;
 
       await scanner.start(
         { facingMode: "environment" },
         { fps: 10, qrbox: 250 },
         (decodedText) => {
+          if (!scannerActiveRef.current) return;
           // Parse otpauth:// URI
           try {
             const url = new URL(decodedText);
@@ -653,17 +694,16 @@ export default function VaultPage() {
             // Maybe it's just a base32 secret
             setTotpSecret(decodedText);
           }
-          scanner.stop().catch(() => {});
-          scannerActiveRef.current = false;
+          void stopQrScan();
           setTotpMode("manual");
         },
         () => {} // ignore scan errors
       );
     } catch {
+      void stopQrScan();
       setTotpMode("manual");
-      scannerActiveRef.current = false;
     }
-  }, []);
+  }, [stopQrScan]);
 
   /* ─── Export ─── */
 
