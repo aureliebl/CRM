@@ -40,6 +40,7 @@ async function ensurePostgresSchema() {
       id TEXT PRIMARY KEY,
       email TEXT NOT NULL,
       groupId TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'operator',
       tokenHash TEXT NOT NULL UNIQUE,
       expiresAt TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -48,6 +49,10 @@ async function ensurePostgresSchema() {
       acceptedAt TEXT
     )
   `);
+
+  await pgPool.query(
+    "ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'operator'"
+  );
 
   await pgPool.query(
     "CREATE INDEX IF NOT EXISTS idx_user_invitations_token_hash ON user_invitations(tokenHash)"
@@ -73,6 +78,7 @@ function mapRow(row: Record<string, unknown>): UserInvitation {
     id: String(row.id ?? ""),
     email: String(row.email ?? ""),
     groupId: String(row.groupid ?? row.groupId ?? ""),
+    role: (String(row.role ?? "operator") as UserInvitation["role"]),
     expiresAt: String(row.expiresat ?? row.expiresAt ?? ""),
     status: (String(row.status ?? "pending") as InvitationStatus),
     invitedBy: String(row.invitedby ?? row.invitedBy ?? ""),
@@ -140,6 +146,7 @@ export async function createInvitation(input: {
   email: string;
   groupId: string;
   invitedBy: string;
+  role?: "admin" | "operator";
   expiresInDays?: number;
 }): Promise<{ invitation: UserInvitation; rawToken: string }> {
   await ensurePostgresReady();
@@ -153,11 +160,12 @@ export async function createInvitation(input: {
   const expiresAt = new Date(
     now.getTime() + expiresInDays * 24 * 60 * 60 * 1000
   ).toISOString();
+  const role = input.role ?? "operator";
 
   await pgPool.query(
-    `INSERT INTO user_invitations (id, email, groupId, tokenHash, expiresAt, status, invitedBy, createdAt, acceptedAt)
-     VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, NULL)`,
-    [id, input.email.trim().toLowerCase(), input.groupId, tokenDigest, expiresAt, input.invitedBy, createdAt]
+    `INSERT INTO user_invitations (id, email, groupId, role, tokenHash, expiresAt, status, invitedBy, createdAt, acceptedAt)
+     VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, NULL)`,
+    [id, input.email.trim().toLowerCase(), input.groupId, role, tokenDigest, expiresAt, input.invitedBy, createdAt]
   );
 
   const inv = await getInvitationById(id);
