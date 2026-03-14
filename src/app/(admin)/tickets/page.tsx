@@ -38,6 +38,14 @@ interface TicketCard {
   updatedAt: string;
 }
 
+interface TicketComment {
+  id: string;
+  cardId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+}
+
 interface TicketUser {
   id: string;
   firstName: string | null;
@@ -126,6 +134,11 @@ const labels = {
     aiChatTitle: "Créer un ticket via Chat AI",
     aiChatCreator: "Créateur du ticket",
     aiChatSelectUser: "Sélectionnez un utilisateur…",
+    comments: "Commentaires",
+    addComment: "Ajouter un commentaire",
+    commentPlaceholder: "Écrire un commentaire…",
+    send: "Envoyer",
+    noComments: "Aucun commentaire",
   },
   en: {
     title: "Tickets",
@@ -173,6 +186,11 @@ const labels = {
     aiChatTitle: "Create a ticket via AI Chat",
     aiChatCreator: "Ticket creator",
     aiChatSelectUser: "Select a user…",
+    comments: "Comments",
+    addComment: "Add a comment",
+    commentPlaceholder: "Write a comment…",
+    send: "Send",
+    noComments: "No comments",
   },
 };
 
@@ -268,6 +286,7 @@ export default function TicketsPage() {
   const [board, setBoard] = useState<Board | null>(null);
   const [cards, setCards] = useState<TicketCard[]>([]);
   const [users, setUsers] = useState<TicketUser[]>([]);
+  const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -320,6 +339,7 @@ export default function TicketsPage() {
         setBoard(data.board);
         setCards(data.cards);
         setUsers(Array.isArray(data.users) ? data.users : []);
+        setCommentCounts(data.commentCounts || {});
       }
     } catch { /* ignore */ }
     setLoading(false);
@@ -741,7 +761,15 @@ export default function TicketsPage() {
 
                         {/* Source + date line */}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
-                          <span>{card.source === "api" ? "API" : ""}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            {card.source === "api" ? "API" : ""}
+                            {(commentCounts[card.id] || 0) > 0 && (
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "var(--accent-primary, #6366f1)" }}>
+                                <MaterialSymbol name="chat_bubble" size={12} />
+                                <span style={{ fontWeight: 700 }}>{commentCounts[card.id]}</span>
+                              </span>
+                            )}
+                          </span>
                           <span>{new Date(card.createdAt).toLocaleDateString(locale, { day: "numeric", month: "short" })}</span>
                         </div>
 
@@ -793,7 +821,7 @@ export default function TicketsPage() {
               </button>
             </div>
 
-            {modalView === "detail" && selectedCard && renderDetail(selectedCard, locale, t, columns, colLabel, isAdmin, isSuperAdmin, openEdit, handleDelete, handleMoveCard, loadBoard, usersById)}
+            {modalView === "detail" && selectedCard && <TicketDetailView card={selectedCard} locale={locale} t={t} columns={columns} colLabel={colLabel} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} openEdit={openEdit} handleDelete={handleDelete} handleMoveCard={handleMoveCard} loadBoard={loadBoard} usersById={usersById} />}
             {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, formAssigneeId, setFormAssigneeId, formFollowerIds, setFormFollowerIds, users, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView)}
             {modalView === "tokens" && renderTokens(t, tokens, newTokenLabel, setNewTokenLabel, newTokenValue, handleCreateToken, handleDeactivateToken, copyToClipboard, copiedField)}
             {modalView === "flowise" && renderFlowiseChat(t, users, flowiseCreatorId, setFlowiseCreatorId)}
@@ -804,22 +832,66 @@ export default function TicketsPage() {
   );
 }
 
-/* ─── Detail render ─── */
+/* ─── Detail component ─── */
 
-function renderDetail(
-  card: TicketCard,
-  locale: string,
-  t: typeof labels.fr,
-  columns: { key: string; labelFr: string; labelEn: string; color: string }[],
-  colLabel: (c: BoardColumn) => string,
-  isAdmin: boolean,
-  isSuperAdmin: boolean,
-  openEdit: () => void,
-  handleDelete: () => void,
-  handleMoveCard: (id: string, col: string, pos: number) => void,
-  loadBoard: () => void,
-  usersById: Record<string, TicketUser>,
-) {
+function TicketDetailView({
+  card,
+  locale,
+  t,
+  columns,
+  colLabel,
+  isAdmin,
+  isSuperAdmin,
+  openEdit,
+  handleDelete,
+  handleMoveCard,
+  loadBoard,
+  usersById,
+}: {
+  card: TicketCard;
+  locale: string;
+  t: typeof labels.fr;
+  columns: { key: string; labelFr: string; labelEn: string; color: string }[];
+  colLabel: (c: BoardColumn) => string;
+  isAdmin: boolean;
+  isSuperAdmin: boolean;
+  openEdit: () => void;
+  handleDelete: () => void;
+  handleMoveCard: (id: string, col: string, pos: number) => void;
+  loadBoard: () => void;
+  usersById: Record<string, TicketUser>;
+}) {
+  const [comments, setComments] = useState<TicketComment[]>([]);
+  const [commentText, setCommentText] = useState("");
+  const [commentSending, setCommentSending] = useState(false);
+
+  const loadComments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tickets/${card.id}/comments`);
+      if (res.ok) setComments(await res.json());
+    } catch { /* ignore */ }
+  }, [card.id]);
+
+  useEffect(() => { loadComments(); }, [loadComments]);
+
+  const handleAddComment = useCallback(async () => {
+    if (!commentText.trim()) return;
+    setCommentSending(true);
+    try {
+      const res = await fetch(`/api/tickets/${card.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: commentText.trim() }),
+      });
+      if (res.ok) {
+        setCommentText("");
+        await loadComments();
+        loadBoard(); // refresh counts
+      }
+    } catch { /* ignore */ }
+    setCommentSending(false);
+  }, [card.id, commentText, loadComments, loadBoard]);
+
   const currentCol = columns.find((c) => c.key === card.columnKey);
 
   return (
@@ -886,6 +958,79 @@ function renderDetail(
               <UserInlineChip key={userId} user={usersById[userId]} fallbackLabel={t.unassigned} />
             ))
           )}
+        </div>
+      </div>
+
+      {/* Comments */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+          <MaterialSymbol name="chat_bubble" size={14} />
+          {t.comments} ({comments.length})
+        </div>
+
+        {comments.length === 0 && (
+          <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "10px 14px", background: "var(--surface-secondary, #2a2a3d)", borderRadius: 8, textAlign: "center" }}>
+            {t.noComments}
+          </div>
+        )}
+
+        {comments.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+            {comments.map((comment) => {
+              const author = usersById[comment.authorId];
+              return (
+                <div key={comment.id} style={{ display: "flex", gap: 10, padding: "10px 14px", background: "var(--surface-secondary, #2a2a3d)", borderRadius: 8 }}>
+                  <div style={{ flexShrink: 0, paddingTop: 2 }}>
+                    <InlineAvatar user={author} size={28} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>
+                        {displayUserName(author)}
+                      </span>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                        {new Date(comment.createdAt).toLocaleString(locale)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
+                      {comment.body}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Add comment form */}
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            placeholder={t.commentPlaceholder}
+            rows={2}
+            style={{ ...inputStyle, marginBottom: 0, flex: 1, resize: "vertical", fontSize: 13 }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleAddComment();
+              }
+            }}
+          />
+          <button
+            onClick={handleAddComment}
+            disabled={commentSending || !commentText.trim()}
+            className="admin-btn"
+            style={{
+              fontSize: 12,
+              gap: 4,
+              padding: "8px 14px",
+              opacity: commentSending || !commentText.trim() ? 0.5 : 1,
+              cursor: commentSending || !commentText.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            <MaterialSymbol name="send" size={14} /> {t.send}
+          </button>
         </div>
       </div>
 
