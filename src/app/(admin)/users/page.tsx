@@ -490,7 +490,7 @@ export default function UsersPage() {
     return (
       <span
         style={badgeStyle(user.role === "admin" ? "#8b5cf6" : "#2563eb")}
-        onClick={() => canChange ? setChangingGroupUserId(user.id) : undefined}
+        onClick={canChange ? () => setChangingGroupUserId(user.id) : undefined}
         title={canChange ? (locale === "fr" ? "Cliquer pour modifier" : "Click to change") : ""}
       >
         {user.groupName || (locale === "fr" ? "Aucun" : "None")}
