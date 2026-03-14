@@ -34,7 +34,15 @@ type LocalUser = {
   totpEnabled?: number;
 };
 
-function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSidebar: () => void }) {
+function AdminSidebar({
+  user,
+  onToggleSidebar,
+  onVisibleRoutesChange,
+}: {
+  user: LocalUser;
+  onToggleSidebar: () => void;
+  onVisibleRoutesChange?: (routes: string[]) => void;
+}) {
   const pathname = usePathname() || "/dashboard";
   const { t, locale } = useLocale();
   const isSuperAdmin = user?.isSuperAdmin === true;
@@ -127,6 +135,13 @@ function AdminSidebar({ user, onToggleSidebar }: { user: LocalUser; onToggleSide
   const isTestSectionActive = legacyTestItems.some(
     (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
   );
+
+  useEffect(() => {
+    if (!onVisibleRoutesChange) return;
+    const visibleMainRoutes = navItems.map((item) => item.href);
+    const visibleLegacyRoutes = isSuperAdmin ? legacyTestItems.map((item) => item.href) : [];
+    onVisibleRoutesChange(Array.from(new Set([...visibleMainRoutes, ...visibleLegacyRoutes])));
+  }, [navItems, legacyTestItems, isSuperAdmin, onVisibleRoutesChange]);
 
   useEffect(() => {
     if (isTestSectionActive) {
@@ -310,10 +325,12 @@ function AdminTopbar({
   user,
   isSidebarCollapsed,
   onToggleSidebar,
+  visibleRoutes,
 }: {
   user: LocalUser;
   isSidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  visibleRoutes?: string[];
 }) {
   const [showBugModal, setShowBugModal] = useState(false);
   const { locale, t, setLocale } = useLocale();
@@ -381,6 +398,7 @@ function AdminTopbar({
             placeholder={t.search_placeholder}
             maxWidth="100%"
             appearance="embedded"
+            visibleRoutes={visibleRoutes}
           />
         </div>
         <div className="admin-topbar-controls">
@@ -503,6 +521,7 @@ export default function AdminLayout({
   const [authResolved, setAuthResolved] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [visibleRoutes, setVisibleRoutes] = useState<string[]>([]);
 
   const loadCurrentUser = useCallback(async () => {
     try {
@@ -630,12 +649,17 @@ export default function AdminLayout({
   return (
     <RightPanelProvider>
       <div className={["admin-shell", isSidebarCollapsed ? "sidebar-collapsed" : ""].filter(Boolean).join(" ")}>
-        <AdminSidebar user={user} onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)} />
+        <AdminSidebar
+          user={user}
+          onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+          onVisibleRoutesChange={setVisibleRoutes}
+        />
         <div className="admin-content-shell">
           <AdminTopbar
             user={user}
             isSidebarCollapsed={isSidebarCollapsed}
             onToggleSidebar={() => setIsSidebarCollapsed(false)}
+            visibleRoutes={visibleRoutes}
           />
           <Breadcrumb />
           <main className="admin-main">

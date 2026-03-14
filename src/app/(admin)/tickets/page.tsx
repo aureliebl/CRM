@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
 import { AsyncButton } from "@/components/admin/AsyncButton";
@@ -233,6 +234,7 @@ function TicketVariableDisplay({ v, locale }: { v: TicketVariable; locale: strin
 
 export default function TicketsPage() {
   const { locale } = useLocale();
+  const searchParams = useSearchParams();
   const t = labels[locale] || labels.fr;
 
   const [actor, setActor] = useState<SessionActor | null>(null);
@@ -327,6 +329,22 @@ export default function TicketsPage() {
     setSelectedCard(card);
     setModalView("detail");
   }, []);
+
+  useEffect(() => {
+    const headerSearch = searchParams.get("search");
+    if (headerSearch !== null) {
+      setSearch(headerSearch);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const ticketId = searchParams.get("ticketId");
+    if (!ticketId || cards.length === 0) return;
+    const found = cards.find((card) => card.id === ticketId);
+    if (found) {
+      openDetail(found);
+    }
+  }, [searchParams, cards, openDetail]);
 
   const openCreate = useCallback(() => {
     setFormTitle("");
