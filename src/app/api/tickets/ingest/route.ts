@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   // Validate Bearer token
   const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const raw = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const token = raw.replace(/^<|>$/g, "");
 
   if (!token) {
     return NextResponse.json({ error: "Missing Authorization Bearer token" }, { status: 401 });
