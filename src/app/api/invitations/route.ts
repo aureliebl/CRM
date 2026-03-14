@@ -115,20 +115,37 @@ export async function POST(req: Request) {
 
       const invitationUrl = `${appBaseUrl}/invitation/${invitation.token}`;
 
-      await sendInvitationEmail({
+      const emailResult = await sendInvitationEmail({
         to: email,
         inviterName: actor.fullName || actor.email,
         groupName: group.name,
         invitationUrl,
       });
 
-      await addLog(
-        actor.id,
-        "invitation.sent",
-        `Invited ${email} to group ${group.name}`
-      );
+      const { delivered, mode, error } = emailResult ?? {};
 
-      results.push({ email, status: "sent" });
+      if (delivered) {
+        await addLog(
+          actor.id,
+          "invitation.sent",
+          `Invited ${email} to group ${group.name}`
+        );
+        results.push({ email, status: "sent", mode });
+      } else {
+        await addLog(
+          actor.id,
+          "invitation.delivery_failed",
+          `Failed to deliver invitation to ${email} for group ${group.name}${
+            error ? `: ${error}` : ""
+          }`
+        );
+        results.push({
+          email,
+          status: "delivery_failed",
+          error: error || "Invitation email not delivered",
+          mode,
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       results.push({ email, status: "error", error: message });
