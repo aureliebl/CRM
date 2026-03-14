@@ -7,6 +7,7 @@ import {
   canActorAccessEntry,
   addTotp,
   getTotpForEntryForActor,
+  isActorEntryCreator,
 } from "@/lib/vault-store";
 import { addLog } from "@/lib/account-store";
 
@@ -39,7 +40,10 @@ export async function POST(req: Request, context: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const isCreator = await isActorEntryCreator(actor, id);
+    if (!isCreator) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const body = await req.json();

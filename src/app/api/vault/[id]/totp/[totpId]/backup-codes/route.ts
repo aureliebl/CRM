@@ -3,7 +3,7 @@ import {
   getActorFromRequest,
   isAccountSuperAdmin,
 } from "@/lib/server-permissions";
-import { canActorAccessEntry, getBackupCodes, getVaultEntryById } from "@/lib/vault-store";
+import { canActorAccessEntry, getBackupCodes, getVaultEntryById, isActorEntryCreator } from "@/lib/vault-store";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,10 @@ export async function GET(req: Request, context: Ctx) {
   }
 
   if (actor.role !== "admin" && !isAccountSuperAdmin(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const isCreator = await isActorEntryCreator(actor, id);
+    if (!isCreator) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const codes = await getBackupCodes(totpId);

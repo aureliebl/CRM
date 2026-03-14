@@ -855,6 +855,8 @@ export default function VaultPage() {
 
   const renderDetailModal = () => {
     if (!selectedEntry) return null;
+    const isEntryCreator = actor?.id === selectedEntry.createdBy;
+    const canManageEntry = isAdmin || isEntryCreator;
     return (
       <div>
         {/* Service header */}
@@ -954,7 +956,7 @@ export default function VaultPage() {
                 <button onClick={() => copyToClipboard(totpCodes[totp.id] || "", `totp_${totp.id}`)} style={copyBtnStyle}>
                   <MaterialSymbol name={copiedField === `totp_${totp.id}` ? "check" : "content_copy"} size={16} />
                 </button>
-                {isAdmin && (
+                {canManageEntry && (
                   <button onClick={() => openBackupCodes(totp.id)} style={{ ...copyBtnStyle, fontSize: 11 }}>
                     <MaterialSymbol name="vpn_key" size={16} />
                   </button>
@@ -966,12 +968,12 @@ export default function VaultPage() {
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", borderTop: "1px solid var(--border-color)", paddingTop: 14 }}>
-          {isAdmin && (
+          {canManageEntry && (
             <button onClick={startAddTotp} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="add" size={16} /> {t.addTotp}
             </button>
           )}
-          {isAdmin && (
+          {canManageEntry && (
             <button onClick={openEdit} className="admin-btn" style={{ fontSize: 13, gap: 4 }}>
               <MaterialSymbol name="edit" size={16} /> {t.edit}
             </button>
