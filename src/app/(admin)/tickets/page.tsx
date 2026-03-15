@@ -934,7 +934,7 @@ function TicketDetailView({
       const res = await fetch(`/api/tickets/${card.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: commentText.trim() || " " }),
+        body: JSON.stringify({ body: commentText.trim() || "📎" }),
       });
       if (res.ok) {
         const newComment = await res.json();
@@ -1046,7 +1046,7 @@ function TicketDetailView({
               {cardAttachments.map((att) => (
                 <div key={att.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-color)" }}>
                   <img
-                    src={`/api/tickets/attachments/${att.id}`}
+                    src={att.src}
                     alt={att.fileName}
                     style={{ display: "block", maxWidth: 200, maxHeight: 150, objectFit: "cover" }}
                   />
@@ -1104,7 +1104,7 @@ function TicketDetailView({
                         {commentAttachments.map((att) => (
                           <div key={att.id} style={{ position: "relative", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color)" }}>
                             <img
-                              src={`/api/tickets/attachments/${att.id}`}
+                              src={att.src}
                               alt={att.fileName}
                               style={{ display: "block", maxWidth: 180, maxHeight: 120, objectFit: "cover" }}
                             />
