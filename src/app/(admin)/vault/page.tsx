@@ -122,6 +122,8 @@ const labels = {
     autoShareInfo: "Partage automatique: votre groupe + admins/super-admins",
     saveFailed: "Échec de l'enregistrement",
     totpSaveFailed: "L'entrée a été créée mais le TOTP n'a pas pu être ajouté. Vous pouvez l'ajouter depuis la vue détaillée.",
+    totpInvalidCode: "Code TOTP invalide",
+    totpInvalidSecret: "Secret TOTP invalide",
     passwordHiddenByPolicy: "Mot de passe masqué (visible uniquement par le créateur).",
     totpOptionalAtSave: "Secret TOTP (optionnel à la création)",
     totpConfigured: "TOTP configuré",
@@ -180,6 +182,8 @@ const labels = {
     autoShareInfo: "Auto-shared: your group + admins/super-admins",
     saveFailed: "Save failed",
     totpSaveFailed: "Entry was created but TOTP could not be added. You can add it from the detail view.",
+    totpInvalidCode: "Invalid TOTP code",
+    totpInvalidSecret: "Invalid TOTP secret",
     passwordHiddenByPolicy: "Password hidden (visible only to creator).",
     totpOptionalAtSave: "TOTP secret (optional on save)",
     totpConfigured: "TOTP configured",
@@ -314,6 +318,8 @@ export default function VaultPage() {
   const [totpVerifyCode, setTotpVerifyCode] = useState("");
   const [totpExpectedCode, setTotpExpectedCode] = useState("");
   const [newBackupCodes, setNewBackupCodes] = useState<string[] | null>(null);
+  const [totpSaving, setTotpSaving] = useState(false);
+  const [totpError, setTotpError] = useState<string | null>(null);
 
   // Backup codes view state
   const [viewBackupCodes, setViewBackupCodes] = useState<BackupCode[]>([]);
@@ -644,21 +650,44 @@ export default function VaultPage() {
     setTotpVerifyCode("");
     setTotpExpectedCode("");
     setNewBackupCodes(null);
+    setTotpSaving(false);
+    setTotpError(null);
     setModalView("add-totp");
   }, []);
 
   const handleTotpVerify = useCallback(async () => {
-    if (!totpSecret || totpSecret.length < 16) return;
+    const cleanedSecret = totpSecret.replace(/\s/g, "").toUpperCase();
+    if (!cleanedSecret || cleanedSecret.length < 16) {
+      setTotpError(t.totpInvalidSecret);
+      return;
+    }
+    setTotpError(null);
     try {
-      const code = await generateTotpCode(totpSecret.replace(/\s/g, "").toUpperCase());
+      const code = await generateTotpCode(cleanedSecret);
       setTotpExpectedCode(code);
       setTotpVerifyStep(true);
-    } catch { /* ignore */ }
-  }, [totpSecret]);
+    } catch {
+      setTotpError(t.totpInvalidSecret);
+    }
+  }, [totpSecret, t.totpInvalidSecret]);
 
   const handleTotpConfirm = useCallback(async () => {
-    if (totpVerifyCode !== totpExpectedCode) return;
     if (!selectedEntry) return;
+
+    const cleanedSecret = totpSecret.replace(/\s/g, "").toUpperCase();
+    if (!cleanedSecret || cleanedSecret.length < 16) {
+      setTotpError(t.totpInvalidSecret);
+      return;
+    }
+
+    const inputCode = totpVerifyCode.trim();
+    if (!inputCode || inputCode.length < 6 || inputCode !== totpExpectedCode) {
+      setTotpError(t.totpInvalidCode);
+      return;
+    }
+
+    setTotpSaving(true);
+    setTotpError(null);
 
     try {
       const res = await fetch(`/api/vault/${selectedEntry.id}/totp`, {
@@ -666,19 +695,28 @@ export default function VaultPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           label: totpLabel || "TOTP principal",
-          secret: totpSecret.replace(/\s/g, "").toUpperCase(),
+          secret: cleanedSecret,
         }),
       });
       if (res.ok) {
         const data = await res.json();
         setNewBackupCodes(data.backupCodes);
+        setTotpVerifyStep(false);
+        setTotpVerifyCode("");
         // Reload totps
         const totpRes = await fetch(`/api/vault/${selectedEntry.id}/totp`);
         if (totpRes.ok) setSelectedTotps(await totpRes.json());
         await loadEntries();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setTotpError(data?.error || t.totpSaveFailed || t.saveFailed);
       }
-    } catch { /* ignore */ }
-  }, [totpVerifyCode, totpExpectedCode, selectedEntry, totpLabel, totpSecret, loadEntries]);
+    } catch {
+      setTotpError(t.saveFailed);
+    } finally {
+      setTotpSaving(false);
+    }
+  }, [selectedEntry, totpSecret, totpVerifyCode, totpExpectedCode, totpLabel, loadEntries, t.totpInvalidCode, t.totpInvalidSecret, t.totpSaveFailed, t.saveFailed]);
 
   /* ─── Backup codes view ─── */
 
@@ -1197,21 +1235,30 @@ export default function VaultPage() {
           <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>{t.verifyCode}</p>
           <input
             value={totpVerifyCode}
-            onChange={(e) => setTotpVerifyCode(e.target.value)}
+            onChange={(e) => {
+              setTotpVerifyCode(e.target.value);
+              if (totpError) setTotpError(null);
+            }}
             style={{ ...inputStyle, fontFamily: "monospace", fontSize: 24, textAlign: "center", letterSpacing: 6 }}
             maxLength={6}
             placeholder="000000"
           />
+          {totpError && (
+            <div style={{ color: "var(--color-error, #dc2626)", fontSize: 12, margin: "8px 0 0" }}>
+              {totpError}
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <button onClick={() => setTotpVerifyStep(false)} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
-            <button
+            <AsyncButton
               onClick={handleTotpConfirm}
-              className="admin-btn-primary"
-              disabled={totpVerifyCode.length < 6}
+              variant="primary"
+              isLoading={totpSaving}
+              disabled={totpSaving || totpVerifyCode.trim().length < 6}
               style={{ fontSize: 13 }}
             >
-              {t.verify}
-            </button>
+              {t.save}
+            </AsyncButton>
           </div>
         </div>
       );
@@ -1248,21 +1295,30 @@ export default function VaultPage() {
         <label style={labelStyle}>{t.totpSecret} *</label>
         <input
           value={totpSecret}
-          onChange={(e) => setTotpSecret(e.target.value)}
+          onChange={(e) => {
+            setTotpSecret(e.target.value);
+            if (totpError) setTotpError(null);
+          }}
           style={{ ...inputStyle, fontFamily: "monospace" }}
           placeholder="JBSWY3DPEHPK3PXP..."
         />
 
+        {totpError && (
+          <div style={{ color: "var(--color-error, #dc2626)", fontSize: 12, margin: "-4px 0 8px" }}>
+            {totpError}
+          </div>
+        )}
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button onClick={() => setModalView("detail")} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
-          <button
+          <AsyncButton
             onClick={handleTotpVerify}
-            className="admin-btn-primary"
-            disabled={!totpSecret || totpSecret.length < 16}
+            variant="primary"
+            disabled={totpSaving || !totpSecret || totpSecret.replace(/\s/g, "").length < 16}
             style={{ fontSize: 13 }}
           >
             {t.verify}
-          </button>
+          </AsyncButton>
         </div>
       </div>
     );
