@@ -51,6 +51,9 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   headers.delete("referer");
   headers.delete("cookie");
   headers.delete("authorization");
+  // Prevent upstream from compressing the response so the SSE stream can
+  // be forwarded to the client without re-encoding.
+  headers.delete("accept-encoding");
 
   const flowiseApiKey = process.env.FLOWISE_API_KEY?.trim();
   const flowiseAuthorization = process.env.FLOWISE_AUTHORIZATION?.trim();
@@ -134,6 +137,15 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   const responseHeaders = new Headers(upstreamRes.headers);
   responseHeaders.delete("content-encoding");
   responseHeaders.delete("content-length");
+
+  // Ensure SSE / streaming responses are never buffered by reverse-proxies
+  // (Vercel, nginx, Cloudflare, etc.) and are not cached.
+  const ct = upstreamRes.headers.get("content-type") ?? "";
+  if (ct.startsWith("text/event-stream")) {
+    responseHeaders.set("X-Accel-Buffering", "no");
+    responseHeaders.set("Cache-Control", "no-cache, no-transform");
+    responseHeaders.set("Connection", "keep-alive");
+  }
 
   return new Response(upstreamRes.body, {
     status: upstreamRes.status,
