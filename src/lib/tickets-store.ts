@@ -92,6 +92,22 @@ async function ensurePostgresSchema() {
     )
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_comments_card ON ticket_comments(card_id)`);
+
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS ticket_attachments (
+      id TEXT PRIMARY KEY,
+      card_id TEXT NOT NULL,
+      comment_id TEXT,
+      uploader_id TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      content_bytes BYTEA,
+      created_at TEXT NOT NULL
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_attachments_card ON ticket_attachments(card_id)`);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS idx_ticket_attachments_comment ON ticket_attachments(comment_id)`);
 }
 
 async function ensurePostgresReady() {
@@ -146,6 +162,17 @@ export interface TicketComment {
   cardId: string;
   authorId: string;
   body: string;
+  createdAt: string;
+}
+
+export interface TicketAttachment {
+  id: string;
+  cardId: string;
+  commentId: string | null;
+  uploaderId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
   createdAt: string;
 }
 
@@ -346,6 +373,7 @@ export async function updateCard(
 
 export async function deleteCard(cardId: string): Promise<void> {
   await ensurePostgresReady();
+  await pgPool.query("DELETE FROM ticket_attachments WHERE card_id = $1", [cardId]);
   await pgPool.query("DELETE FROM ticket_comments WHERE card_id = $1", [cardId]);
   await pgPool.query("DELETE FROM ticket_cards WHERE id = $1", [cardId]);
 }
@@ -484,4 +512,78 @@ export async function getCommentCountsByBoardId(boardId: string): Promise<Record
     counts[String(row.card_id)] = Number(row.cnt);
   }
   return counts;
+}
+
+/* ─────────── Attachments ─────────── */
+
+function parseAttachmentRow(row: Record<string, unknown>): TicketAttachment {
+  return {
+    id: String(row.id ?? ""),
+    cardId: String(row.card_id ?? ""),
+    commentId: row.comment_id ? String(row.comment_id) : null,
+    uploaderId: String(row.uploader_id ?? ""),
+    fileName: String(row.file_name ?? ""),
+    mimeType: String(row.mime_type ?? ""),
+    sizeBytes: Number(row.size_bytes ?? 0),
+    createdAt: String(row.created_at ?? ""),
+  };
+}
+
+export async function createAttachment(input: {
+  cardId: string;
+  commentId?: string | null;
+  uploaderId: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  contentBytes: Buffer;
+}): Promise<TicketAttachment> {
+  await ensurePostgresReady();
+  const id = genId("ta");
+  const ts = now();
+
+  await pgPool.query(
+    `INSERT INTO ticket_attachments (id, card_id, comment_id, uploader_id, file_name, mime_type, size_bytes, content_bytes, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [id, input.cardId, input.commentId || null, input.uploaderId, input.fileName, input.mimeType, input.sizeBytes, input.contentBytes, ts]
+  );
+
+  return {
+    id,
+    cardId: input.cardId,
+    commentId: input.commentId || null,
+    uploaderId: input.uploaderId,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    sizeBytes: input.sizeBytes,
+    createdAt: ts,
+  };
+}
+
+export async function getAttachmentsByCardId(cardId: string): Promise<TicketAttachment[]> {
+  await ensurePostgresReady();
+  const result = await pgPool.query(
+    "SELECT id, card_id, comment_id, uploader_id, file_name, mime_type, size_bytes, created_at FROM ticket_attachments WHERE card_id = $1 ORDER BY created_at ASC",
+    [cardId]
+  );
+  return result.rows.map(parseAttachmentRow);
+}
+
+export async function getAttachmentBinary(attachmentId: string): Promise<{ attachment: TicketAttachment; contentBytes: Buffer } | null> {
+  await ensurePostgresReady();
+  const result = await pgPool.query(
+    "SELECT * FROM ticket_attachments WHERE id = $1",
+    [attachmentId]
+  );
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    attachment: parseAttachmentRow(row),
+    contentBytes: row.content_bytes ? Buffer.from(row.content_bytes) : Buffer.alloc(0),
+  };
+}
+
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  await ensurePostgresReady();
+  await pgPool.query("DELETE FROM ticket_attachments WHERE id = $1", [attachmentId]);
 }

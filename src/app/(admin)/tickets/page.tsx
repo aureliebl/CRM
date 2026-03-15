@@ -46,6 +46,17 @@ interface TicketComment {
   createdAt: string;
 }
 
+interface TicketAttachment {
+  id: string;
+  cardId: string;
+  commentId: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  src: string;
+}
+
 interface TicketUser {
   id: string;
   firstName: string | null;
@@ -139,6 +150,10 @@ const labels = {
     commentPlaceholder: "Écrire un commentaire… (Ctrl+Entrée pour envoyer)",
     send: "Envoyer",
     noComments: "Aucun commentaire",
+    attachments: "Pièces jointes",
+    addImage: "Ajouter une image",
+    noAttachments: "Aucune pièce jointe",
+    uploadingImages: "Envoi des images…",
   },
   en: {
     title: "Tickets",
@@ -191,6 +206,10 @@ const labels = {
     commentPlaceholder: "Write a comment… (Ctrl+Enter to send)",
     send: "Send",
     noComments: "No comments",
+    attachments: "Attachments",
+    addImage: "Add image",
+    noAttachments: "No attachments",
+    uploadingImages: "Uploading images…",
   },
 };
 
@@ -303,6 +322,7 @@ export default function TicketsPage() {
   const [formAssigneeId, setFormAssigneeId] = useState("");
   const [formFollowerIds, setFormFollowerIds] = useState<string[]>([]);
   const [formSaving, setFormSaving] = useState(false);
+  const [formFiles, setFormFiles] = useState<File[]>([]);
 
   // API tokens
   const [tokens, setTokens] = useState<ApiToken[]>([]);
@@ -403,6 +423,7 @@ export default function TicketsPage() {
     setFormColumn("nouveau");
     setFormAssigneeId("");
     setFormFollowerIds([]);
+    setFormFiles([]);
     setModalView("create");
   }, []);
 
@@ -419,6 +440,7 @@ export default function TicketsPage() {
     setFormColumn(selectedCard.columnKey);
     setFormAssigneeId(selectedCard.assigneeId || "");
     setFormFollowerIds(selectedCard.followerIds || []);
+    setFormFiles([]);
     setModalView("edit");
   }, [selectedCard]);
 
@@ -435,6 +457,8 @@ export default function TicketsPage() {
         followerIds: formFollowerIds,
       };
 
+      let cardId: string | null = null;
+
       if (modalView === "create") {
         const res = await fetch("/api/tickets", {
           method: "POST",
@@ -442,8 +466,8 @@ export default function TicketsPage() {
           body: JSON.stringify(body),
         });
         if (res.ok) {
-          await loadBoard();
-          closeModal();
+          const created = await res.json();
+          cardId = created.id;
         }
       } else if (modalView === "edit" && selectedCard) {
         const res = await fetch(`/api/tickets/${selectedCard.id}`, {
@@ -452,15 +476,35 @@ export default function TicketsPage() {
           body: JSON.stringify(body),
         });
         if (res.ok) {
-          await loadBoard();
-          const updated = await res.json();
-          setSelectedCard(updated);
+          cardId = selectedCard.id;
+        }
+      }
+
+      // Upload attached images
+      if (cardId && formFiles.length > 0) {
+        for (const file of formFiles) {
+          const fd = new FormData();
+          fd.append("file", file);
+          await fetch(`/api/tickets/${cardId}/attachments`, { method: "POST", body: fd });
+        }
+      }
+
+      if (cardId) {
+        await loadBoard();
+        if (modalView === "create") {
+          closeModal();
+        } else if (selectedCard) {
+          const updatedRes = await fetch(`/api/tickets/${cardId}`);
+          if (updatedRes.ok) {
+            const updated = await updatedRes.json();
+            setSelectedCard(updated);
+          }
           setModalView("detail");
         }
       }
     } catch { /* ignore */ }
     setFormSaving(false);
-  }, [modalView, selectedCard, formTitle, formDesc, formVars, formColumn, formAssigneeId, formFollowerIds, loadBoard, closeModal]);
+  }, [modalView, selectedCard, formTitle, formDesc, formVars, formColumn, formAssigneeId, formFollowerIds, formFiles, loadBoard, closeModal]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedCard) return;
@@ -822,7 +866,7 @@ export default function TicketsPage() {
             </div>
 
             {modalView === "detail" && selectedCard && <TicketDetailView card={selectedCard} locale={locale} t={t} columns={columns} colLabel={colLabel} isAdmin={isAdmin} isSuperAdmin={isSuperAdmin} openEdit={openEdit} handleDelete={handleDelete} handleMoveCard={handleMoveCard} loadBoard={loadBoard} usersById={usersById} />}
-            {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, formAssigneeId, setFormAssigneeId, formFollowerIds, setFormFollowerIds, users, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView)}
+            {(modalView === "create" || modalView === "edit") && renderForm(t, columns, colLabel, locale, formTitle, setFormTitle, formDesc, setFormDesc, formVars, formColumn, setFormColumn, formAssigneeId, setFormAssigneeId, formFollowerIds, setFormFollowerIds, users, addVariable, updateVariable, removeVariable, formSaving, handleSave, closeModal, modalView, formFiles, setFormFiles)}
             {modalView === "tokens" && renderTokens(t, tokens, newTokenLabel, setNewTokenLabel, newTokenValue, handleCreateToken, handleDeactivateToken, copyToClipboard, copiedField)}
             {modalView === "flowise" && renderFlowiseChat(t, users, flowiseCreatorId, setFlowiseCreatorId)}
           </div>
@@ -864,6 +908,15 @@ function TicketDetailView({
   const [comments, setComments] = useState<TicketComment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [commentSending, setCommentSending] = useState(false);
+  const [commentFiles, setCommentFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<TicketAttachment[]>([]);
+
+  const loadAttachments = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tickets/${card.id}/attachments`);
+      if (res.ok) setAttachments(await res.json());
+    } catch { /* ignore */ }
+  }, [card.id]);
 
   const loadComments = useCallback(async () => {
     try {
@@ -872,25 +925,44 @@ function TicketDetailView({
     } catch { /* ignore */ }
   }, [card.id]);
 
-  useEffect(() => { loadComments(); }, [loadComments]);
+  useEffect(() => { loadComments(); loadAttachments(); }, [loadComments, loadAttachments]);
 
   const handleAddComment = useCallback(async () => {
-    if (!commentText.trim()) return;
+    if (!commentText.trim() && commentFiles.length === 0) return;
     setCommentSending(true);
     try {
       const res = await fetch(`/api/tickets/${card.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: commentText.trim() }),
+        body: JSON.stringify({ body: commentText.trim() || "📎" }),
       });
       if (res.ok) {
+        const newComment = await res.json();
+        // Upload comment images
+        if (commentFiles.length > 0) {
+          for (const file of commentFiles) {
+            const fd = new FormData();
+            fd.append("file", file);
+            fd.append("commentId", newComment.id);
+            await fetch(`/api/tickets/${card.id}/attachments`, { method: "POST", body: fd });
+          }
+        }
         setCommentText("");
+        setCommentFiles([]);
         await loadComments();
+        await loadAttachments();
         loadBoard(); // refresh counts
       }
     } catch { /* ignore */ }
     setCommentSending(false);
-  }, [card.id, commentText, loadComments, loadBoard]);
+  }, [card.id, commentText, commentFiles, loadComments, loadAttachments, loadBoard]);
+
+  const handleDeleteAttachment = useCallback(async (attachmentId: string) => {
+    try {
+      await fetch(`/api/tickets/attachments/${attachmentId}`, { method: "DELETE" });
+      await loadAttachments();
+    } catch { /* ignore */ }
+  }, [loadAttachments]);
 
   const currentCol = columns.find((c) => c.key === card.columnKey);
 
@@ -961,6 +1033,37 @@ function TicketDetailView({
         </div>
       </div>
 
+      {/* Ticket Attachments (card-level, no commentId) */}
+      {(() => {
+        const cardAttachments = attachments.filter((a) => !a.commentId);
+        return cardAttachments.length > 0 ? (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+              <MaterialSymbol name="image" size={14} />
+              {t.attachments} ({cardAttachments.length})
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {cardAttachments.map((att) => (
+                <div key={att.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-color)" }}>
+                  <img
+                    src={att.src}
+                    alt={att.fileName}
+                    style={{ display: "block", maxWidth: 200, maxHeight: 150, objectFit: "cover" }}
+                  />
+                  <button
+                    onClick={() => handleDeleteAttachment(att.id)}
+                    title={t.delete}
+                    style={{ position: "absolute", top: 4, right: 4, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+                  >
+                    <MaterialSymbol name="close" size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null;
+      })()}
+
       {/* Comments */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
@@ -978,6 +1081,7 @@ function TicketDetailView({
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
             {comments.map((comment) => {
               const author = usersById[comment.authorId];
+              const commentAttachments = attachments.filter((a) => a.commentId === comment.id);
               return (
                 <div key={comment.id} style={{ display: "flex", gap: 10, padding: "10px 14px", background: "var(--surface-secondary, #2a2a3d)", borderRadius: 8 }}>
                   <div style={{ flexShrink: 0, paddingTop: 2 }}>
@@ -995,6 +1099,26 @@ function TicketDetailView({
                     <div style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "pre-wrap", overflowWrap: "break-word" }}>
                       {comment.body}
                     </div>
+                    {commentAttachments.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        {commentAttachments.map((att) => (
+                          <div key={att.id} style={{ position: "relative", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color)" }}>
+                            <img
+                              src={att.src}
+                              alt={att.fileName}
+                              style={{ display: "block", maxWidth: 180, maxHeight: 120, objectFit: "cover" }}
+                            />
+                            <button
+                              onClick={() => handleDeleteAttachment(att.id)}
+                              title={t.delete}
+                              style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+                            >
+                              <MaterialSymbol name="close" size={12} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1003,34 +1127,73 @@ function TicketDetailView({
         )}
 
         {/* Add comment form */}
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-          <textarea
-            value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
-            placeholder={t.commentPlaceholder}
-            rows={2}
-            style={{ ...inputStyle, marginBottom: 0, flex: 1, resize: "vertical", fontSize: 13 }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                handleAddComment();
-              }
-            }}
-          />
-          <button
-            onClick={handleAddComment}
-            disabled={commentSending || !commentText.trim()}
-            className="admin-btn"
-            style={{
-              fontSize: 12,
-              gap: 4,
-              padding: "8px 14px",
-              opacity: commentSending || !commentText.trim() ? 0.5 : 1,
-              cursor: commentSending || !commentText.trim() ? "not-allowed" : "pointer",
-            }}
-          >
-            <MaterialSymbol name="send" size={14} /> {t.send}
-          </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              placeholder={t.commentPlaceholder}
+              rows={2}
+              style={{ ...inputStyle, marginBottom: 0, flex: 1, resize: "vertical", fontSize: 13 }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleAddComment();
+                }
+              }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label
+                className="admin-btn"
+                style={{ fontSize: 12, gap: 4, padding: "8px 10px", cursor: "pointer", display: "inline-flex", alignItems: "center" }}
+              >
+                <MaterialSymbol name="image" size={14} />
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    if (e.target.files) setCommentFiles((prev) => [...prev, ...Array.from(e.target.files!)]);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                onClick={handleAddComment}
+                disabled={commentSending || (!commentText.trim() && commentFiles.length === 0)}
+                className="admin-btn"
+                style={{
+                  fontSize: 12,
+                  gap: 4,
+                  padding: "8px 14px",
+                  opacity: commentSending || (!commentText.trim() && commentFiles.length === 0) ? 0.5 : 1,
+                  cursor: commentSending || (!commentText.trim() && commentFiles.length === 0) ? "not-allowed" : "pointer",
+                }}
+              >
+                <MaterialSymbol name="send" size={14} /> {t.send}
+              </button>
+            </div>
+          </div>
+          {commentFiles.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {commentFiles.map((file, i) => (
+                <div key={i} style={{ position: "relative", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color)" }}>
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt={file.name}
+                    style={{ display: "block", width: 60, height: 60, objectFit: "cover" }}
+                  />
+                  <button
+                    onClick={() => setCommentFiles((prev) => prev.filter((_, j) => j !== i))}
+                    style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+                  >
+                    <MaterialSymbol name="close" size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1084,6 +1247,8 @@ function renderForm(
   handleSave: () => void,
   closeModal: () => void,
   modalView: string,
+  formFiles: File[],
+  setFormFiles: (v: File[] | ((prev: File[]) => File[])) => void,
 ) {
   return (
     <div>
@@ -1218,6 +1383,46 @@ function renderForm(
           </button>
         </div>
       ))}
+
+      {/* Image Attachments */}
+      <label style={labelStyle}>{t.attachments}</label>
+      <div style={{ marginBottom: 14 }}>
+        <label
+          className="admin-btn"
+          style={{ fontSize: 12, gap: 4, padding: "6px 12px", cursor: "pointer", display: "inline-flex", alignItems: "center" }}
+        >
+          <MaterialSymbol name="image" size={14} /> {t.addImage}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => {
+              if (e.target.files) setFormFiles((prev: File[]) => [...prev, ...Array.from(e.target.files!)]);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {formFiles.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            {formFiles.map((file, i) => (
+              <div key={i} style={{ position: "relative", borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-color)" }}>
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt={file.name}
+                  style={{ display: "block", width: 80, height: 80, objectFit: "cover" }}
+                />
+                <button
+                  onClick={() => setFormFiles((prev: File[]) => prev.filter((_, j) => j !== i))}
+                  style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#fff" }}
+                >
+                  <MaterialSymbol name="close" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
         <button onClick={closeModal} className="admin-btn" style={{ fontSize: 13 }}>{t.cancel}</button>
