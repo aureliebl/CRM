@@ -73,9 +73,9 @@ export async function PUT(req: Request, context: Ctx) {
 
     // Non-admins cannot set adminOnly and their groups are restricted to their own
     const effectiveAdminOnly = actorCanUseAdminOnly ? adminOnly : undefined;
-    if (!actorCanUseAdminOnly && normalizedGroupIds !== undefined) {
+    if (!actorCanUseAdminOnly && !passwordOwnerOnly && normalizedGroupIds !== undefined) {
       const actorGroupId = await getGroupIdForAccount(actor.id);
-      normalizedGroupIds = !passwordOwnerOnly && actorGroupId ? [actorGroupId] : [];
+      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
     }
 
     if (effectiveAdminOnly === false && !passwordOwnerOnly && normalizedGroupIds && normalizedGroupIds.length === 0) {

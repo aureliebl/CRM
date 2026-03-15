@@ -64,8 +64,8 @@ export async function POST(req: Request) {
 
     const actorGroupId = await getGroupIdForAccount(actor.id);
 
-    if (!actorCanUseAdminOnly) {
-      normalizedGroupIds = !passwordOwnerOnlyFlag && actorGroupId ? [actorGroupId] : [];
+    if (!actorCanUseAdminOnly && !passwordOwnerOnlyFlag) {
+      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
     }
 
     if (!adminOnlyFlag && !passwordOwnerOnlyFlag && normalizedGroupIds.length === 0) {
