@@ -66,14 +66,19 @@ export async function PUT(req: Request, context: Ctx) {
       ? groupIds.map((value) => String(value || "").trim()).filter(Boolean)
       : undefined;
 
+    // When passwordOwnerOnly is set, the entry is private — no group association
+    if (passwordOwnerOnly === true && normalizedGroupIds !== undefined) {
+      normalizedGroupIds = [];
+    }
+
     // Non-admins cannot set adminOnly and their groups are restricted to their own
     const effectiveAdminOnly = actorCanUseAdminOnly ? adminOnly : undefined;
     if (!actorCanUseAdminOnly && normalizedGroupIds !== undefined) {
       const actorGroupId = await getGroupIdForAccount(actor.id);
-      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
+      normalizedGroupIds = !passwordOwnerOnly && actorGroupId ? [actorGroupId] : [];
     }
 
-    if (effectiveAdminOnly === false && normalizedGroupIds && normalizedGroupIds.length === 0) {
+    if (effectiveAdminOnly === false && !passwordOwnerOnly && normalizedGroupIds && normalizedGroupIds.length === 0) {
       const fallbackGroupId = await getGroupIdForAccount(actor.id);
       if (fallbackGroupId) normalizedGroupIds = [fallbackGroupId];
     }

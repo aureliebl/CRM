@@ -89,6 +89,7 @@ const labels = {
     groups: "Groupes autorisés",
     adminOnly: "Admin only",
     ownerOnlyPassword: "Mot de passe visible uniquement par le créateur",
+    privateBadge: "Privé",
     totp: "TOTP",
     copied: "Copié !",
     copy: "Copier",
@@ -149,6 +150,7 @@ const labels = {
     groups: "Authorized groups",
     adminOnly: "Admin only",
     ownerOnlyPassword: "Password visible only to creator",
+    privateBadge: "Private",
     totp: "TOTP",
     copied: "Copied!",
     copy: "Copy",
@@ -872,19 +874,32 @@ export default function VaultPage() {
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-        {entry.groupIds.map((gid) => (
+        {entry.passwordOwnerOnly && entry.groupIds.length === 0 ? (
           <span
-            key={gid}
             style={{
               fontSize: 11, padding: "2px 8px", borderRadius: 12,
-              background: "var(--badge-blue-bg, #dbeafe)",
-              color: "var(--badge-blue-text, #1e40af)",
+              background: "var(--badge-purple-bg, #f3e8ff)",
+              color: "var(--badge-purple-text, #6b21a8)",
               fontWeight: 600,
             }}
           >
-            {groupNameMap[gid] || gid}
+            {t.privateBadge}
           </span>
-        ))}
+        ) : (
+          entry.groupIds.map((gid) => (
+            <span
+              key={gid}
+              style={{
+                fontSize: 11, padding: "2px 8px", borderRadius: 12,
+                background: "var(--badge-blue-bg, #dbeafe)",
+                color: "var(--badge-blue-text, #1e40af)",
+                fontWeight: 600,
+              }}
+            >
+              {groupNameMap[gid] || gid}
+            </span>
+          ))
+        )}
         {entry.hasTotp && (
           <span
             style={{
@@ -984,11 +999,17 @@ export default function VaultPage() {
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 6 }}>{t.groups}</div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {selectedEntry.groupIds.map((gid) => (
-              <span key={gid} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--badge-blue-bg, #dbeafe)", color: "var(--badge-blue-text, #1e40af)", fontWeight: 600 }}>
-                {groupNameMap[gid] || gid}
+            {selectedEntry.passwordOwnerOnly && selectedEntry.groupIds.length === 0 ? (
+              <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--badge-purple-bg, #f3e8ff)", color: "var(--badge-purple-text, #6b21a8)", fontWeight: 600 }}>
+                {t.privateBadge}
               </span>
-            ))}
+            ) : (
+              selectedEntry.groupIds.map((gid) => (
+                <span key={gid} style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--badge-blue-bg, #dbeafe)", color: "var(--badge-blue-text, #1e40af)", fontWeight: 600 }}>
+                  {groupNameMap[gid] || gid}
+                </span>
+              ))
+            )}
             {selectedEntry.adminOnly && (
               <span style={{ fontSize: 12, padding: "3px 10px", borderRadius: 12, background: "var(--badge-orange-bg, #ffedd5)", color: "var(--badge-orange-text, #9a3412)", fontWeight: 600 }}>
                 {t.adminOnly}
@@ -1093,7 +1114,7 @@ export default function VaultPage() {
       {/* Groups */}
       <label style={labelStyle}>{t.groups} *</label>
       {canManageGroupSelection ? (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20, opacity: formPasswordOwnerOnly ? 0.5 : 1, pointerEvents: formPasswordOwnerOnly ? "none" : "auto" }}>
           <button
             onClick={() =>
               setFormAdminOnly((value) => {
@@ -1146,7 +1167,11 @@ export default function VaultPage() {
       <label style={labelStyle}>{t.ownerOnlyPassword}</label>
       <div style={{ marginBottom: 14 }}>
         <button
-          onClick={() => setFormPasswordOwnerOnly((v) => !v)}
+          onClick={() => setFormPasswordOwnerOnly((v) => {
+            const next = !v;
+            if (next) { setFormGroupIds([]); setFormAdminOnly(false); }
+            return next;
+          })}
           style={{
             padding: "6px 12px", borderRadius: 10, fontSize: 12, fontWeight: 600, cursor: "pointer",
             border: formPasswordOwnerOnly ? "2px solid var(--accent-primary)" : "1px solid var(--border-color)",

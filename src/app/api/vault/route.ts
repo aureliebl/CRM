@@ -52,21 +52,27 @@ export async function POST(req: Request) {
     }
 
     const adminOnlyFlag = actorCanUseAdminOnly ? Boolean(adminOnly) : false;
+    const passwordOwnerOnlyFlag = Boolean(passwordOwnerOnly);
     let normalizedGroupIds = groupIds
       .map((value) => String(value || "").trim())
       .filter(Boolean);
 
+    // When passwordOwnerOnly is set, the entry is private — no group association
+    if (passwordOwnerOnlyFlag) {
+      normalizedGroupIds = [];
+    }
+
     const actorGroupId = await getGroupIdForAccount(actor.id);
 
     if (!actorCanUseAdminOnly) {
-      normalizedGroupIds = actorGroupId ? [actorGroupId] : [];
+      normalizedGroupIds = !passwordOwnerOnlyFlag && actorGroupId ? [actorGroupId] : [];
     }
 
-    if (!adminOnlyFlag && normalizedGroupIds.length === 0) {
+    if (!adminOnlyFlag && !passwordOwnerOnlyFlag && normalizedGroupIds.length === 0) {
       if (actorGroupId) normalizedGroupIds = [actorGroupId];
     }
 
-    if (!adminOnlyFlag && normalizedGroupIds.length === 0) {
+    if (!adminOnlyFlag && !passwordOwnerOnlyFlag && normalizedGroupIds.length === 0) {
       return NextResponse.json(
         { error: "At least one groupId is required" },
         { status: 400 }
@@ -81,7 +87,7 @@ export async function POST(req: Request) {
       notes: notes || null,
       groupIds: normalizedGroupIds,
       adminOnly: adminOnlyFlag,
-      passwordOwnerOnly: Boolean(passwordOwnerOnly),
+      passwordOwnerOnly: passwordOwnerOnlyFlag,
       createdBy: actor.id,
     });
 
