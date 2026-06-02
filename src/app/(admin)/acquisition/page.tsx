@@ -207,20 +207,21 @@ function estimateLeadPrice(selection: LeadModalSelection): number | null {
 }
 
 function computeLeadQuality(selection: LeadModalSelection, unpaidCount: number, hasConversations: boolean, fr: boolean): LeadQuality {
-  const row = selection.row;
   let score = 42;
 
-  if (row.fullName) score += 10;
-  if (row.email) score += 9;
-  if (row.phone) score += 9;
+  if (selection.row.fullName) score += 10;
+  if (selection.row.email) score += 9;
+  if (selection.row.phone) score += 9;
   if (hasConversations) score += 8;
 
   if (selection.kind === "unfinished") {
+    const row = selection.row;
     const progressRatio = row.totalSteps > 0 ? row.step / row.totalSteps : 0;
     score += Math.round(progressRatio * 20);
     if (row.source === "landing-page" || row.source === "google-ads") score += 6;
     if (row.source === "parrainage") score += 9;
   } else {
+    const row = selection.row;
     if (row.status === "accepted") score += 18;
     else if (row.status === "sent") score += 11;
     else if (row.status === "new") score += 8;
@@ -230,7 +231,7 @@ function computeLeadQuality(selection: LeadModalSelection, unpaidCount: number, 
     if (row.message) score += 6;
   }
 
-  if (row.assignedOperatorId) score += 5;
+  if (selection.row.assignedOperatorId) score += 5;
   if (unpaidCount > 0) score -= Math.min(25, unpaidCount * 10);
 
   const normalized = Math.max(0, Math.min(100, score));
