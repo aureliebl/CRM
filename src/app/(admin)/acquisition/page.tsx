@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getUnfinishedBookings, getQuoteRequests } from "@/lib/mock/crm";
+import {
+  getConversationsByClient,
+  getQuoteRequests,
+  getUnfinishedBookings,
+  getUnpaidInvoicesByClient,
+} from "@/lib/mock/crm";
 import { centers, boxTypes } from "@/lib/mock/centers-and-pricing";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
@@ -43,6 +48,25 @@ type AcquisitionBoardState = {
   unfinished: Record<string, { step?: number; assignedOperatorId?: string | null }>;
   quotes: Record<string, { status?: QuoteStatus; assignedOperatorId?: string | null }>;
   operatorAbsences: Record<string, string[]>;
+};
+
+type LeadModalSelection =
+  | { kind: "unfinished"; row: UnfinishedBookingRow }
+  | { kind: "quote"; row: QuoteRow };
+
+type LeadQuality = {
+  label: string;
+  score: number;
+  bg: string;
+  text: string;
+};
+
+type LeadConversationItem = {
+  id: string;
+  channel: "email" | "sms";
+  direction: "inbound" | "outbound";
+  content: string;
+  timestamp: string;
 };
 
 const STORAGE_KEY = "acquisition_settings_v1";
@@ -120,6 +144,166 @@ function getInitialQuoteRows(fr: boolean): QuoteRow[] {
   });
 }
 
+function formatDateLabel(value: string, fr: boolean) {
+  return new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function formatDateTimeLabel(value: string, fr: boolean) {
+  return new Date(value).toLocaleDateString(fr ? "fr-FR" : "en-US", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function resolveLeadClientId(selection: LeadModalSelection, quoteRows: QuoteRow[]): string | null {
+  if (selection.kind === "quote" && selection.row.clientId) return selection.row.clientId;
+
+  const email = String(selection.row.email ?? "")
+    .trim()
+    .toLowerCase();
+  if (!email) return null;
+
+  const match = quoteRows.find(
+    (quote) =>
+      !!quote.clientId &&
+      String(quote.email ?? "")
+        .trim()
+        .toLowerCase() === email
+  );
+
+  return match?.clientId ?? null;
+}
+
+function estimateDesiredMoveInDate(selection: LeadModalSelection): string {
+  if (selection.kind === "quote") {
+    return new Date(new Date(selection.row.createdAt).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  return new Date(new Date(selection.row.stoppedAt).getTime() + 5 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function estimateLeadPrice(selection: LeadModalSelection): number | null {
+  if (selection.kind === "unfinished") {
+    return selection.row.price;
+  }
+
+  const row = selection.row;
+  const candidates = boxTypes.filter((boxType) => boxType.centerId === row.centerId);
+  if (candidates.length === 0) return null;
+
+  const nearest = candidates.reduce((best, current) => {
+    const bestDelta = Math.abs(best.sizeM2 - row.boxSizeWanted);
+    const currentDelta = Math.abs(current.sizeM2 - row.boxSizeWanted);
+    return currentDelta < bestDelta ? current : best;
+  }, candidates[0]);
+
+  return nearest.basePrice;
+}
+
+function computeLeadQuality(selection: LeadModalSelection, unpaidCount: number, hasConversations: boolean, fr: boolean): LeadQuality {
+  const row = selection.row;
+  let score = 42;
+
+  if (row.fullName) score += 10;
+  if (row.email) score += 9;
+  if (row.phone) score += 9;
+  if (hasConversations) score += 8;
+
+  if (selection.kind === "unfinished") {
+    const progressRatio = row.totalSteps > 0 ? row.step / row.totalSteps : 0;
+    score += Math.round(progressRatio * 20);
+    if (row.source === "landing-page" || row.source === "google-ads") score += 6;
+    if (row.source === "parrainage") score += 9;
+  } else {
+    if (row.status === "accepted") score += 18;
+    else if (row.status === "sent") score += 11;
+    else if (row.status === "new") score += 8;
+    else if (row.status === "expired") score -= 5;
+    else if (row.status === "abandoned") score -= 10;
+
+    if (row.message) score += 6;
+  }
+
+  if (row.assignedOperatorId) score += 5;
+  if (unpaidCount > 0) score -= Math.min(25, unpaidCount * 10);
+
+  const normalized = Math.max(0, Math.min(100, score));
+  if (normalized >= 75) {
+    return {
+      label: fr ? "Très chaud" : "Hot",
+      score: normalized,
+      bg: "rgba(16,185,129,0.18)",
+      text: "#047857",
+    };
+  }
+  if (normalized >= 50) {
+    return {
+      label: fr ? "Qualifié" : "Qualified",
+      score: normalized,
+      bg: "rgba(59,130,246,0.16)",
+      text: "#1d4ed8",
+    };
+  }
+  if (normalized >= 30) {
+    return {
+      label: fr ? "Tiède" : "Warm",
+      score: normalized,
+      bg: "rgba(245,158,11,0.18)",
+      text: "#b45309",
+    };
+  }
+
+  return {
+    label: fr ? "Froid" : "Cold",
+    score: normalized,
+    bg: "rgba(239,68,68,0.16)",
+    text: "#b91c1c",
+  };
+}
+
+function buildFallbackConversations(selection: LeadModalSelection, fr: boolean): LeadConversationItem[] {
+  const baseTimestamp =
+    selection.kind === "quote" ? selection.row.createdAt : selection.row.stoppedAt;
+  const outboundIntro =
+    selection.kind === "quote"
+      ? fr
+        ? "Bonjour, nous avons bien reçu votre demande de devis."
+        : "Hello, we have received your quote request."
+      : fr
+      ? "Nous avons vu que votre réservation a été interrompue. Souhaitez-vous reprendre ?"
+      : "We noticed your booking was interrupted. Would you like to resume?";
+
+  const inboundReply =
+    selection.kind === "quote"
+      ? selection.row.message || (fr ? "Merci, je suis intéressé." : "Thanks, I am interested.")
+      : fr
+      ? `Je cherche un box autour de ${selection.row.price} €.`
+      : `I am looking for a box around ${selection.row.price} €.`;
+
+  return [
+    {
+      id: `${selection.row.id}_fallback_out`,
+      channel: "email",
+      direction: "outbound",
+      content: outboundIntro,
+      timestamp: baseTimestamp,
+    },
+    {
+      id: `${selection.row.id}_fallback_in`,
+      channel: "email",
+      direction: "inbound",
+      content: inboundReply,
+      timestamp: new Date(new Date(baseTimestamp).getTime() + 2 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+}
+
 function autoAssignRows<T extends { assignedOperatorId?: string }>(
   current: T[],
   availableOperators: OperatorAccount[],
@@ -189,6 +373,7 @@ export default function AcquisitionPage() {
   const [selectedOperatorId, setSelectedOperatorId] = useState<string | null>(null);
   const [operatorFilter, setOperatorFilter] = useState<OperatorFilter>("all");
   const [boardReady, setBoardReady] = useState(false);
+  const [leadModalSelection, setLeadModalSelection] = useState<LeadModalSelection | null>(null);
   const balanceCursorRef = useRef(0);
 
   useEffect(() => {
@@ -565,6 +750,7 @@ export default function AcquisitionPage() {
               entity: row,
             })
           }
+          onOpenLeadModal={(row) => setLeadModalSelection({ kind: "unfinished", row })}
         />
       )}
       {activeTab === "quotes" && (
@@ -581,6 +767,7 @@ export default function AcquisitionPage() {
               entity: row,
             })
           }
+          onOpenLeadModal={(row) => setLeadModalSelection({ kind: "quote", row })}
         />
       )}
       {activeTab === "abandoned" && (
@@ -597,6 +784,17 @@ export default function AcquisitionPage() {
               entity: row,
             })
           }
+          onOpenLeadModal={(row) => setLeadModalSelection({ kind: "quote", row })}
+        />
+      )}
+
+      {leadModalSelection && (
+        <LeadKanbanDetailsModal
+          fr={fr}
+          selection={leadModalSelection}
+          operatorById={operatorById}
+          quoteRows={quoteRows}
+          onClose={() => setLeadModalSelection(null)}
         />
       )}
 
@@ -781,6 +979,7 @@ function UnfinishedBookingsTab({
   operatorById,
   operatorsLoading,
   onOpenDetails,
+  onOpenLeadModal,
 }: {
   fr: boolean;
   rows: UnfinishedBookingRow[];
@@ -791,8 +990,8 @@ function UnfinishedBookingsTab({
   operatorById: Map<string, OperatorAccount>;
   operatorsLoading: boolean;
   onOpenDetails: (row: UnfinishedBookingRow) => void;
+  onOpenLeadModal: (row: UnfinishedBookingRow) => void;
 }) {
-  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [openAssignMenuId, setOpenAssignMenuId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
@@ -971,11 +1170,7 @@ function UnfinishedBookingsTab({
                             if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
                             const target = event.target as HTMLElement | null;
                             if (target?.closest("button, a, input, select, textarea")) return;
-                            openPanel({
-                              panelId: "PLD_acquisition_kanban",
-                              contextKey: "acquisition.unfinished",
-                              entity: row,
-                            });
+                            onOpenLeadModal(row);
                           }}
                           onMouseEnter={() => setHoveredCardId(row.id)}
                           onMouseLeave={() => setHoveredCardId(null)}
@@ -1272,6 +1467,7 @@ function QuoteRequestsTab({
   viewMode,
   operatorFilter,
   onOpenDetails,
+  onOpenLeadModal,
 }: {
   fr: boolean;
   rows: QuoteRow[];
@@ -1279,8 +1475,8 @@ function QuoteRequestsTab({
   viewMode: ViewMode;
   operatorFilter: OperatorFilter;
   onOpenDetails: (row: QuoteRow) => void;
+  onOpenLeadModal: (row: QuoteRow) => void;
 }) {
-  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -1459,11 +1655,7 @@ function QuoteRequestsTab({
                             if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
                             const target = event.target as HTMLElement | null;
                             if (target?.closest("button, a, input, select, textarea")) return;
-                            openPanel({
-                              panelId: "PLD_acquisition_kanban",
-                              contextKey: "acquisition.quotes",
-                              entity: row,
-                            });
+                            onOpenLeadModal(row);
                           }}
                           onMouseEnter={() => setHoveredCardId(row.id)}
                           onMouseLeave={() => setHoveredCardId(null)}
@@ -1593,6 +1785,7 @@ function AbandonedQuotesTab({
   viewMode,
   operatorFilter,
   onOpenDetails,
+  onOpenLeadModal,
 }: {
   fr: boolean;
   rows: QuoteRow[];
@@ -1600,8 +1793,8 @@ function AbandonedQuotesTab({
   viewMode: ViewMode;
   operatorFilter: OperatorFilter;
   onOpenDetails: (row: QuoteRow) => void;
+  onOpenLeadModal: (row: QuoteRow) => void;
 }) {
-  const { openPanel } = useRightPanel();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
@@ -1779,11 +1972,7 @@ function AbandonedQuotesTab({
                             if (!pointer || pointer.cardId !== row.id || pointer.moved) return;
                             const target = event.target as HTMLElement | null;
                             if (target?.closest("button, a, input, select, textarea")) return;
-                            openPanel({
-                              panelId: "PLD_acquisition_kanban",
-                              contextKey: "acquisition.abandoned",
-                              entity: row,
-                            });
+                            onOpenLeadModal(row);
                           }}
                           onMouseEnter={() => setHoveredCardId(row.id)}
                           onMouseLeave={() => setHoveredCardId(null)}
@@ -1894,5 +2083,328 @@ function AbandonedQuotesTab({
         },
       ]}
     />
+  );
+}
+
+function LeadKanbanDetailsModal({
+  fr,
+  selection,
+  operatorById,
+  quoteRows,
+  onClose,
+}: {
+  fr: boolean;
+  selection: LeadModalSelection;
+  operatorById: Map<string, OperatorAccount>;
+  quoteRows: QuoteRow[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const clientId = useMemo(() => resolveLeadClientId(selection, quoteRows), [selection, quoteRows]);
+
+  const unpaidInvoices = useMemo(() => {
+    if (!clientId) return [];
+    return getUnpaidInvoicesByClient(clientId);
+  }, [clientId]);
+
+  const conversations = useMemo(() => {
+    if (!clientId) {
+      return buildFallbackConversations(selection, fr);
+    }
+
+    const threads = getConversationsByClient(clientId);
+    const items: LeadConversationItem[] = threads
+      .flatMap((thread) =>
+        thread.messages.map((message) => ({
+          id: message.id,
+          channel: thread.type,
+          direction: message.direction,
+          content: message.content,
+          timestamp: message.timestamp,
+        }))
+      )
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    if (items.length === 0) {
+      return buildFallbackConversations(selection, fr);
+    }
+
+    return items.slice(0, 18);
+  }, [clientId, fr, selection]);
+
+  const leadPrice = useMemo(() => estimateLeadPrice(selection), [selection]);
+  const desiredMoveInDate = useMemo(() => estimateDesiredMoveInDate(selection), [selection]);
+  const quality = useMemo(
+    () => computeLeadQuality(selection, unpaidInvoices.length, conversations.length > 0, fr),
+    [selection, unpaidInvoices.length, conversations.length, fr]
+  );
+
+  const assignedOperator = selection.row.assignedOperatorId
+    ? operatorById.get(selection.row.assignedOperatorId)
+    : undefined;
+
+  const leadName =
+    selection.kind === "unfinished"
+      ? selection.row.contactLabel
+      : selection.row.fullName || selection.row.email || selection.row.phone || "—";
+
+  const requestLabel =
+    selection.kind === "quote"
+      ? selection.row.message || (fr ? "Demande de devis" : "Quote request")
+      : fr
+      ? `Booking interrompu à l'étape ${selection.row.step} / ${selection.row.totalSteps}.`
+      : `Booking interrupted at step ${selection.row.step} / ${selection.row.totalSteps}.`;
+
+  const wantedSizeLabel =
+    selection.kind === "quote" ? selection.row.sizeLabel : selection.row.boxTypeName;
+
+  const desiredPriceLabel =
+    leadPrice !== null
+      ? `${leadPrice.toLocaleString(fr ? "fr-FR" : "en-US")} € / ${fr ? "mois" : "month"}`
+      : fr
+      ? "Non renseigné"
+      : "Unknown";
+
+  const unpaidLabel =
+    unpaidInvoices.length > 0
+      ? fr
+        ? `Oui (${unpaidInvoices.length})`
+        : `Yes (${unpaidInvoices.length})`
+      : clientId
+      ? fr
+        ? "Non"
+        : "No"
+      : fr
+      ? "Inconnu"
+      : "Unknown";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 95,
+        background: "rgba(0,0,0,0.45)",
+        padding: 16,
+        display: "grid",
+        placeItems: "center",
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(1120px, 100%)",
+          maxHeight: "86vh",
+          overflow: "auto",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border-color)",
+          borderRadius: 14,
+          boxShadow: "0 20px 45px rgba(0,0,0,0.32)",
+          display: "grid",
+          gap: 12,
+          padding: "0.85rem",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            borderBottom: "1px solid var(--border-color)",
+            paddingBottom: 10,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>{leadName}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+              {selection.row.email || "—"} {selection.row.phone ? `• ${selection.row.phone}` : ""}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="admin-btn admin-btn-secondary"
+            style={{ padding: "0.35rem 0.6rem" }}
+          >
+            {fr ? "Fermer" : "Close"}
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              border: "1px solid var(--border-color)",
+              borderRadius: 12,
+              padding: "0.7rem",
+              display: "grid",
+              gap: 8,
+              alignContent: "start",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <strong style={{ fontSize: 14 }}>{fr ? "Conversations" : "Conversations"}</strong>
+              <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                {conversations.length} {fr ? "messages" : "messages"}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gap: 8, maxHeight: "62vh", overflow: "auto", paddingRight: 2 }}>
+              {conversations.map((message) => (
+                <div
+                  key={message.id}
+                  style={{
+                    display: "grid",
+                    justifyItems: message.direction === "inbound" ? "start" : "end",
+                    gap: 4,
+                  }}
+                >
+                  <div
+                    style={{
+                      maxWidth: "85%",
+                      padding: "0.5rem 0.65rem",
+                      borderRadius: 10,
+                      border: "1px solid var(--border-color)",
+                      background:
+                        message.direction === "inbound"
+                          ? "var(--surface-secondary, rgba(255,255,255,0.04))"
+                          : "rgba(79,70,229,0.14)",
+                      fontSize: 12,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {message.content}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-secondary)" }}>
+                    {message.channel.toUpperCase()} • {formatDateTimeLabel(message.timestamp, fr)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.7rem",
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              <strong style={{ fontSize: 14 }}>{fr ? "Fiche lead" : "Lead details"}</strong>
+
+              <div style={{ fontSize: 12 }}>
+                <div style={{ color: "var(--text-secondary)" }}>{fr ? "Demande" : "Request"}</div>
+                <div style={{ marginTop: 2 }}>{requestLabel}</div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "Taille box" : "Box size"}</div>
+                  <div>{wantedSizeLabel}</div>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "Prix box voulu" : "Wanted box price"}</div>
+                  <div>{desiredPriceLabel}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "A partir du" : "From"}</div>
+                  <div>{formatDateLabel(desiredMoveInDate, fr)}</div>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "Opérateur assigné" : "Assigned operator"}</div>
+                  <div>{assignedOperator ? assignedOperator.fullName || assignedOperator.email : "—"}</div>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "Impayés" : "Unpaid history"}</div>
+                  <div>{unpaidLabel}</div>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ color: "var(--text-secondary)" }}>{fr ? "Source" : "Source"}</div>
+                  <div>{selection.kind === "unfinished" ? selection.row.source : "quote"}</div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.7rem",
+                display: "grid",
+                gap: 7,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong style={{ fontSize: 14 }}>{fr ? "Qualité du lead" : "Lead quality"}</strong>
+                <span
+                  style={{
+                    fontSize: 11,
+                    borderRadius: 999,
+                    padding: "3px 8px",
+                    background: quality.bg,
+                    color: quality.text,
+                    fontWeight: 700,
+                  }}
+                >
+                  {quality.label}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  height: 8,
+                  width: "100%",
+                  borderRadius: 999,
+                  background: "var(--surface-secondary, rgba(255,255,255,0.06))",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${quality.score}%`,
+                    height: "100%",
+                    borderRadius: 999,
+                    background: quality.text,
+                  }}
+                />
+              </div>
+
+              <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                {fr
+                  ? "Score calculé avec la complétude du contact, l'avancement, les échanges, et l'historique de paiement."
+                  : "Score is computed from contact completeness, progression, conversations, and payment history."}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
