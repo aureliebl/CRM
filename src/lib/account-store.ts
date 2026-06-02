@@ -54,6 +54,23 @@ const pgPool = getSharedPgPool({
 
 let postgresReady: Promise<void> | null = null;
 
+function isInsufficientPrivilegeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "42501";
+}
+
+async function runPostgresSchemaQuery(query: string) {
+  if (!pgPool) return;
+  try {
+    await pgPool.query(query);
+  } catch (error) {
+    // In production, DB roles may not have CREATE/ALTER rights. If so, rely on pre-applied migrations.
+    if (isInsufficientPrivilegeError(error)) return;
+    throw error;
+  }
+}
+
 if (sqliteDb) {
   sqliteDb.exec(`
 CREATE TABLE IF NOT EXISTS accounts (
@@ -158,7 +175,7 @@ function mapPgAccountRow(row: Record<string, unknown>): AccountRow {
 async function ensurePostgresSchema() {
   if (!pgPool) return;
 
-  await pgPool.query(`
+  await runPostgresSchemaQuery(`
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
   email TEXT,
@@ -178,10 +195,10 @@ CREATE TABLE IF NOT EXISTS accounts (
 )
 `);
 
-  await pgPool.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1");
-  await pgPool.query("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sessionVersion INTEGER DEFAULT 1");
+  await runPostgresSchemaQuery("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS isActive INTEGER DEFAULT 1");
+  await runPostgresSchemaQuery("ALTER TABLE accounts ADD COLUMN IF NOT EXISTS sessionVersion INTEGER DEFAULT 1");
 
-  await pgPool.query(`
+  await runPostgresSchemaQuery(`
 CREATE TABLE IF NOT EXISTS logs (
   id TEXT PRIMARY KEY,
   accountId TEXT,
@@ -191,7 +208,7 @@ CREATE TABLE IF NOT EXISTS logs (
 )
 `);
 
-  await pgPool.query(`
+  await runPostgresSchemaQuery(`
 CREATE TABLE IF NOT EXISTS account_credentials (
   accountId TEXT PRIMARY KEY,
   passwordHash TEXT NOT NULL,
@@ -200,7 +217,7 @@ CREATE TABLE IF NOT EXISTS account_credentials (
 )
 `);
 
-  await pgPool.query(`
+  await runPostgresSchemaQuery(`
 CREATE TABLE IF NOT EXISTS account_password_reset_tokens (
   id TEXT PRIMARY KEY,
   accountId TEXT NOT NULL,
@@ -212,7 +229,7 @@ CREATE TABLE IF NOT EXISTS account_password_reset_tokens (
 )
 `);
 
-  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON account_password_reset_tokens(tokenHash)");
+  await runPostgresSchemaQuery("CREATE INDEX IF NOT EXISTS idx_reset_tokens_hash ON account_password_reset_tokens(tokenHash)");
 }
 
 async function ensurePostgresReady() {

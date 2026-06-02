@@ -43,10 +43,27 @@ const pgPool = databaseUrl
 
 let readyPromise: Promise<void> | null = null;
 
+function isInsufficientPrivilegeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+  return code === "42501";
+}
+
+async function runSchemaQuery(query: string) {
+  if (!pgPool) return;
+  try {
+    await pgPool.query(query);
+  } catch (error) {
+    // In production, DB roles may not have CREATE/ALTER rights. If so, rely on pre-applied migrations.
+    if (isInsufficientPrivilegeError(error)) return;
+    throw error;
+  }
+}
+
 async function ensureSchema() {
   if (!pgPool) return;
 
-  await pgPool.query(`
+  await runSchemaQuery(`
 CREATE TABLE IF NOT EXISTS auth_rate_limits (
   id TEXT PRIMARY KEY,
   action TEXT NOT NULL,
@@ -58,8 +75,8 @@ CREATE TABLE IF NOT EXISTS auth_rate_limits (
 )
 `);
 
-  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_action ON auth_rate_limits(action)");
-  await pgPool.query("CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_updated_at ON auth_rate_limits(updatedAt)");
+  await runSchemaQuery("CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_action ON auth_rate_limits(action)");
+  await runSchemaQuery("CREATE INDEX IF NOT EXISTS idx_auth_rate_limits_updated_at ON auth_rate_limits(updatedAt)");
 }
 
 async function ensureReady() {
