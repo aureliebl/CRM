@@ -386,21 +386,120 @@ export async function moveCard(
   await ensurePostgresReady();
   const ts = now();
 
-  // Get current card
-  const card = await getCardById(cardId);
-  if (!card) return;
+  const client = await pgPool.connect();
 
-  // Shift cards in the target column to make room
-  await pgPool.query(
-    "UPDATE ticket_cards SET position = position + 1 WHERE board_id = $1 AND column_key = $2 AND position >= $3 AND id != $4",
-    [card.boardId, columnKey, position, cardId]
-  );
+  const normalizeColumnPositions = async (boardId: string, colKey: string) => {
+    await client.query(
+      `WITH ranked AS (
+         SELECT id, ROW_NUMBER() OVER (ORDER BY position ASC, created_at ASC, id ASC) - 1 AS next_pos
+         FROM ticket_cards
+         WHERE board_id = $1 AND column_key = $2
+       )
+       UPDATE ticket_cards AS cards
+       SET position = ranked.next_pos
+       FROM ranked
+       WHERE cards.id = ranked.id
+         AND cards.position <> ranked.next_pos`,
+      [boardId, colKey]
+    );
+  };
 
-  // Move the card
-  await pgPool.query(
-    "UPDATE ticket_cards SET column_key = $1, position = $2, updated_at = $3 WHERE id = $4",
-    [columnKey, position, ts, cardId]
-  );
+  try {
+    await client.query("BEGIN");
+
+    const currentResult = await client.query(
+      "SELECT id, board_id, column_key, position FROM ticket_cards WHERE id = $1 FOR UPDATE",
+      [cardId]
+    );
+    const current = currentResult.rows[0] as
+      | { id: string; board_id: string; column_key: string; position: number }
+      | undefined;
+
+    if (!current) {
+      await client.query("ROLLBACK");
+      return;
+    }
+
+    const boardId = String(current.board_id);
+    const sourceColumn = String(current.column_key);
+    const sourcePosition = Number(current.position ?? 0);
+    const targetColumn = String(columnKey || sourceColumn);
+
+    const targetCountResult = await client.query(
+      "SELECT COUNT(*)::int AS total FROM ticket_cards WHERE board_id = $1 AND column_key = $2 AND id <> $3",
+      [boardId, targetColumn, cardId]
+    );
+    const targetCount = Number(targetCountResult.rows[0]?.total ?? 0);
+    const upperBound = Math.max(0, targetCount);
+    const nextPosition = Math.max(0, Math.min(Math.trunc(position), upperBound));
+
+    if (sourceColumn === targetColumn) {
+      if (nextPosition > sourcePosition) {
+        await client.query(
+          `UPDATE ticket_cards
+           SET position = position - 1
+           WHERE board_id = $1
+             AND column_key = $2
+             AND id <> $3
+             AND position > $4
+             AND position <= $5`,
+          [boardId, sourceColumn, cardId, sourcePosition, nextPosition]
+        );
+      } else if (nextPosition < sourcePosition) {
+        await client.query(
+          `UPDATE ticket_cards
+           SET position = position + 1
+           WHERE board_id = $1
+             AND column_key = $2
+             AND id <> $3
+             AND position >= $4
+             AND position < $5`,
+          [boardId, sourceColumn, cardId, nextPosition, sourcePosition]
+        );
+      }
+
+      await client.query(
+        "UPDATE ticket_cards SET position = $1, updated_at = $2 WHERE id = $3",
+        [nextPosition, ts, cardId]
+      );
+
+      await normalizeColumnPositions(boardId, sourceColumn);
+    } else {
+      await client.query(
+        `UPDATE ticket_cards
+         SET position = position - 1
+         WHERE board_id = $1
+           AND column_key = $2
+           AND position > $3`,
+        [boardId, sourceColumn, sourcePosition]
+      );
+
+      await client.query(
+        `UPDATE ticket_cards
+         SET position = position + 1
+         WHERE board_id = $1
+           AND column_key = $2
+           AND id <> $3
+           AND position >= $4`,
+        [boardId, targetColumn, cardId, nextPosition]
+      );
+
+      await client.query(
+        "UPDATE ticket_cards SET column_key = $1, position = $2, updated_at = $3 WHERE id = $4",
+        [targetColumn, nextPosition, ts, cardId]
+      );
+
+      await normalizeColumnPositions(boardId, sourceColumn);
+      await normalizeColumnPositions(boardId, targetColumn);
+    }
+
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 /* ─────────── API Tokens ─────────── */

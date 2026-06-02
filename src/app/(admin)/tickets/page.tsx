@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import nextDynamic from "next/dynamic";
@@ -76,6 +76,8 @@ interface Board {
   id: string;
   name: string;
   columns: BoardColumn[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ApiToken {
@@ -234,6 +236,64 @@ function ensureAbsoluteUrl(url: string): string {
   return `https://${trimmed}`;
 }
 
+function getCardsSyncSignature(cards: TicketCard[]): string {
+  return cards
+    .map((card) => `${card.id}:${card.columnKey}:${card.position}:${card.updatedAt}`)
+    .join("|");
+}
+
+function getUsersSyncSignature(users: TicketUser[]): string {
+  return users
+    .map((user) => `${user.id}:${user.fullName}:${user.profileImage || ""}:${user.isActive ? 1 : 0}`)
+    .join("|");
+}
+
+function getCommentCountsSignature(commentCounts: Record<string, number>): string {
+  return Object.keys(commentCounts)
+    .sort()
+    .map((cardId) => `${cardId}:${commentCounts[cardId] || 0}`)
+    .join("|");
+}
+
+function applyOptimisticCardMove(
+  cards: TicketCard[],
+  cardId: string,
+  targetColumnKey: string,
+  requestedPosition: number,
+): TicketCard[] {
+  const movingCard = cards.find((card) => card.id === cardId);
+  if (!movingCard) return cards;
+
+  const withoutMoving = cards.filter((card) => card.id !== cardId);
+  const targetCards = withoutMoving
+    .filter((card) => card.columnKey === targetColumnKey)
+    .sort((a, b) => a.position - b.position);
+
+  const insertPosition = Math.max(0, Math.min(requestedPosition, targetCards.length));
+  const reorderedTarget = [
+    ...targetCards.slice(0, insertPosition),
+    { ...movingCard, columnKey: targetColumnKey },
+    ...targetCards.slice(insertPosition),
+  ].map((card, index) => ({ ...card, position: index }));
+
+  const sourceCards = withoutMoving
+    .filter((card) => card.columnKey === movingCard.columnKey)
+    .sort((a, b) => a.position - b.position)
+    .map((card, index) => ({ ...card, position: index }));
+
+  const untouchedCards = withoutMoving.filter(
+    (card) => card.columnKey !== movingCard.columnKey && card.columnKey !== targetColumnKey,
+  );
+
+  const merged = [...untouchedCards, ...sourceCards, ...reorderedTarget];
+  return merged.sort((left, right) => {
+    if (left.columnKey === right.columnKey) {
+      return left.position - right.position;
+    }
+    return left.columnKey.localeCompare(right.columnKey);
+  });
+}
+
 /* ─── Variable renderer ─── */
 
 function TicketVariableDisplay({ v, locale }: { v: TicketVariable; locale: string }) {
@@ -337,6 +397,13 @@ export default function TicketsPage() {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
   const [dragInsertSide, setDragInsertSide] = useState<"before" | "after" | null>(null);
+  const loadInFlightRef = useRef(false);
+  const moveInFlightRef = useRef(false);
+  const rollbackCardsRef = useRef<TicketCard[] | null>(null);
+  const boardSignatureRef = useRef("");
+  const cardsSignatureRef = useRef("");
+  const usersSignatureRef = useRef("");
+  const commentCountsSignatureRef = useRef("");
 
   const isAdmin = actor?.role === "admin";
   const isSuperAdmin = actor?.isSuperAdmin === true;
@@ -352,17 +419,47 @@ export default function TicketsPage() {
   }, []);
 
   const loadBoard = useCallback(async () => {
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+
     try {
-      const res = await fetch("/api/tickets");
+      const res = await fetch("/api/tickets", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        setBoard(data.board);
-        setCards(data.cards);
-        setUsers(Array.isArray(data.users) ? data.users : []);
-        setCommentCounts(data.commentCounts || {});
+
+        const nextBoard = (data?.board || null) as Board | null;
+        const nextBoardSignature = nextBoard
+          ? `${nextBoard.id}:${nextBoard.updatedAt || ""}`
+          : "";
+        if (nextBoardSignature !== boardSignatureRef.current) {
+          boardSignatureRef.current = nextBoardSignature;
+          setBoard(nextBoard);
+        }
+
+        const nextCards = Array.isArray(data?.cards) ? (data.cards as TicketCard[]) : [];
+        const nextCardsSignature = getCardsSyncSignature(nextCards);
+        if (nextCardsSignature !== cardsSignatureRef.current) {
+          cardsSignatureRef.current = nextCardsSignature;
+          setCards(nextCards);
+        }
+
+        const nextUsers = Array.isArray(data?.users) ? (data.users as TicketUser[]) : [];
+        const nextUsersSignature = getUsersSyncSignature(nextUsers);
+        if (nextUsersSignature !== usersSignatureRef.current) {
+          usersSignatureRef.current = nextUsersSignature;
+          setUsers(nextUsers);
+        }
+
+        const nextCommentCounts = (data?.commentCounts || {}) as Record<string, number>;
+        const nextCommentCountsSignature = getCommentCountsSignature(nextCommentCounts);
+        if (nextCommentCountsSignature !== commentCountsSignatureRef.current) {
+          commentCountsSignatureRef.current = nextCommentCountsSignature;
+          setCommentCounts(nextCommentCounts);
+        }
       }
     } catch { /* ignore */ }
     setLoading(false);
+    loadInFlightRef.current = false;
   }, []);
 
   useEffect(() => { loadSession(); }, [loadSession]);
@@ -373,9 +470,13 @@ export default function TicketsPage() {
   // Polling every 5s for near-realtime
   useEffect(() => {
     if (!actor) return;
-    const interval = setInterval(loadBoard, 5000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === "hidden") return;
+      if (draggingId || moveInFlightRef.current) return;
+      void loadBoard();
+    }, 7000);
     return () => clearInterval(interval);
-  }, [actor, loadBoard]);
+  }, [actor, loadBoard, draggingId]);
 
   /* ─── Clipboard ─── */
 
@@ -517,15 +618,29 @@ export default function TicketsPage() {
   }, [selectedCard, loadBoard, closeModal, t.deleteConfirm]);
 
   const handleMoveCard = useCallback(async (cardId: string, columnKey: string, position: number) => {
+    rollbackCardsRef.current = cards;
+    setCards((current) => applyOptimisticCardMove(current, cardId, columnKey, position));
+    moveInFlightRef.current = true;
+
     try {
-      await fetch("/api/tickets/move", {
+      const response = await fetch("/api/tickets/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cardId, columnKey, position }),
       });
+      if (!response.ok) {
+        throw new Error("move failed");
+      }
+    } catch {
+      if (rollbackCardsRef.current) {
+        setCards(rollbackCardsRef.current);
+      }
       await loadBoard();
-    } catch { /* ignore */ }
-  }, [loadBoard]);
+    } finally {
+      rollbackCardsRef.current = null;
+      moveInFlightRef.current = false;
+    }
+  }, [cards, loadBoard]);
 
   /* ─── DnD handlers ─── */
 
@@ -629,18 +744,29 @@ export default function TicketsPage() {
 
   /* ─── Search filter ─── */
 
-  const filteredCards = search
-    ? cards.filter((c) => {
-        const q = search.toLowerCase();
-        return (
-          c.title.toLowerCase().includes(q) ||
-          c.variables.some((v) => v.key.toLowerCase().includes(q) || v.value.toLowerCase().includes(q))
-        );
-      })
-    : cards;
+  const filteredCards = useMemo(() => {
+    if (!search) return cards;
+    const q = search.toLowerCase();
+    return cards.filter((card) => {
+      return (
+        card.title.toLowerCase().includes(q) ||
+        card.variables.some((variable) => {
+          return (
+            variable.key.toLowerCase().includes(q) ||
+            variable.value.toLowerCase().includes(q)
+          );
+        })
+      );
+    });
+  }, [cards, search]);
 
-  const usersById: Record<string, TicketUser> = {};
-  for (const user of users) usersById[user.id] = user;
+  const usersById = useMemo(() => {
+    const mapping: Record<string, TicketUser> = {};
+    for (const user of users) {
+      mapping[user.id] = user;
+    }
+    return mapping;
+  }, [users]);
 
   /* ─── Column label helper ─── */
 

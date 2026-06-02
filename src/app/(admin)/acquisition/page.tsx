@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   getConversationsByClient,
   getQuoteRequests,
@@ -204,6 +205,17 @@ function estimateLeadPrice(selection: LeadModalSelection): number | null {
   }, candidates[0]);
 
   return nearest.basePrice;
+}
+
+function pickNearestBoxTypeForCenter(centerId: string, desiredSizeM2: number) {
+  const candidates = boxTypes.filter((boxType) => boxType.centerId === centerId);
+  if (candidates.length === 0) return null;
+
+  return candidates.reduce((best, candidate) => {
+    const bestDelta = Math.abs(best.sizeM2 - desiredSizeM2);
+    const candidateDelta = Math.abs(candidate.sizeM2 - desiredSizeM2);
+    return candidateDelta < bestDelta ? candidate : best;
+  }, candidates[0]);
 }
 
 function computeLeadQuality(selection: LeadModalSelection, unpaidCount: number, hasConversations: boolean, fr: boolean): LeadQuality {
@@ -791,6 +803,7 @@ export default function AcquisitionPage() {
 
       {leadModalSelection && (
         <LeadKanbanDetailsModal
+          key={`${leadModalSelection.kind}:${leadModalSelection.row.id}`}
           fr={fr}
           selection={leadModalSelection}
           operatorById={operatorById}
@@ -2188,7 +2201,108 @@ function LeadKanbanDetailsModal({
       ? "Inconnu"
       : "Unknown";
 
-  return (
+  const desiredSizeFromLead =
+    selection.kind === "quote"
+      ? selection.row.boxSizeWanted
+      : (boxTypes.find((boxType) => boxType.id === selection.row.boxTypeId)?.sizeM2 ?? 1);
+
+  const initialCenterId = selection.row.centerId;
+  const initialBoxType = pickNearestBoxTypeForCenter(initialCenterId, desiredSizeFromLead);
+
+  const [reservationCenterId, setReservationCenterId] = useState(initialCenterId);
+  const [reservationBoxTypeId, setReservationBoxTypeId] = useState(initialBoxType?.id ?? "");
+  const [reservationSizeM2, setReservationSizeM2] = useState<number>(
+    initialBoxType?.sizeM2 ?? desiredSizeFromLead
+  );
+  const [reservationPrice, setReservationPrice] = useState<number>(
+    leadPrice ?? initialBoxType?.basePrice ?? 0
+  );
+  const [reservationStartDate, setReservationStartDate] = useState(
+    desiredMoveInDate.slice(0, 10)
+  );
+  const [reservationOperatorId, setReservationOperatorId] = useState(
+    selection.row.assignedOperatorId ?? ""
+  );
+  const [reservationNotes, setReservationNotes] = useState(requestLabel);
+  const [reservationCopied, setReservationCopied] = useState(false);
+
+  const reservationCenter = useMemo(() => {
+    return centers.find((center) => center.id === reservationCenterId);
+  }, [reservationCenterId]);
+
+  const reservationBoxOptions = useMemo(() => {
+    return boxTypes
+      .filter((boxType) => boxType.centerId === reservationCenterId)
+      .sort((left, right) => left.sizeM2 - right.sizeM2);
+  }, [reservationCenterId]);
+
+  const operatorOptions = useMemo(() => {
+    return Array.from(operatorById.values()).sort((left, right) => {
+      const leftName = left.fullName || left.email;
+      const rightName = right.fullName || right.email;
+      return leftName.localeCompare(rightName);
+    });
+  }, [operatorById]);
+
+  const selectedReservationOperator = reservationOperatorId
+    ? operatorById.get(reservationOperatorId)
+    : undefined;
+
+  const reservationInputStyle = {
+    width: "100%",
+    borderRadius: 8,
+    border: "1px solid var(--border-color)",
+    background: "var(--input-bg)",
+    color: "var(--text-primary)",
+    padding: "0.45rem 0.55rem",
+    fontSize: 12,
+  };
+
+  const handleCenterChange = (nextCenterId: string) => {
+    setReservationCenterId(nextCenterId);
+    const nearest = pickNearestBoxTypeForCenter(nextCenterId, reservationSizeM2);
+    setReservationBoxTypeId(nearest?.id ?? "");
+    if (nearest) {
+      setReservationSizeM2(nearest.sizeM2);
+      setReservationPrice(nearest.basePrice);
+    }
+  };
+
+  const handleBoxTypeChange = (nextBoxTypeId: string) => {
+    setReservationBoxTypeId(nextBoxTypeId);
+    const selectedBoxType = reservationBoxOptions.find((boxType) => boxType.id === nextBoxTypeId);
+    if (!selectedBoxType) return;
+    setReservationSizeM2(selectedBoxType.sizeM2);
+    setReservationPrice(selectedBoxType.basePrice);
+  };
+
+  const copyReservationDraft = async () => {
+    const payload = {
+      leadId: selection.row.id,
+      centerId: reservationCenterId,
+      boxTypeId: reservationBoxTypeId || null,
+      sizeM2: reservationSizeM2,
+      price: reservationPrice,
+      startDate: reservationStartDate,
+      operatorId: reservationOperatorId || null,
+      contact: {
+        name: leadName,
+        email: selection.row.email || null,
+        phone: selection.row.phone || null,
+      },
+      notes: reservationNotes,
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setReservationCopied(true);
+      window.setTimeout(() => setReservationCopied(false), 1200);
+    } catch {
+      // ignore clipboard failures
+    }
+  };
+
+  const modalNode = (
     <div
       role="dialog"
       aria-modal="true"
@@ -2196,8 +2310,8 @@ function LeadKanbanDetailsModal({
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 95,
-        background: "rgba(0,0,0,0.45)",
+        zIndex: 10050,
+        background: "rgba(0,0,0,0.5)",
         padding: 16,
         display: "grid",
         placeItems: "center",
@@ -2206,8 +2320,8 @@ function LeadKanbanDetailsModal({
       <div
         onClick={(event) => event.stopPropagation()}
         style={{
-          width: "min(1120px, 100%)",
-          maxHeight: "86vh",
+          width: "min(1360px, 100%)",
+          maxHeight: "88vh",
           overflow: "auto",
           background: "var(--card-bg)",
           border: "1px solid var(--border-color)",
@@ -2247,8 +2361,9 @@ function LeadKanbanDetailsModal({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
             gap: 12,
+            alignItems: "start",
           }}
         >
           <div
@@ -2404,8 +2519,167 @@ function LeadKanbanDetailsModal({
               </div>
             </div>
           </div>
+
+          <div
+            style={{
+              border: "1px solid var(--border-color)",
+              borderRadius: 12,
+              padding: "0.7rem",
+              display: "grid",
+              gap: 10,
+              alignContent: "start",
+            }}
+          >
+            <strong style={{ fontSize: 14 }}>
+              {fr ? "Reservation pre-remplie" : "Pre-filled reservation"}
+            </strong>
+
+            <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+              {fr
+                ? "Tu peux modifier toutes les informations avant de lancer la reservation."
+                : "You can edit all details before creating the booking."}
+            </div>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{fr ? "Centre" : "Center"}</span>
+                <select
+                  value={reservationCenterId}
+                  onChange={(event) => handleCenterChange(event.target.value)}
+                  style={reservationInputStyle}
+                >
+                  {centers.map((center) => (
+                    <option key={`reservation_center_${center.id}`} value={center.id}>
+                      {center.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{fr ? "Type de box" : "Box type"}</span>
+                <select
+                  value={reservationBoxTypeId}
+                  onChange={(event) => handleBoxTypeChange(event.target.value)}
+                  style={reservationInputStyle}
+                >
+                  {reservationBoxOptions.map((boxType) => (
+                    <option key={`reservation_box_${boxType.id}`} value={boxType.id}>
+                      {boxType.name} • {boxType.sizeM2} m2 • {boxType.basePrice} €
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>{fr ? "Taille (m2)" : "Size (m2)"}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={0.5}
+                    value={reservationSizeM2}
+                    onChange={(event) => setReservationSizeM2(Number(event.target.value) || 0)}
+                    style={reservationInputStyle}
+                  />
+                </label>
+
+                <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>{fr ? "Prix mensuel (€)" : "Monthly price (€)"}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={reservationPrice}
+                    onChange={(event) => setReservationPrice(Number(event.target.value) || 0)}
+                    style={reservationInputStyle}
+                  />
+                </label>
+              </div>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{fr ? "Date de debut" : "Start date"}</span>
+                <input
+                  type="date"
+                  value={reservationStartDate}
+                  onChange={(event) => setReservationStartDate(event.target.value)}
+                  style={reservationInputStyle}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{fr ? "Operateur" : "Operator"}</span>
+                <select
+                  value={reservationOperatorId}
+                  onChange={(event) => setReservationOperatorId(event.target.value)}
+                  style={reservationInputStyle}
+                >
+                  <option value="">{fr ? "Non assigne" : "Unassigned"}</option>
+                  {operatorOptions.map((operator) => (
+                    <option key={`reservation_operator_${operator.id}`} value={operator.id}>
+                      {operator.fullName || operator.email}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>{fr ? "Notes" : "Notes"}</span>
+                <textarea
+                  value={reservationNotes}
+                  onChange={(event) => setReservationNotes(event.target.value)}
+                  rows={4}
+                  style={{
+                    ...reservationInputStyle,
+                    resize: "vertical",
+                  }}
+                />
+              </label>
+            </div>
+
+            <div
+              style={{
+                borderRadius: 10,
+                border: "1px dashed var(--border-color)",
+                padding: "0.55rem",
+                fontSize: 11,
+                color: "var(--text-secondary)",
+              }}
+            >
+              <div>
+                <strong>{fr ? "Resume" : "Summary"}:</strong> {reservationCenter?.name || reservationCenterId}
+              </div>
+              <div>
+                {reservationSizeM2} m2 • {reservationPrice} € / {fr ? "mois" : "month"}
+              </div>
+              <div>
+                {fr ? "Debut" : "Start"}: {reservationStartDate || "—"}
+              </div>
+              <div>
+                {fr ? "Operateur" : "Operator"}: {selectedReservationOperator ? selectedReservationOperator.fullName || selectedReservationOperator.email : "—"}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="admin-btn admin-btn-secondary"
+              onClick={() => void copyReservationDraft()}
+              style={{ justifyContent: "center" }}
+            >
+              {reservationCopied
+                ? fr
+                  ? "Brouillon copie"
+                  : "Draft copied"
+                : fr
+                ? "Copier le brouillon de reservation"
+                : "Copy reservation draft"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modalNode, document.body);
 }
