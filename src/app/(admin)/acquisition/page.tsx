@@ -8,9 +8,30 @@ import {
   getUnfinishedBookings,
   getUnpaidInvoicesByClient,
 } from "@/lib/mock/crm";
+import { getClients } from "@/lib/mock/clients";
 import { centers, boxTypes } from "@/lib/mock/centers-and-pricing";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 import { MaterialSymbol } from "@/components/admin/MaterialSymbol";
+import { LeadSpiderChart, type SpiderAxis } from "@/components/admin/LeadSpiderChart";
+import {
+  buildDefaultLeadScoringConfig,
+  concernLabel,
+  concernToScore,
+  getBudgetedLevelValue,
+  getScoringPointsUsed,
+  heatMeta,
+  heatToScore,
+  normalizeLeadScoringConfig,
+  scoreFromLevel,
+  weightedAverage,
+  withUpdatedLevelCount,
+  type LeadConcernKind,
+  type LeadManualScoringInput,
+  type LeadScoringAxisKey,
+  type LeadScoringConfig,
+  type LeadScoringPayload,
+  type SalesHeatLevel,
+} from "@/lib/lead-prioritization";
 import { useLocale } from "@/lib/use-locale";
 import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider";
 
@@ -49,6 +70,7 @@ type AcquisitionBoardState = {
   unfinished: Record<string, { step?: number; assignedOperatorId?: string | null }>;
   quotes: Record<string, { status?: QuoteStatus; assignedOperatorId?: string | null }>;
   operatorAbsences: Record<string, string[]>;
+  scoring?: LeadScoringPayload;
 };
 
 type LeadModalSelection =
@@ -70,7 +92,22 @@ type LeadConversationItem = {
   timestamp: string;
 };
 
+type LeadPriorityPreview = {
+  key: string;
+  kind: "unfinished" | "quote";
+  id: string;
+  centerId: string;
+  label: string;
+  score: number;
+  autoScore: number;
+  rank: number;
+  salesHeat: SalesHeatLevel;
+  concernKind: LeadConcernKind;
+  axisScores: Record<LeadScoringAxisKey, number>;
+};
+
 const STORAGE_KEY = "acquisition_settings_v1";
+const DEFAULT_LEAD_SCORING_CONFIG = buildDefaultLeadScoringConfig(centers, boxTypes);
 
 function getTodayKey() {
   const now = new Date();
@@ -317,6 +354,58 @@ function buildFallbackConversations(selection: LeadModalSelection, fr: boolean):
   ];
 }
 
+function getLeadPriorityKey(kind: "unfinished" | "quote", id: string): string {
+  return `${kind}:${id}`;
+}
+
+function getDefaultConcernKindFromSegment(segment?: string): LeadConcernKind {
+  if (segment === "B2B") return "company";
+  return "self";
+}
+
+function estimateStartDateUrgencyScore(startDateIso: string): number {
+  const now = Date.now();
+  const dateValue = new Date(startDateIso).getTime();
+  if (!Number.isFinite(dateValue)) return 50;
+
+  const diffDays = Math.ceil((dateValue - now) / (24 * 60 * 60 * 1000));
+  if (diffDays <= 3) return 100;
+  if (diffDays <= 7) return 86;
+  if (diffDays <= 14) return 68;
+  if (diffDays <= 30) return 48;
+  return 30;
+}
+
+function getPreferredBoxTypeIdForQuote(row: QuoteRow): string | null {
+  const nearest = pickNearestBoxTypeForCenter(row.centerId, row.boxSizeWanted);
+  return nearest?.id ?? null;
+}
+
+function scoreToCardTone(score: number): { bg: string; text: string } {
+  if (score >= 80) {
+    return {
+      bg: "rgba(16,185,129,0.16)",
+      text: "#047857",
+    };
+  }
+  if (score >= 60) {
+    return {
+      bg: "rgba(37,99,235,0.16)",
+      text: "#1d4ed8",
+    };
+  }
+  if (score >= 40) {
+    return {
+      bg: "rgba(249,115,22,0.16)",
+      text: "#c2410c",
+    };
+  }
+  return {
+    bg: "rgba(239,68,68,0.16)",
+    text: "#b91c1c",
+  };
+}
+
 function autoAssignRows<T extends { assignedOperatorId?: string }>(
   current: T[],
   availableOperators: OperatorAccount[],
@@ -387,6 +476,13 @@ export default function AcquisitionPage() {
   const [operatorFilter, setOperatorFilter] = useState<OperatorFilter>("all");
   const [boardReady, setBoardReady] = useState(false);
   const [leadModalSelection, setLeadModalSelection] = useState<LeadModalSelection | null>(null);
+  const [prioritizationModalOpen, setPrioritizationModalOpen] = useState(false);
+  const [leadScoringConfig, setLeadScoringConfig] = useState<LeadScoringConfig>(
+    () => DEFAULT_LEAD_SCORING_CONFIG
+  );
+  const [leadManualScoringByKey, setLeadManualScoringByKey] = useState<
+    Record<string, LeadManualScoringInput>
+  >({});
   const balanceCursorRef = useRef(0);
 
   useEffect(() => {
@@ -457,6 +553,15 @@ export default function AcquisitionPage() {
       );
 
       setOperatorAbsences(payload.operatorAbsences || {});
+
+      if (payload.scoring?.config) {
+        setLeadScoringConfig(
+          normalizeLeadScoringConfig(payload.scoring.config, centers, boxTypes)
+        );
+      }
+      if (payload.scoring?.manualByLead && typeof payload.scoring.manualByLead === "object") {
+        setLeadManualScoringByKey(payload.scoring.manualByLead);
+      }
     };
 
     const loadBoard = async () => {
@@ -509,12 +614,23 @@ export default function AcquisitionPage() {
           unfinished,
           quotes,
           operatorAbsences,
+          scoring: {
+            config: leadScoringConfig,
+            manualByLead: leadManualScoringByKey,
+          },
         } satisfies AcquisitionBoardState),
       });
     }, 350);
 
     return () => window.clearTimeout(timeout);
-  }, [boardReady, unfinishedRows, quoteRows, operatorAbsences]);
+  }, [
+    boardReady,
+    unfinishedRows,
+    quoteRows,
+    operatorAbsences,
+    leadScoringConfig,
+    leadManualScoringByKey,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -574,6 +690,249 @@ export default function AcquisitionPage() {
   const selectedOperatorAbsences = selectedOperatorId
     ? operatorAbsences[selectedOperatorId] || []
     : [];
+
+  const clientsById = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getClients>[number]>();
+    for (const client of getClients()) {
+      map.set(client.id, client);
+    }
+    return map;
+  }, []);
+
+  const leadPriorityState = useMemo(() => {
+    const unfinished: Record<string, LeadPriorityPreview> = {};
+    const quotes: Record<string, LeadPriorityPreview> = {};
+
+    const quoteClientByEmail = new Map<string, string>();
+    for (const row of quoteRows) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      if (email && row.clientId) {
+        quoteClientByEmail.set(email, row.clientId);
+      }
+    }
+
+    const inferConcernFromName = (fullName?: string) => {
+      const value = String(fullName ?? "").toLowerCase();
+      if (/(sarl|sas|sci|societe|company|inc|corp)/.test(value)) {
+        return "company" as LeadConcernKind;
+      }
+      return "self" as LeadConcernKind;
+    };
+
+    const buildPreview = ({
+      key,
+      kind,
+      id,
+      centerId,
+      label,
+      boxTypeId,
+      startDate,
+      contactCount,
+      unpaidCount,
+      concernKind,
+      salesHeat,
+    }: {
+      key: string;
+      kind: "unfinished" | "quote";
+      id: string;
+      centerId: string;
+      label: string;
+      boxTypeId: string | null;
+      startDate: string;
+      contactCount: number;
+      unpaidCount: number;
+      concernKind: LeadConcernKind;
+      salesHeat: SalesHeatLevel;
+    }): LeadPriorityPreview => {
+      const centerLevel = leadScoringConfig.centerPriorityLevels[centerId] ?? 0;
+      const boxLevel =
+        boxTypeId && leadScoringConfig.boxTypePriorityLevelsByCenter[centerId]
+          ? leadScoringConfig.boxTypePriorityLevelsByCenter[centerId][boxTypeId] ?? 0
+          : 0;
+
+      const axisScores: Record<LeadScoringAxisKey, number> = {
+        centerPriority: scoreFromLevel(centerLevel, leadScoringConfig.levelCount),
+        boxSizePriority: scoreFromLevel(boxLevel, leadScoringConfig.levelCount),
+        startDateUrgency: estimateStartDateUrgencyScore(startDate),
+        concernPriority: concernToScore(concernKind),
+        contactCompleteness: Math.round((contactCount / 3) * 100),
+        unpaidRisk: Math.max(0, 100 - unpaidCount * 35),
+        salesHeat: heatToScore(salesHeat),
+      };
+
+      const autoScore = weightedAverage([
+        {
+          score: axisScores.centerPriority,
+          weight: leadScoringConfig.axisWeights.centerPriority,
+        },
+        {
+          score: axisScores.boxSizePriority,
+          weight: leadScoringConfig.axisWeights.boxSizePriority,
+        },
+        {
+          score: axisScores.startDateUrgency,
+          weight: leadScoringConfig.axisWeights.startDateUrgency,
+        },
+        {
+          score: axisScores.concernPriority,
+          weight: leadScoringConfig.axisWeights.concernPriority,
+        },
+        {
+          score: axisScores.contactCompleteness,
+          weight: leadScoringConfig.axisWeights.contactCompleteness,
+        },
+        {
+          score: axisScores.unpaidRisk,
+          weight: leadScoringConfig.axisWeights.unpaidRisk,
+        },
+      ]);
+
+      const totalScore = weightedAverage([
+        {
+          score: axisScores.centerPriority,
+          weight: leadScoringConfig.axisWeights.centerPriority,
+        },
+        {
+          score: axisScores.boxSizePriority,
+          weight: leadScoringConfig.axisWeights.boxSizePriority,
+        },
+        {
+          score: axisScores.startDateUrgency,
+          weight: leadScoringConfig.axisWeights.startDateUrgency,
+        },
+        {
+          score: axisScores.concernPriority,
+          weight: leadScoringConfig.axisWeights.concernPriority,
+        },
+        {
+          score: axisScores.contactCompleteness,
+          weight: leadScoringConfig.axisWeights.contactCompleteness,
+        },
+        {
+          score: axisScores.unpaidRisk,
+          weight: leadScoringConfig.axisWeights.unpaidRisk,
+        },
+        {
+          score: axisScores.salesHeat,
+          weight: leadScoringConfig.axisWeights.salesHeat,
+        },
+      ]);
+
+      return {
+        key,
+        kind,
+        id,
+        centerId,
+        label,
+        score: totalScore,
+        autoScore,
+        rank: 1,
+        salesHeat,
+        concernKind,
+        axisScores,
+      };
+    };
+
+    for (const row of unfinishedRows) {
+      const key = getLeadPriorityKey("unfinished", row.id);
+      const manual = leadManualScoringByKey[key] ?? {};
+      const fallbackClientId = quoteClientByEmail.get(String(row.email ?? "").trim().toLowerCase());
+      const client = fallbackClientId ? clientsById.get(fallbackClientId) : undefined;
+      const concernKind =
+        manual.concernKind ??
+        (client ? getDefaultConcernKindFromSegment(client.segment) : inferConcernFromName(row.fullName));
+      const salesHeat = manual.salesHeat ?? "warm";
+      const startDate = estimateDesiredMoveInDate({ kind: "unfinished", row });
+      const contactCount = [row.fullName, row.email, row.phone].filter(Boolean).length;
+      const unpaidCount = fallbackClientId ? getUnpaidInvoicesByClient(fallbackClientId).length : 0;
+
+      unfinished[row.id] = buildPreview({
+        key,
+        kind: "unfinished",
+        id: row.id,
+        centerId: row.centerId,
+        label: row.contactLabel,
+        boxTypeId: row.boxTypeId,
+        startDate,
+        contactCount,
+        unpaidCount,
+        concernKind,
+        salesHeat,
+      });
+    }
+
+    for (const row of quoteRows) {
+      const key = getLeadPriorityKey("quote", row.id);
+      const manual = leadManualScoringByKey[key] ?? {};
+      const client = row.clientId ? clientsById.get(row.clientId) : undefined;
+      const concernKind =
+        manual.concernKind ??
+        (client ? getDefaultConcernKindFromSegment(client.segment) : inferConcernFromName(row.fullName));
+      const salesHeat = manual.salesHeat ?? "warm";
+      const startDate = estimateDesiredMoveInDate({ kind: "quote", row });
+      const contactCount = [row.fullName, row.email, row.phone].filter(Boolean).length;
+      const unpaidCount = row.clientId ? getUnpaidInvoicesByClient(row.clientId).length : 0;
+
+      quotes[row.id] = buildPreview({
+        key,
+        kind: "quote",
+        id: row.id,
+        centerId: row.centerId,
+        label: row.fullName || row.email || row.phone || "—",
+        boxTypeId: getPreferredBoxTypeIdForQuote(row),
+        startDate,
+        contactCount,
+        unpaidCount,
+        concernKind,
+        salesHeat,
+      });
+    }
+
+    const assignRanks = <T extends { id: string }>(
+      rows: T[],
+      groupBy: (row: T) => string,
+      mapById: Record<string, LeadPriorityPreview>
+    ) => {
+      const groups = new Map<string, LeadPriorityPreview[]>();
+
+      for (const row of rows) {
+        const preview = mapById[row.id];
+        if (!preview) continue;
+        const bucketKey = groupBy(row);
+        if (!groups.has(bucketKey)) {
+          groups.set(bucketKey, []);
+        }
+        groups.get(bucketKey)?.push(preview);
+      }
+
+      groups.forEach((items) => {
+        items
+          .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id))
+          .forEach((item, index) => {
+            item.rank = index + 1;
+          });
+      });
+    };
+
+    assignRanks(unfinishedRows, (row) => `unfinished:${row.step}`, unfinished);
+    assignRanks(quoteRows, (row) => `quote:${row.status}`, quotes);
+
+    const all = [...Object.values(unfinished), ...Object.values(quotes)].sort(
+      (left, right) => right.score - left.score || left.id.localeCompare(right.id)
+    );
+
+    return {
+      unfinished,
+      quotes,
+      all,
+    };
+  }, [
+    unfinishedRows,
+    quoteRows,
+    leadScoringConfig,
+    leadManualScoringByKey,
+    clientsById,
+  ]);
 
   const toggleAbsenceDay = (operatorId: string, day: string) => {
     setOperatorAbsences((current) => {
@@ -675,6 +1034,23 @@ export default function AcquisitionPage() {
           </button>
         </div>
 
+        {viewMode === "kanban" ? (
+          <button
+            type="button"
+            className="admin-btn admin-btn-secondary"
+            onClick={() => setPrioritizationModalOpen(true)}
+            style={{
+              padding: "0.3rem 0.6rem",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <MaterialSymbol name="tune" style={{ fontSize: 15 }} />
+            {fr ? "Priorisation" : "Prioritization"}
+          </button>
+        ) : null}
+
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
           <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
             {fr ? "Attribution auto" : "Auto assign"}
@@ -755,6 +1131,7 @@ export default function AcquisitionPage() {
           operatorFilter={operatorFilter}
           operators={operators}
           operatorById={operatorById}
+          priorityById={leadPriorityState.unfinished}
           operatorsLoading={operatorsLoading}
           onOpenDetails={(row) =>
             openPanel({
@@ -773,6 +1150,7 @@ export default function AcquisitionPage() {
           setRows={setQuoteRows}
           viewMode={viewMode}
           operatorFilter={operatorFilter}
+          priorityById={leadPriorityState.quotes}
           onOpenDetails={(row) =>
             openPanel({
               panelId: "acquisition.quoteRequest",
@@ -790,6 +1168,7 @@ export default function AcquisitionPage() {
           setRows={setQuoteRows}
           viewMode={viewMode}
           operatorFilter={operatorFilter}
+          priorityById={leadPriorityState.quotes}
           onOpenDetails={(row) =>
             openPanel({
               panelId: "acquisition.quoteRequest",
@@ -811,6 +1190,18 @@ export default function AcquisitionPage() {
           onClose={() => setLeadModalSelection(null)}
         />
       )}
+
+      {prioritizationModalOpen ? (
+        <LeadPrioritizationModal
+          fr={fr}
+          onClose={() => setPrioritizationModalOpen(false)}
+          scoringConfig={leadScoringConfig}
+          setScoringConfig={setLeadScoringConfig}
+          manualByLead={leadManualScoringByKey}
+          setManualByLead={setLeadManualScoringByKey}
+          priorities={leadPriorityState.all}
+        />
+      ) : null}
 
       {presenceModalOpen && (
         <div
@@ -991,6 +1382,7 @@ function UnfinishedBookingsTab({
   operatorFilter,
   operators,
   operatorById,
+  priorityById,
   operatorsLoading,
   onOpenDetails,
   onOpenLeadModal,
@@ -1002,6 +1394,7 @@ function UnfinishedBookingsTab({
   operatorFilter: OperatorFilter;
   operators: OperatorAccount[];
   operatorById: Map<string, OperatorAccount>;
+  priorityById: Record<string, LeadPriorityPreview>;
   operatorsLoading: boolean;
   onOpenDetails: (row: UnfinishedBookingRow) => void;
   onOpenLeadModal: (row: UnfinishedBookingRow) => void;
@@ -1092,7 +1485,14 @@ function UnfinishedBookingsTab({
           }}
         >
           {columns.map((step) => {
-            const stepRows = visibleRows.filter((row) => row.step === step);
+            const stepRows = visibleRows
+              .filter((row) => row.step === step)
+              .slice()
+              .sort((left, right) => {
+                const leftScore = priorityById[left.id]?.score ?? 0;
+                const rightScore = priorityById[right.id]?.score ?? 0;
+                return rightScore - leftScore || left.id.localeCompare(right.id);
+              });
 
             return (
               <div
@@ -1136,6 +1536,9 @@ function UnfinishedBookingsTab({
                     const assigned = row.assignedOperatorId
                       ? operatorById.get(row.assignedOperatorId)
                       : undefined;
+                    const priority = priorityById[row.id];
+                    const heat = priority ? heatMeta(priority.salesHeat, fr) : null;
+                    const tone = priority ? scoreToCardTone(priority.score) : null;
                     const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
                     const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
 
@@ -1212,6 +1615,36 @@ function UnfinishedBookingsTab({
                             <div style={{ fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {row.centerName}
                             </div>
+                            {priority ? (
+                              <div style={{ display: "inline-flex", gap: 4, marginTop: 4, flexWrap: "wrap" }}>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    borderRadius: 999,
+                                    padding: "2px 7px",
+                                    background: tone?.bg,
+                                    color: tone?.text,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  #{priority.rank} • {priority.score}
+                                </span>
+                                {heat ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      borderRadius: 999,
+                                      padding: "2px 7px",
+                                      background: heat.bg,
+                                      color: heat.text,
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    {heat.label}
+                                  </span>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
 
                           <div style={{ position: "relative" }}>
@@ -1480,6 +1913,7 @@ function QuoteRequestsTab({
   setRows,
   viewMode,
   operatorFilter,
+  priorityById,
   onOpenDetails,
   onOpenLeadModal,
 }: {
@@ -1488,6 +1922,7 @@ function QuoteRequestsTab({
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
   operatorFilter: OperatorFilter;
+  priorityById: Record<string, LeadPriorityPreview>;
   onOpenDetails: (row: QuoteRow) => void;
   onOpenLeadModal: (row: QuoteRow) => void;
 }) {
@@ -1578,7 +2013,14 @@ function QuoteRequestsTab({
           }}
         >
           {statusOrder.map((status) => {
-            const statusRows = visibleRows.filter((row) => row.status === status);
+            const statusRows = visibleRows
+              .filter((row) => row.status === status)
+              .slice()
+              .sort((left, right) => {
+                const leftScore = priorityById[left.id]?.score ?? 0;
+                const rightScore = priorityById[right.id]?.score ?? 0;
+                return rightScore - leftScore || left.id.localeCompare(right.id);
+              });
             return (
               <div
                 key={`quote_col_${status}`}
@@ -1621,6 +2063,9 @@ function QuoteRequestsTab({
 
                 <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
                   {statusRows.map((row) => {
+                    const priority = priorityById[row.id];
+                    const tone = priority ? scoreToCardTone(priority.score) : null;
+                    const heat = priority ? heatMeta(priority.salesHeat, fr) : null;
                     const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
                     const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
 
@@ -1704,6 +2149,36 @@ function QuoteRequestsTab({
                             {row.centerName}
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                          {priority ? (
+                            <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  borderRadius: 999,
+                                  padding: "2px 7px",
+                                  background: tone?.bg,
+                                  color: tone?.text,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                #{priority.rank} • {priority.score}
+                              </span>
+                              {heat ? (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    borderRadius: 999,
+                                    padding: "2px 7px",
+                                    background: heat.bg,
+                                    color: heat.text,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {heat.label}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                         {insertAfter ? <div className="kanban-insert-line" /> : null}
                       </div>
@@ -1798,6 +2273,7 @@ function AbandonedQuotesTab({
   setRows,
   viewMode,
   operatorFilter,
+  priorityById,
   onOpenDetails,
   onOpenLeadModal,
 }: {
@@ -1806,6 +2282,7 @@ function AbandonedQuotesTab({
   setRows: React.Dispatch<React.SetStateAction<QuoteRow[]>>;
   viewMode: ViewMode;
   operatorFilter: OperatorFilter;
+  priorityById: Record<string, LeadPriorityPreview>;
   onOpenDetails: (row: QuoteRow) => void;
   onOpenLeadModal: (row: QuoteRow) => void;
 }) {
@@ -1895,7 +2372,14 @@ function AbandonedQuotesTab({
           }}
         >
           {statusOrder.map((status) => {
-            const statusRows = filteredRows.filter((row) => row.status === status);
+            const statusRows = filteredRows
+              .filter((row) => row.status === status)
+              .slice()
+              .sort((left, right) => {
+                const leftScore = priorityById[left.id]?.score ?? 0;
+                const rightScore = priorityById[right.id]?.score ?? 0;
+                return rightScore - leftScore || left.id.localeCompare(right.id);
+              });
             return (
               <div
                 key={`abandoned_col_${status}`}
@@ -1938,6 +2422,9 @@ function AbandonedQuotesTab({
 
                 <div style={{ padding: "0.55rem", display: "grid", gap: "0.45rem", alignContent: "start" }}>
                   {statusRows.map((row) => {
+                    const priority = priorityById[row.id];
+                    const tone = priority ? scoreToCardTone(priority.score) : null;
+                    const heat = priority ? heatMeta(priority.salesHeat, fr) : null;
                     const insertBefore = draggingId && dragOverCardId === row.id && dragInsertSide === "before";
                     const insertAfter = draggingId && dragOverCardId === row.id && dragInsertSide === "after";
 
@@ -2021,6 +2508,36 @@ function AbandonedQuotesTab({
                             {row.centerName}
                           </div>
                           <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>{row.sizeLabel}</div>
+                          {priority ? (
+                            <div style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  borderRadius: 999,
+                                  padding: "2px 7px",
+                                  background: tone?.bg,
+                                  color: tone?.text,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                #{priority.rank} • {priority.score}
+                              </span>
+                              {heat ? (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    borderRadius: 999,
+                                    padding: "2px 7px",
+                                    background: heat.bg,
+                                    color: heat.text,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {heat.label}
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                         {insertAfter ? <div className="kanban-insert-line" /> : null}
                       </div>
@@ -2097,6 +2614,546 @@ function AbandonedQuotesTab({
         },
       ]}
     />
+  );
+}
+
+function LeadPrioritizationModal({
+  fr,
+  onClose,
+  scoringConfig,
+  setScoringConfig,
+  manualByLead,
+  setManualByLead,
+  priorities,
+}: {
+  fr: boolean;
+  onClose: () => void;
+  scoringConfig: LeadScoringConfig;
+  setScoringConfig: React.Dispatch<React.SetStateAction<LeadScoringConfig>>;
+  manualByLead: Record<string, LeadManualScoringInput>;
+  setManualByLead: React.Dispatch<
+    React.SetStateAction<Record<string, LeadManualScoringInput>>
+  >;
+  priorities: LeadPriorityPreview[];
+}) {
+  const [previewKey, setPreviewKey] = useState<string>(priorities[0]?.key ?? "");
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const pointsUsed = useMemo(() => getScoringPointsUsed(scoringConfig), [scoringConfig]);
+  const maxLevel = Math.max(1, scoringConfig.levelCount - 1);
+  const effectivePreviewKey =
+    previewKey && priorities.some((item) => item.key === previewKey)
+      ? previewKey
+      : priorities[0]?.key ?? "";
+  const previewLead = priorities.find((item) => item.key === effectivePreviewKey) ?? priorities[0] ?? null;
+
+  const axisLabels: Record<LeadScoringAxisKey, string> = {
+    centerPriority: fr ? "Centre" : "Center",
+    boxSizePriority: fr ? "Taille" : "Size",
+    startDateUrgency: fr ? "Date" : "Start",
+    concernPriority: fr ? "Personne" : "Concern",
+    contactCompleteness: fr ? "Contact" : "Contact",
+    unpaidRisk: fr ? "Risque" : "Risk",
+    salesHeat: fr ? "Chaleur" : "Heat",
+  };
+
+  const axisOrder: LeadScoringAxisKey[] = [
+    "centerPriority",
+    "boxSizePriority",
+    "startDateUrgency",
+    "concernPriority",
+    "contactCompleteness",
+    "unpaidRisk",
+    "salesHeat",
+  ];
+
+  const coefficientAxes: SpiderAxis[] = axisOrder.map((axisKey) => ({
+    key: axisKey,
+    label: axisLabels[axisKey],
+    value: scoreFromLevel(scoringConfig.axisWeights[axisKey], scoringConfig.levelCount),
+  }));
+
+  const leadAxes: SpiderAxis[] = previewLead
+    ? axisOrder.map((axisKey) => ({
+        key: axisKey,
+        label: axisLabels[axisKey],
+        value: previewLead.axisScores[axisKey],
+      }))
+    : coefficientAxes;
+
+  const setAxisWeightLevel = (axisKey: LeadScoringAxisKey, nextValue: number) => {
+    setScoringConfig((current) => {
+      const currentValue = current.axisWeights[axisKey] ?? 0;
+      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+      return {
+        ...current,
+        axisWeights: {
+          ...current.axisWeights,
+          [axisKey]: allowed,
+        },
+      };
+    });
+  };
+
+  const setCenterLevel = (centerId: string, nextValue: number) => {
+    setScoringConfig((current) => {
+      const currentValue = current.centerPriorityLevels[centerId] ?? 0;
+      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+      return {
+        ...current,
+        centerPriorityLevels: {
+          ...current.centerPriorityLevels,
+          [centerId]: allowed,
+        },
+      };
+    });
+  };
+
+  const setBoxTypeLevel = (centerId: string, boxTypeId: string, nextValue: number) => {
+    setScoringConfig((current) => {
+      const centerBucket = current.boxTypePriorityLevelsByCenter[centerId] ?? {};
+      const currentValue = centerBucket[boxTypeId] ?? 0;
+      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+
+      return {
+        ...current,
+        boxTypePriorityLevelsByCenter: {
+          ...current.boxTypePriorityLevelsByCenter,
+          [centerId]: {
+            ...centerBucket,
+            [boxTypeId]: allowed,
+          },
+        },
+      };
+    });
+  };
+
+  const setLevelCount = (nextCount: number) => {
+    setScoringConfig((current) =>
+      withUpdatedLevelCount(current, nextCount, centers, boxTypes)
+    );
+  };
+
+  const setManualField = (
+    key: string,
+    patch: Partial<LeadManualScoringInput>
+  ) => {
+    setManualByLead((current) => ({
+      ...current,
+      [key]: {
+        ...(current[key] ?? {}),
+        ...patch,
+      },
+    }));
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10060,
+        background: "rgba(0,0,0,0.55)",
+        padding: 16,
+        display: "grid",
+        placeItems: "center",
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(1480px, 100%)",
+          maxHeight: "90vh",
+          overflow: "auto",
+          background: "var(--card-bg)",
+          border: "1px solid var(--border-color)",
+          borderRadius: 14,
+          boxShadow: "0 20px 45px rgba(0,0,0,0.32)",
+          display: "grid",
+          gap: 12,
+          padding: "0.9rem",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 10,
+            borderBottom: "1px solid var(--border-color)",
+            paddingBottom: 10,
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>
+              {fr ? "Priorisation des leads" : "Lead prioritization"}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+              {fr
+                ? "Ajuste les coefficients pour reclasser automatiquement les cartes du Kanban."
+                : "Adjust coefficients to automatically reorder Kanban cards."}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="admin-btn admin-btn-secondary"
+            onClick={onClose}
+            style={{ padding: "0.35rem 0.6rem" }}
+          >
+            {fr ? "Fermer" : "Close"}
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 12, alignItems: "start" }}>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.75rem",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <strong style={{ fontSize: 14 }}>{fr ? "Regles de scoring" : "Scoring rules"}</strong>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span style={{ color: "var(--text-secondary)" }}>{fr ? "Niveaux" : "Levels"}</span>
+                  <input
+                    type="number"
+                    min={2}
+                    max={7}
+                    value={scoringConfig.levelCount}
+                    onChange={(event) => setLevelCount(Number(event.target.value) || 2)}
+                    style={{
+                      width: 62,
+                      borderRadius: 8,
+                      border: "1px solid var(--border-color)",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                      padding: "0.25rem 0.4rem",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 10,
+                  border: "1px dashed var(--border-color)",
+                  padding: "0.6rem",
+                  fontSize: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>
+                  {fr ? "Budget utilise" : "Used budget"}: <strong>{pointsUsed}</strong> / {scoringConfig.maxBudget}
+                </span>
+                <span style={{ color: pointsUsed >= scoringConfig.maxBudget ? "#b91c1c" : "var(--text-secondary)" }}>
+                  {fr ? "Reste" : "Remaining"}: {Math.max(0, scoringConfig.maxBudget - pointsUsed)}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "center" }}>
+                <div style={{ justifySelf: "center" }}>
+                  <LeadSpiderChart axes={coefficientAxes} size={250} stroke="#2563eb" fill="rgba(37,99,235,0.15)" />
+                </div>
+                <div style={{ justifySelf: "center" }}>
+                  <LeadSpiderChart axes={leadAxes} size={250} stroke="#16a34a" fill="rgba(22,163,74,0.16)" />
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 7 }}>
+                {axisOrder.map((axisKey) => {
+                  const value = scoringConfig.axisWeights[axisKey] ?? 0;
+                  return (
+                    <label key={`axis_weight_${axisKey}`} style={{ display: "grid", gap: 3 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                        <span>{axisLabels[axisKey]}</span>
+                        <strong>{value}</strong>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={maxLevel}
+                        step={1}
+                        value={value}
+                        onChange={(event) => setAxisWeightLevel(axisKey, Number(event.target.value))}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.75rem",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <strong style={{ fontSize: 14 }}>
+                {fr ? "Mini-toiles tailles par centre" : "Center box-size mini spiders"}
+              </strong>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                {centers.map((center) => {
+                  const centerValue = scoringConfig.centerPriorityLevels[center.id] ?? 0;
+                  const centerBoxTypes = boxTypes.filter((boxType) => boxType.centerId === center.id);
+                  const miniAxes: SpiderAxis[] = centerBoxTypes.map((boxType) => ({
+                    key: boxType.id,
+                    label: `${boxType.sizeM2}m2`,
+                    value: scoreFromLevel(
+                      scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0,
+                      scoringConfig.levelCount
+                    ),
+                  }));
+
+                  return (
+                    <div
+                      key={`center_priority_${center.id}`}
+                      style={{
+                        border: "1px solid var(--border-color)",
+                        borderRadius: 10,
+                        padding: "0.6rem",
+                        display: "grid",
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10, alignItems: "center" }}>
+                        <div>
+                          <LeadSpiderChart
+                            axes={miniAxes.length >= 3 ? miniAxes : [...miniAxes, ...miniAxes, ...miniAxes].slice(0, 3)}
+                            size={160}
+                            stroke="#0ea5e9"
+                            fill="rgba(14,165,233,0.16)"
+                          />
+                        </div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{center.name}</div>
+                          <label style={{ display: "grid", gap: 3 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                              <span>{fr ? "Priorite centre" : "Center priority"}</span>
+                              <strong>{centerValue}</strong>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={maxLevel}
+                              step={1}
+                              value={centerValue}
+                              onChange={(event) => setCenterLevel(center.id, Number(event.target.value))}
+                            />
+                          </label>
+
+                          {centerBoxTypes.map((boxType) => {
+                            const value =
+                              scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0;
+                            return (
+                              <label key={`box_priority_${center.id}_${boxType.id}`} style={{ display: "grid", gap: 3 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                                  <span>
+                                    {boxType.name} ({boxType.sizeM2}m2)
+                                  </span>
+                                  <strong>{value}</strong>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={maxLevel}
+                                  step={1}
+                                  value={value}
+                                  onChange={(event) =>
+                                    setBoxTypeLevel(center.id, boxType.id, Number(event.target.value))
+                                  }
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.75rem",
+                display: "grid",
+                gap: 10,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>
+                  {fr ? "Scoring manuel Sales" : "Sales manual scoring"}
+                </strong>
+
+                <select
+                  value={effectivePreviewKey}
+                  onChange={(event) => setPreviewKey(event.target.value)}
+                  style={{
+                    borderRadius: 8,
+                    border: "1px solid var(--border-color)",
+                    background: "var(--input-bg)",
+                    color: "var(--text-primary)",
+                    padding: "0.3rem 0.5rem",
+                    fontSize: 12,
+                    maxWidth: 320,
+                  }}
+                >
+                  {priorities.slice(0, 50).map((item) => (
+                    <option key={`preview_option_${item.key}`} value={item.key}>
+                      {item.label} • {item.score}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div
+                style={{
+                  maxHeight: "56vh",
+                  overflow: "auto",
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                {priorities.map((item) => {
+                  const manual = manualByLead[item.key] ?? {};
+                  const heat = heatMeta(item.salesHeat, fr);
+
+                  return (
+                    <div
+                      key={`manual_row_${item.key}`}
+                      style={{
+                        border: "1px solid var(--border-color)",
+                        borderRadius: 10,
+                        padding: "0.55rem",
+                        display: "grid",
+                        gap: 6,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{item.label}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {item.kind === "unfinished" ? (fr ? "Booking interrompu" : "Interrupted booking") : fr ? "Demande de devis" : "Quote request"}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            fontSize: 10,
+                            borderRadius: 999,
+                            padding: "2px 8px",
+                            background: scoreToCardTone(item.score).bg,
+                            color: scoreToCardTone(item.score).text,
+                            fontWeight: 700,
+                            height: "fit-content",
+                          }}
+                        >
+                          #{item.rank} • {item.score}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <label style={{ display: "grid", gap: 3 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {fr ? "Chaleur" : "Heat"}
+                          </span>
+                          <select
+                            value={manual.salesHeat ?? item.salesHeat}
+                            onChange={(event) =>
+                              setManualField(item.key, {
+                                salesHeat: event.target.value as SalesHeatLevel,
+                              })
+                            }
+                            style={{
+                              borderRadius: 8,
+                              border: "1px solid var(--border-color)",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              padding: "0.35rem 0.45rem",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="hot">{fr ? "Chaud (rouge)" : "Hot (red)"}</option>
+                            <option value="warm">{fr ? "Tiede (orange)" : "Warm (orange)"}</option>
+                            <option value="cold">{fr ? "Froid (jaune)" : "Cold (yellow)"}</option>
+                          </select>
+                        </label>
+
+                        <label style={{ display: "grid", gap: 3 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {fr ? "Personne concernee" : "Concerned person"}
+                          </span>
+                          <select
+                            value={manual.concernKind ?? item.concernKind}
+                            onChange={(event) =>
+                              setManualField(item.key, {
+                                concernKind: event.target.value as LeadConcernKind,
+                              })
+                            }
+                            style={{
+                              borderRadius: 8,
+                              border: "1px solid var(--border-color)",
+                              background: "var(--input-bg)",
+                              color: "var(--text-primary)",
+                              padding: "0.35rem 0.45rem",
+                              fontSize: 12,
+                            }}
+                          >
+                            <option value="self">{fr ? "Lui-meme" : "Self"}</option>
+                            <option value="third_party">{fr ? "Tiers" : "Third party"}</option>
+                            <option value="company">{fr ? "Societe" : "Company"}</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      <div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <span>
+                          {fr ? "Score auto" : "Auto score"}: <strong>{item.autoScore}</strong>
+                        </span>
+                        <span style={{ color: heat.text }}>
+                          {fr ? "Chaleur" : "Heat"}: <strong>{heat.label}</strong>
+                        </span>
+                        <span>
+                          {fr ? "Personne" : "Concern"}: <strong>{concernLabel(item.concernKind, fr)}</strong>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

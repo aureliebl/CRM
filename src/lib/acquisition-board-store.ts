@@ -26,16 +26,49 @@ const pgPool = getSharedPgPool({
 
 export type AcquisitionQuoteStatus = "new" | "sent" | "accepted" | "expired" | "abandoned";
 
+export type SalesHeatLevel = "hot" | "warm" | "cold";
+
+export type LeadConcernKind = "self" | "third_party" | "company";
+
+export type LeadScoringAxisKey =
+  | "centerPriority"
+  | "boxSizePriority"
+  | "startDateUrgency"
+  | "concernPriority"
+  | "contactCompleteness"
+  | "unpaidRisk"
+  | "salesHeat";
+
+export type LeadScoringConfig = {
+  levelCount: number;
+  maxBudget: number;
+  axisWeights: Record<LeadScoringAxisKey, number>;
+  centerPriorityLevels: Record<string, number>;
+  boxTypePriorityLevelsByCenter: Record<string, Record<string, number>>;
+};
+
+export type LeadManualScoringInput = {
+  salesHeat?: SalesHeatLevel;
+  concernKind?: LeadConcernKind;
+};
+
+export type LeadScoringPayload = {
+  config: LeadScoringConfig;
+  manualByLead: Record<string, LeadManualScoringInput>;
+};
+
 export type AcquisitionBoardState = {
   unfinished: Record<string, { step?: number; assignedOperatorId?: string | null }>;
   quotes: Record<string, { status?: AcquisitionQuoteStatus; assignedOperatorId?: string | null }>;
   operatorAbsences: Record<string, string[]>;
+  scoring?: LeadScoringPayload;
 };
 
 const DEFAULT_STATE: AcquisitionBoardState = {
   unfinished: {},
   quotes: {},
   operatorAbsences: {},
+  scoring: undefined,
 };
 
 let postgresReady: Promise<void> | null = null;
@@ -71,6 +104,19 @@ function normalizeState(input: unknown): AcquisitionBoardState {
       raw.operatorAbsences && typeof raw.operatorAbsences === "object"
         ? raw.operatorAbsences
         : {},
+    scoring:
+      raw.scoring &&
+      typeof raw.scoring === "object" &&
+      raw.scoring.config &&
+      typeof raw.scoring.config === "object"
+        ? {
+            config: raw.scoring.config as LeadScoringConfig,
+            manualByLead:
+              raw.scoring.manualByLead && typeof raw.scoring.manualByLead === "object"
+                ? raw.scoring.manualByLead
+                : {},
+          }
+        : undefined,
   };
 }
 
