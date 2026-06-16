@@ -2,6 +2,8 @@ import { getBookings } from "@/lib/mock/bookings-and-dashboard";
 import { getBoxTypesByCenter, getCenters, getPricingByCenter } from "@/lib/mock/centers-and-pricing";
 import { TableWithColumnFilters } from "@/components/admin/TableWithColumnFilters";
 
+export const dynamic = "force-dynamic";
+
 export default async function CenterDetailPage({ params }: { params: Promise<{ centerId: string }> }) {
   const centers = getCenters();
   const { centerId } = await params;

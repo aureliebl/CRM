@@ -639,6 +639,9 @@ function rebuildClientIndexes() {
   communicationsByClientId.clear();
 
   clients.forEach((client) => {
+    if (!client.leadConcernKind) {
+      client.leadConcernKind = client.segment === "B2B" ? "company" : "self";
+    }
     clientsById.set(client.id, client);
   });
 

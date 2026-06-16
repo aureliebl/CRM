@@ -2,6 +2,15 @@
 
 Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
 
+### Prerequis runtime Node.js
+
+- Utiliser Node.js `22.x` (LTS). Le projet peut etre instable en build/typecheck avec Node `25.x`.
+- Si vous utilisez `nvm`:
+   ```bash
+   nvm use
+   ```
+   (le fichier `.nvmrc` du repo est configure sur `22`)
+
 ### Fonctionnalités principales
 
 - **Fiche client** : Historique complet, communications, boxes associées et bouton d'appel direct
@@ -33,6 +42,11 @@ Admin interne pour Costockage, construit avec Next.js, React et TypeScript.
    ```bash
    npm run dev
    ```
+
+Build production (recommande):
+```bash
+CI=1 npm run build
+```
 
 ### Base de données (runtime PostgreSQL)
 

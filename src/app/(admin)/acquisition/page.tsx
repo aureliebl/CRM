@@ -48,6 +48,14 @@ type OperatorAccount = {
   profileImage?: string | null;
 };
 
+type ViewerSessionUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "admin" | "operator";
+  isSuperAdmin: boolean;
+};
+
 type UnfinishedBookingRow = ReturnType<typeof getUnfinishedBookings>[number] & {
   centerName: string;
   boxTypeName: string;
@@ -369,11 +377,19 @@ function estimateStartDateUrgencyScore(startDateIso: string): number {
   if (!Number.isFinite(dateValue)) return 50;
 
   const diffDays = Math.ceil((dateValue - now) / (24 * 60 * 60 * 1000));
-  if (diffDays <= 3) return 100;
-  if (diffDays <= 7) return 86;
-  if (diffDays <= 14) return 68;
-  if (diffDays <= 30) return 48;
-  return 30;
+  if (diffDays <= 1) return 100;
+  if (diffDays <= 3) return 95;
+  if (diffDays <= 7) return 85;
+  if (diffDays <= 14) return 65;
+  if (diffDays <= 30) return 40;
+  return 20;
+}
+
+function computeUnpaidRiskScore(unpaidCount: number): number {
+  if (unpaidCount <= 0) return 100;
+  if (unpaidCount === 1) return 55;
+  if (unpaidCount === 2) return 25;
+  return 10;
 }
 
 function getPreferredBoxTypeIdForQuote(row: QuoteRow): string | null {
@@ -477,6 +493,7 @@ export default function AcquisitionPage() {
   const [boardReady, setBoardReady] = useState(false);
   const [leadModalSelection, setLeadModalSelection] = useState<LeadModalSelection | null>(null);
   const [prioritizationModalOpen, setPrioritizationModalOpen] = useState(false);
+  const [viewer, setViewer] = useState<ViewerSessionUser | null>(null);
   const [leadScoringConfig, setLeadScoringConfig] = useState<LeadScoringConfig>(
     () => DEFAULT_LEAD_SCORING_CONFIG
   );
@@ -518,6 +535,40 @@ export default function AcquisitionPage() {
   useEffect(() => {
     setQuoteRows(getInitialQuoteRows(fr));
   }, [fr]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSession = async () => {
+      try {
+        const res = await fetch("/api/auth/session", { cache: "no-store" });
+        if (!res.ok || !mounted) {
+          if (mounted) setViewer(null);
+          return;
+        }
+
+        const payload = (await res.json()) as {
+          authenticated?: boolean;
+          user?: ViewerSessionUser;
+        };
+
+        if (!mounted) return;
+        if (payload.authenticated && payload.user) {
+          setViewer(payload.user);
+        } else {
+          setViewer(null);
+        }
+      } catch {
+        if (mounted) setViewer(null);
+      }
+    };
+
+    void loadSession();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -687,9 +738,17 @@ export default function AcquisitionPage() {
   }, [operators]);
 
   const monthDays = useMemo(() => getMonthDays(presenceMonth), [presenceMonth]);
+  const canManageLeadScoringRules =
+    viewer?.role === "admin" || viewer?.isSuperAdmin === true;
   const selectedOperatorAbsences = selectedOperatorId
     ? operatorAbsences[selectedOperatorId] || []
     : [];
+
+  useEffect(() => {
+    if (!canManageLeadScoringRules && prioritizationModalOpen) {
+      setPrioritizationModalOpen(false);
+    }
+  }, [canManageLeadScoringRules, prioritizationModalOpen]);
 
   const clientsById = useMemo(() => {
     const map = new Map<string, ReturnType<typeof getClients>[number]>();
@@ -756,7 +815,7 @@ export default function AcquisitionPage() {
         startDateUrgency: estimateStartDateUrgencyScore(startDate),
         concernPriority: concernToScore(concernKind),
         contactCompleteness: Math.round((contactCount / 3) * 100),
-        unpaidRisk: Math.max(0, 100 - unpaidCount * 35),
+        unpaidRisk: computeUnpaidRiskScore(unpaidCount),
         salesHeat: heatToScore(salesHeat),
       };
 
@@ -840,7 +899,9 @@ export default function AcquisitionPage() {
       const client = fallbackClientId ? clientsById.get(fallbackClientId) : undefined;
       const concernKind =
         manual.concernKind ??
-        (client ? getDefaultConcernKindFromSegment(client.segment) : inferConcernFromName(row.fullName));
+        (client
+          ? client.leadConcernKind ?? getDefaultConcernKindFromSegment(client.segment)
+          : inferConcernFromName(row.fullName));
       const salesHeat = manual.salesHeat ?? "warm";
       const startDate = estimateDesiredMoveInDate({ kind: "unfinished", row });
       const contactCount = [row.fullName, row.email, row.phone].filter(Boolean).length;
@@ -867,7 +928,9 @@ export default function AcquisitionPage() {
       const client = row.clientId ? clientsById.get(row.clientId) : undefined;
       const concernKind =
         manual.concernKind ??
-        (client ? getDefaultConcernKindFromSegment(client.segment) : inferConcernFromName(row.fullName));
+        (client
+          ? client.leadConcernKind ?? getDefaultConcernKindFromSegment(client.segment)
+          : inferConcernFromName(row.fullName));
       const salesHeat = manual.salesHeat ?? "warm";
       const startDate = estimateDesiredMoveInDate({ kind: "quote", row });
       const contactCount = [row.fullName, row.email, row.phone].filter(Boolean).length;
@@ -1034,7 +1097,7 @@ export default function AcquisitionPage() {
           </button>
         </div>
 
-        {viewMode === "kanban" ? (
+        {viewMode === "kanban" && canManageLeadScoringRules ? (
           <button
             type="button"
             className="admin-btn admin-btn-secondary"
@@ -1191,7 +1254,7 @@ export default function AcquisitionPage() {
         />
       )}
 
-      {prioritizationModalOpen ? (
+      {prioritizationModalOpen && canManageLeadScoringRules ? (
         <LeadPrioritizationModal
           fr={fr}
           onClose={() => setPrioritizationModalOpen(false)}
@@ -2756,7 +2819,7 @@ function LeadPrioritizationModal({
     }));
   };
 
-  return (
+  const modalNode = (
     <div
       role="dialog"
       aria-modal="true"
@@ -3155,6 +3218,9 @@ function LeadPrioritizationModal({
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(modalNode, document.body);
 }
 
 function LeadKanbanDetailsModal({

@@ -4,6 +4,8 @@ export type Channel = "marketplace" | "kostok";
 
 export type AppRole = "admin" | "operator";
 
+export type ClientConcernKind = "self" | "third_party" | "company";
+
 export type ClientStatus = "active" | "churned" | "lead";
 
 export interface Client {
@@ -27,6 +29,7 @@ export interface Client {
   longComment?: string;
   leadSource?: LeadSource;
   viewedBoxSizes?: number[];
+  leadConcernKind?: ClientConcernKind;
 }
 
 export type ClientBoxStatus = "active" | "ended" | "upcoming" | "cancelled";

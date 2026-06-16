@@ -47,13 +47,13 @@ type BoxTypeLike = { id: string; centerId?: string };
 const DEFAULT_BUDGET = 100;
 
 const DEFAULT_AXIS_WEIGHTS: LeadScoringAxisWeights = {
-  centerPriority: 2,
+  centerPriority: 3,
   boxSizePriority: 2,
-  startDateUrgency: 2,
+  startDateUrgency: 3,
   concernPriority: 1,
   contactCompleteness: 1,
-  unpaidRisk: 1,
-  salesHeat: 2,
+  unpaidRisk: 2,
+  salesHeat: 3,
 };
 
 const AXIS_ORDER: LeadScoringAxisKey[] = [
@@ -317,8 +317,8 @@ export function withUpdatedLevelCount(
 
 export function heatToScore(heat: SalesHeatLevel): number {
   if (heat === "hot") return 100;
-  if (heat === "warm") return 65;
-  return 35;
+  if (heat === "warm") return 58;
+  return 28;
 }
 
 export function heatMeta(heat: SalesHeatLevel, fr: boolean): { label: string; bg: string; text: string } {
@@ -346,9 +346,9 @@ export function heatMeta(heat: SalesHeatLevel, fr: boolean): { label: string; bg
 }
 
 export function concernToScore(concernKind: LeadConcernKind): number {
-  if (concernKind === "company") return 85;
-  if (concernKind === "self") return 70;
-  return 55;
+  if (concernKind === "company") return 82;
+  if (concernKind === "self") return 72;
+  return 48;
 }
 
 export function concernLabel(concernKind: LeadConcernKind, fr: boolean): string {
