@@ -24,7 +24,6 @@ import {
   normalizeLeadScoringConfig,
   scoreFromLevel,
   weightedAverage,
-  withUpdatedLevelCount,
   type LeadConcernKind,
   type LeadManualScoringInput,
   type LeadScoringAxisKey,
@@ -2713,6 +2712,32 @@ function LeadPrioritizationModal({
 
   const pointsUsed = useMemo(() => getScoringPointsUsed(scoringConfig), [scoringConfig]);
   const maxLevel = Math.max(1, scoringConfig.levelCount - 1);
+
+  const getSpiderBudgetCap = (vertexCount: number) => Math.max(0, vertexCount) * maxLevel;
+  const sumLevels = (values: number[]) => values.reduce((sum, value) => sum + value, 0);
+  const averageLevel = (values: number[]) => {
+    if (values.length === 0) return 0;
+    return Math.round(sumLevels(values) / values.length);
+  };
+
+  const buildRenderableSpiderAxes = (axes: SpiderAxis[]) => {
+    if (axes.length >= 3) return axes;
+    if (axes.length === 0) return [];
+
+    const duplicated = [...axes];
+    let cursor = 0;
+    while (duplicated.length < 3) {
+      const source = axes[cursor % axes.length];
+      duplicated.push({
+        ...source,
+        key: `${source.key}_ghost_${duplicated.length}`,
+      });
+      cursor += 1;
+    }
+
+    return duplicated;
+  };
+
   const effectivePreviewKey =
     previewKey && priorities.some((item) => item.key === previewKey)
       ? previewKey
@@ -2739,10 +2764,52 @@ function LeadPrioritizationModal({
     "salesHeat",
   ];
 
+  const centerLevels = centers.map((center) => scoringConfig.centerPriorityLevels[center.id] ?? 0);
+  const allBoxLevels = centers.flatMap((center) => {
+    const centerBoxTypes = boxTypes.filter((boxType) => boxType.centerId === center.id);
+    return centerBoxTypes.map(
+      (boxType) => scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0
+    );
+  });
+
+  const consolidatedCenterLevel = Math.round(
+    ((scoringConfig.axisWeights.centerPriority ?? 0) + averageLevel(centerLevels)) / 2
+  );
+  const consolidatedBoxLevel = Math.round(
+    ((scoringConfig.axisWeights.boxSizePriority ?? 0) + averageLevel(allBoxLevels)) / 2
+  );
+
+  const axisBudgetUsed = sumLevels(
+    axisOrder.map((axisKey) => scoringConfig.axisWeights[axisKey] ?? 0)
+  );
+  const axisBudgetCap = getSpiderBudgetCap(axisOrder.length);
+
+  const centerBudgetUsed = sumLevels(centerLevels);
+  const centerBudgetCap = getSpiderBudgetCap(centers.length);
+
   const coefficientAxes: SpiderAxis[] = axisOrder.map((axisKey) => ({
     key: axisKey,
     label: axisLabels[axisKey],
-    value: scoreFromLevel(scoringConfig.axisWeights[axisKey], scoringConfig.levelCount),
+    value: scoreFromLevel(
+      axisKey === "centerPriority"
+        ? consolidatedCenterLevel
+        : axisKey === "boxSizePriority"
+        ? consolidatedBoxLevel
+        : scoringConfig.axisWeights[axisKey],
+      scoringConfig.levelCount
+    ),
+  }));
+
+  const centerPriorityAxes: SpiderAxis[] = centers.map((center) => ({
+    key: center.id,
+    label:
+      center.name.length > 14
+        ? `${center.name.slice(0, 12)}...`
+        : center.name,
+    value: scoreFromLevel(
+      scoringConfig.centerPriorityLevels[center.id] ?? 0,
+      scoringConfig.levelCount
+    ),
   }));
 
   const leadAxes: SpiderAxis[] = previewLead
@@ -2752,6 +2819,57 @@ function LeadPrioritizationModal({
         value: previewLead.axisScores[axisKey],
       }))
     : coefficientAxes;
+
+  const setGeneralSpiderToBalancedMax = () => {
+    setScoringConfig((current) => {
+      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const nextAxis = { ...current.axisWeights };
+      for (const axisKey of axisOrder) {
+        nextAxis[axisKey] = nextMaxLevel;
+      }
+
+      return {
+        ...current,
+        axisWeights: nextAxis,
+      };
+    });
+  };
+
+  const setCenterSpiderToBalancedMax = () => {
+    setScoringConfig((current) => {
+      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const nextCenterLevels: Record<string, number> = { ...current.centerPriorityLevels };
+
+      for (const center of centers) {
+        nextCenterLevels[center.id] = nextMaxLevel;
+      }
+
+      return {
+        ...current,
+        centerPriorityLevels: nextCenterLevels,
+      };
+    });
+  };
+
+  const setCenterBoxSpiderToBalancedMax = (centerId: string) => {
+    setScoringConfig((current) => {
+      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const currentBucket = current.boxTypePriorityLevelsByCenter[centerId] ?? {};
+      const nextBucket: Record<string, number> = {};
+
+      for (const boxTypeId of Object.keys(currentBucket)) {
+        nextBucket[boxTypeId] = nextMaxLevel;
+      }
+
+      return {
+        ...current,
+        boxTypePriorityLevelsByCenter: {
+          ...current.boxTypePriorityLevelsByCenter,
+          [centerId]: nextBucket,
+        },
+      };
+    });
+  };
 
   const setAxisWeightLevel = (axisKey: LeadScoringAxisKey, nextValue: number) => {
     setScoringConfig((current) => {
@@ -2798,12 +2916,6 @@ function LeadPrioritizationModal({
         },
       };
     });
-  };
-
-  const setLevelCount = (nextCount: number) => {
-    setScoringConfig((current) =>
-      withUpdatedLevelCount(current, nextCount, centers, boxTypes)
-    );
   };
 
   const setManualField = (
@@ -2892,24 +3004,19 @@ function LeadPrioritizationModal({
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                <strong style={{ fontSize: 14 }}>{fr ? "Regles de scoring" : "Scoring rules"}</strong>
+                <strong style={{ fontSize: 14 }}>{fr ? "Toile generale scoring" : "Global scoring spider"}</strong>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                  <span style={{ color: "var(--text-secondary)" }}>{fr ? "Niveaux" : "Levels"}</span>
-                  <input
-                    type="number"
-                    min={2}
-                    max={7}
-                    value={scoringConfig.levelCount}
-                    onChange={(event) => setLevelCount(Number(event.target.value) || 2)}
-                    style={{
-                      width: 62,
-                      borderRadius: 8,
-                      border: "1px solid var(--border-color)",
-                      background: "var(--input-bg)",
-                      color: "var(--text-primary)",
-                      padding: "0.25rem 0.4rem",
-                    }}
-                  />
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {fr ? "Niveaux fixes" : "Fixed levels"}: 0-{maxLevel}
+                  </span>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn-secondary"
+                    onClick={setGeneralSpiderToBalancedMax}
+                    style={{ padding: "0.25rem 0.5rem", fontSize: 11 }}
+                  >
+                    {fr ? "Equilibrer au max" : "Balance to max"}
+                  </button>
                 </div>
               </div>
 
@@ -2926,20 +3033,36 @@ function LeadPrioritizationModal({
                 }}
               >
                 <span>
-                  {fr ? "Budget utilise" : "Used budget"}: <strong>{pointsUsed}</strong> / {scoringConfig.maxBudget}
+                  {fr ? "Budget toile" : "Spider budget"}: <strong>{axisBudgetUsed}</strong> / {axisBudgetCap}
                 </span>
-                <span style={{ color: pointsUsed >= scoringConfig.maxBudget ? "#b91c1c" : "var(--text-secondary)" }}>
-                  {fr ? "Reste" : "Remaining"}: {Math.max(0, scoringConfig.maxBudget - pointsUsed)}
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {fr ? "Budget global utilise" : "Global used budget"}: {pointsUsed} / {scoringConfig.maxBudget}
                 </span>
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "center" }}>
                 <div style={{ justifySelf: "center" }}>
-                  <LeadSpiderChart axes={coefficientAxes} size={250} stroke="#2563eb" fill="rgba(37,99,235,0.15)" />
+                  <LeadSpiderChart
+                    axes={buildRenderableSpiderAxes(coefficientAxes)}
+                    size={250}
+                    stroke="#2563eb"
+                    fill="rgba(37,99,235,0.15)"
+                  />
                 </div>
                 <div style={{ justifySelf: "center" }}>
-                  <LeadSpiderChart axes={leadAxes} size={250} stroke="#16a34a" fill="rgba(22,163,74,0.16)" />
+                  <LeadSpiderChart
+                    axes={buildRenderableSpiderAxes(leadAxes)}
+                    size={250}
+                    stroke="#16a34a"
+                    fill="rgba(22,163,74,0.16)"
+                  />
                 </div>
+              </div>
+
+              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                {fr
+                  ? "La toile generale integre Centre et Taille avec la moyenne des priorites Centre et tailles par centre."
+                  : "The global spider merges Center and Size with the average center priorities and per-center size priorities."}
               </div>
 
               <div style={{ display: "grid", gap: 7 }}>
@@ -2974,13 +3097,89 @@ function LeadPrioritizationModal({
                 gap: 10,
               }}
             >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <strong style={{ fontSize: 14 }}>
+                  {fr ? "Toile priorites centres" : "Center-priority spider"}
+                </strong>
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-secondary"
+                  onClick={setCenterSpiderToBalancedMax}
+                  style={{ padding: "0.25rem 0.5rem", fontSize: 11 }}
+                >
+                  {fr ? "Equilibrer au max" : "Balance to max"}
+                </button>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: 10,
+                  border: "1px dashed var(--border-color)",
+                  padding: "0.6rem",
+                  fontSize: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>
+                  {fr ? "Budget toile" : "Spider budget"}: <strong>{centerBudgetUsed}</strong> / {centerBudgetCap}
+                </span>
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {fr ? "Plafond" : "Cap"}: {maxLevel} x {centers.length}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 12, alignItems: "start" }}>
+                <div style={{ justifySelf: "center" }}>
+                  <LeadSpiderChart
+                    axes={buildRenderableSpiderAxes(centerPriorityAxes)}
+                    size={200}
+                    stroke="#7c3aed"
+                    fill="rgba(124,58,237,0.14)"
+                  />
+                </div>
+
+                <div style={{ display: "grid", gap: 7 }}>
+                  {centers.map((center) => {
+                    const value = scoringConfig.centerPriorityLevels[center.id] ?? 0;
+                    return (
+                      <label key={`center_priority_level_${center.id}`} style={{ display: "grid", gap: 3 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                          <span>{center.name}</span>
+                          <strong>{value}</strong>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={maxLevel}
+                          step={1}
+                          value={value}
+                          onChange={(event) => setCenterLevel(center.id, Number(event.target.value))}
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid var(--border-color)",
+                borderRadius: 12,
+                padding: "0.75rem",
+                display: "grid",
+                gap: 10,
+              }}
+            >
               <strong style={{ fontSize: 14 }}>
                 {fr ? "Mini-toiles tailles par centre" : "Center box-size mini spiders"}
               </strong>
 
               <div style={{ display: "grid", gap: 10 }}>
                 {centers.map((center) => {
-                  const centerValue = scoringConfig.centerPriorityLevels[center.id] ?? 0;
                   const centerBoxTypes = boxTypes.filter((boxType) => boxType.centerId === center.id);
                   const miniAxes: SpiderAxis[] = centerBoxTypes.map((boxType) => ({
                     key: boxType.id,
@@ -2990,6 +3189,13 @@ function LeadPrioritizationModal({
                       scoringConfig.levelCount
                     ),
                   }));
+                  const centerBoxBudgetUsed = sumLevels(
+                    centerBoxTypes.map(
+                      (boxType) =>
+                        scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0
+                    )
+                  );
+                  const centerBoxBudgetCap = getSpiderBudgetCap(centerBoxTypes.length);
 
                   return (
                     <div
@@ -3002,32 +3208,33 @@ function LeadPrioritizationModal({
                         gap: 8,
                       }}
                     >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{center.name}</div>
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                            {centerBoxBudgetUsed} / {centerBoxBudgetCap}
+                          </span>
+                          <button
+                            type="button"
+                            className="admin-btn admin-btn-secondary"
+                            onClick={() => setCenterBoxSpiderToBalancedMax(center.id)}
+                            style={{ padding: "0.2rem 0.45rem", fontSize: 11 }}
+                          >
+                            {fr ? "Equilibrer au max" : "Balance to max"}
+                          </button>
+                        </div>
+                      </div>
+
                       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10, alignItems: "center" }}>
                         <div>
                           <LeadSpiderChart
-                            axes={miniAxes.length >= 3 ? miniAxes : [...miniAxes, ...miniAxes, ...miniAxes].slice(0, 3)}
+                            axes={buildRenderableSpiderAxes(miniAxes)}
                             size={160}
                             stroke="#0ea5e9"
                             fill="rgba(14,165,233,0.16)"
                           />
                         </div>
                         <div style={{ display: "grid", gap: 6 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{center.name}</div>
-                          <label style={{ display: "grid", gap: 3 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                              <span>{fr ? "Priorite centre" : "Center priority"}</span>
-                              <strong>{centerValue}</strong>
-                            </div>
-                            <input
-                              type="range"
-                              min={0}
-                              max={maxLevel}
-                              step={1}
-                              value={centerValue}
-                              onChange={(event) => setCenterLevel(center.id, Number(event.target.value))}
-                            />
-                          </label>
-
                           {centerBoxTypes.map((boxType) => {
                             const value =
                               scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0;
