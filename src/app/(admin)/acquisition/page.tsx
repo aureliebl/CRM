@@ -17,7 +17,6 @@ import {
   buildDefaultLeadScoringConfig,
   concernLabel,
   concernToScore,
-  getBudgetedLevelValue,
   getScoringPointsUsed,
   heatMeta,
   heatToScore,
@@ -112,6 +111,11 @@ type LeadPriorityPreview = {
   concernKind: LeadConcernKind;
   axisScores: Record<LeadScoringAxisKey, number>;
 };
+
+type LeadScoringSpiderView =
+  | { kind: "global" }
+  | { kind: "centers" }
+  | { kind: "centerBox"; centerId: string };
 
 const STORAGE_KEY = "acquisition_settings_v1";
 const DEFAULT_LEAD_SCORING_CONFIG = buildDefaultLeadScoringConfig(centers, boxTypes);
@@ -1249,6 +1253,24 @@ export default function AcquisitionPage() {
           selection={leadModalSelection}
           operatorById={operatorById}
           quoteRows={quoteRows}
+          manualScoring={
+            leadManualScoringByKey[
+              getLeadPriorityKey(leadModalSelection.kind, leadModalSelection.row.id)
+            ] ?? {}
+          }
+          onManualScoringChange={(patch) => {
+            const leadKey = getLeadPriorityKey(
+              leadModalSelection.kind,
+              leadModalSelection.row.id
+            );
+            setLeadManualScoringByKey((current) => ({
+              ...current,
+              [leadKey]: {
+                ...(current[leadKey] ?? {}),
+                ...patch,
+              },
+            }));
+          }}
           onClose={() => setLeadModalSelection(null)}
         />
       )}
@@ -2699,6 +2721,7 @@ function LeadPrioritizationModal({
   priorities: LeadPriorityPreview[];
 }) {
   const [previewKey, setPreviewKey] = useState<string>(priorities[0]?.key ?? "");
+  const [spiderView, setSpiderView] = useState<LeadScoringSpiderView>({ kind: "global" });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2712,12 +2735,24 @@ function LeadPrioritizationModal({
 
   const pointsUsed = useMemo(() => getScoringPointsUsed(scoringConfig), [scoringConfig]);
   const maxLevel = Math.max(1, scoringConfig.levelCount - 1);
+  const budgetLevelCap = Math.max(0, maxLevel - 1);
 
-  const getSpiderBudgetCap = (vertexCount: number) => Math.max(0, vertexCount) * maxLevel;
+  const getSpiderBudgetCap = (vertexCount: number) =>
+    Math.max(0, vertexCount) * budgetLevelCap;
   const sumLevels = (values: number[]) => values.reduce((sum, value) => sum + value, 0);
   const averageLevel = (values: number[]) => {
     if (values.length === 0) return 0;
     return Math.round(sumLevels(values) / values.length);
+  };
+  const clampLevel = (value: number) => Math.max(0, Math.min(maxLevel, Math.round(value)));
+  const getLevelAllowedByBudget = (
+    nextValue: number,
+    currentValue: number,
+    currentUsed: number,
+    budgetCap: number
+  ) => {
+    const allowed = Math.max(0, budgetCap - (currentUsed - currentValue));
+    return Math.min(clampLevel(nextValue), allowed);
   };
 
   const buildRenderableSpiderAxes = (axes: SpiderAxis[]) => {
@@ -2742,7 +2777,6 @@ function LeadPrioritizationModal({
     previewKey && priorities.some((item) => item.key === previewKey)
       ? previewKey
       : priorities[0]?.key ?? "";
-  const previewLead = priorities.find((item) => item.key === effectivePreviewKey) ?? priorities[0] ?? null;
 
   const axisLabels: Record<LeadScoringAxisKey, string> = {
     centerPriority: fr ? "Centre" : "Center",
@@ -2787,6 +2821,23 @@ function LeadPrioritizationModal({
   const centerBudgetUsed = sumLevels(centerLevels);
   const centerBudgetCap = getSpiderBudgetCap(centers.length);
 
+  const selectedCenterForBoxView =
+    spiderView.kind === "centerBox"
+      ? centers.find((center) => center.id === spiderView.centerId) ?? null
+      : null;
+  const selectedCenterBoxTypes = selectedCenterForBoxView
+    ? boxTypes.filter((boxType) => boxType.centerId === selectedCenterForBoxView.id)
+    : [];
+  const selectedCenterBoxBudgetUsed = selectedCenterForBoxView
+    ? sumLevels(
+        selectedCenterBoxTypes.map(
+          (boxType) =>
+            scoringConfig.boxTypePriorityLevelsByCenter[selectedCenterForBoxView.id]?.[boxType.id] ?? 0
+        )
+      )
+    : 0;
+  const selectedCenterBoxBudgetCap = getSpiderBudgetCap(selectedCenterBoxTypes.length);
+
   const coefficientAxes: SpiderAxis[] = axisOrder.map((axisKey) => ({
     key: axisKey,
     label: axisLabels[axisKey],
@@ -2812,17 +2863,18 @@ function LeadPrioritizationModal({
     ),
   }));
 
-  const leadAxes: SpiderAxis[] = previewLead
-    ? axisOrder.map((axisKey) => ({
-        key: axisKey,
-        label: axisLabels[axisKey],
-        value: previewLead.axisScores[axisKey],
-      }))
-    : coefficientAxes;
+  const selectedCenterBoxAxes: SpiderAxis[] = selectedCenterBoxTypes.map((boxType) => ({
+    key: boxType.id,
+    label: `${boxType.sizeM2}m2`,
+    value: scoreFromLevel(
+      scoringConfig.boxTypePriorityLevelsByCenter[selectedCenterForBoxView?.id ?? ""]?.[boxType.id] ?? 0,
+      scoringConfig.levelCount
+    ),
+  }));
 
   const setGeneralSpiderToBalancedMax = () => {
     setScoringConfig((current) => {
-      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const nextMaxLevel = Math.max(0, Math.max(1, current.levelCount - 1) - 1);
       const nextAxis = { ...current.axisWeights };
       for (const axisKey of axisOrder) {
         nextAxis[axisKey] = nextMaxLevel;
@@ -2837,7 +2889,7 @@ function LeadPrioritizationModal({
 
   const setCenterSpiderToBalancedMax = () => {
     setScoringConfig((current) => {
-      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const nextMaxLevel = Math.max(0, Math.max(1, current.levelCount - 1) - 1);
       const nextCenterLevels: Record<string, number> = { ...current.centerPriorityLevels };
 
       for (const center of centers) {
@@ -2853,7 +2905,7 @@ function LeadPrioritizationModal({
 
   const setCenterBoxSpiderToBalancedMax = (centerId: string) => {
     setScoringConfig((current) => {
-      const nextMaxLevel = Math.max(1, current.levelCount - 1);
+      const nextMaxLevel = Math.max(0, Math.max(1, current.levelCount - 1) - 1);
       const currentBucket = current.boxTypePriorityLevelsByCenter[centerId] ?? {};
       const nextBucket: Record<string, number> = {};
 
@@ -2874,7 +2926,17 @@ function LeadPrioritizationModal({
   const setAxisWeightLevel = (axisKey: LeadScoringAxisKey, nextValue: number) => {
     setScoringConfig((current) => {
       const currentValue = current.axisWeights[axisKey] ?? 0;
-      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+      const currentUsed = axisOrder.reduce(
+        (sum, key) => sum + (current.axisWeights[key] ?? 0),
+        0
+      );
+      const budgetCap = axisOrder.length * Math.max(0, Math.max(1, current.levelCount - 1) - 1);
+      const allowed = getLevelAllowedByBudget(
+        nextValue,
+        currentValue,
+        currentUsed,
+        budgetCap
+      );
       return {
         ...current,
         axisWeights: {
@@ -2888,7 +2950,18 @@ function LeadPrioritizationModal({
   const setCenterLevel = (centerId: string, nextValue: number) => {
     setScoringConfig((current) => {
       const currentValue = current.centerPriorityLevels[centerId] ?? 0;
-      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+      const centerIds = centers.map((center) => center.id);
+      const currentUsed = centerIds.reduce(
+        (sum, id) => sum + (current.centerPriorityLevels[id] ?? 0),
+        0
+      );
+      const budgetCap = centerIds.length * Math.max(0, Math.max(1, current.levelCount - 1) - 1);
+      const allowed = getLevelAllowedByBudget(
+        nextValue,
+        currentValue,
+        currentUsed,
+        budgetCap
+      );
       return {
         ...current,
         centerPriorityLevels: {
@@ -2903,7 +2976,15 @@ function LeadPrioritizationModal({
     setScoringConfig((current) => {
       const centerBucket = current.boxTypePriorityLevelsByCenter[centerId] ?? {};
       const currentValue = centerBucket[boxTypeId] ?? 0;
-      const allowed = getBudgetedLevelValue(current, nextValue, currentValue);
+      const currentUsed = Object.values(centerBucket).reduce((sum, value) => sum + value, 0);
+      const budgetCap =
+        Object.keys(centerBucket).length * Math.max(0, Math.max(1, current.levelCount - 1) - 1);
+      const allowed = getLevelAllowedByBudget(
+        nextValue,
+        currentValue,
+        currentUsed,
+        budgetCap
+      );
 
       return {
         ...current,
@@ -2994,15 +3075,50 @@ function LeadPrioritizationModal({
 
         <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 12, alignItems: "start" }}>
           <div style={{ display: "grid", gap: 10 }}>
-            <div
-              style={{
-                border: "1px solid var(--border-color)",
-                borderRadius: 12,
-                padding: "0.75rem",
-                display: "grid",
-                gap: 10,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="admin-btn admin-btn-secondary"
+                onClick={() => setSpiderView({ kind: "global" })}
+                style={{
+                  padding: "0.2rem 0.45rem",
+                  fontSize: 11,
+                  opacity: spiderView.kind === "global" ? 1 : 0.8,
+                }}
+              >
+                {fr ? "Toile globale" : "Global spider"}
+              </button>
+              {spiderView.kind !== "global" ? (
+                <button
+                  type="button"
+                  className="admin-btn admin-btn-secondary"
+                  onClick={() => setSpiderView({ kind: "centers" })}
+                  style={{
+                    padding: "0.2rem 0.45rem",
+                    fontSize: 11,
+                    opacity: spiderView.kind === "centers" ? 1 : 0.8,
+                  }}
+                >
+                  {fr ? "Centres" : "Centers"}
+                </button>
+              ) : null}
+              {spiderView.kind === "centerBox" && selectedCenterForBoxView ? (
+                <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                  {fr ? "Centre" : "Center"}: <strong>{selectedCenterForBoxView.name}</strong>
+                </span>
+              ) : null}
+            </div>
+
+            {spiderView.kind === "global" ? (
+              <div
+                style={{
+                  border: "1px solid var(--border-color)",
+                  borderRadius: 12,
+                  padding: "0.75rem",
+                  display: "grid",
+                  gap: 10,
+                }}
+              >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <strong style={{ fontSize: 14 }}>{fr ? "Toile generale scoring" : "Global scoring spider"}</strong>
                 <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12 }}>
@@ -3040,23 +3156,13 @@ function LeadPrioritizationModal({
                 </span>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "center" }}>
-                <div style={{ justifySelf: "center" }}>
-                  <LeadSpiderChart
-                    axes={buildRenderableSpiderAxes(coefficientAxes)}
-                    size={250}
-                    stroke="#2563eb"
-                    fill="rgba(37,99,235,0.15)"
-                  />
-                </div>
-                <div style={{ justifySelf: "center" }}>
-                  <LeadSpiderChart
-                    axes={buildRenderableSpiderAxes(leadAxes)}
-                    size={250}
-                    stroke="#16a34a"
-                    fill="rgba(22,163,74,0.16)"
-                  />
-                </div>
+              <div style={{ display: "grid", justifyContent: "center", alignItems: "center" }}>
+                <LeadSpiderChart
+                  axes={buildRenderableSpiderAxes(coefficientAxes)}
+                  size={260}
+                  stroke="#2563eb"
+                  fill="rgba(37,99,235,0.15)"
+                />
               </div>
 
               <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
@@ -3071,7 +3177,19 @@ function LeadPrioritizationModal({
                   return (
                     <label key={`axis_weight_${axisKey}`} style={{ display: "grid", gap: 3 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                        <span>{axisLabels[axisKey]}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          {axisLabels[axisKey]}
+                          {axisKey === "centerPriority" || axisKey === "boxSizePriority" ? (
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => setSpiderView({ kind: "centers" })}
+                              style={{ padding: "0.1rem 0.35rem", fontSize: 10 }}
+                            >
+                              {fr ? "Entrer" : "Open"}
+                            </button>
+                          ) : null}
+                        </span>
                         <strong>{value}</strong>
                       </div>
                       <input
@@ -3086,8 +3204,10 @@ function LeadPrioritizationModal({
                   );
                 })}
               </div>
-            </div>
+              </div>
+            ) : null}
 
+            {spiderView.kind === "centers" ? (
             <div
               style={{
                 border: "1px solid var(--border-color)",
@@ -3147,7 +3267,17 @@ function LeadPrioritizationModal({
                     return (
                       <label key={`center_priority_level_${center.id}`} style={{ display: "grid", gap: 3 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                          <span>{center.name}</span>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            {center.name}
+                            <button
+                              type="button"
+                              className="admin-btn admin-btn-secondary"
+                              onClick={() => setSpiderView({ kind: "centerBox", centerId: center.id })}
+                              style={{ padding: "0.1rem 0.35rem", fontSize: 10 }}
+                            >
+                              {fr ? "Entrer" : "Open"}
+                            </button>
+                          </span>
                           <strong>{value}</strong>
                         </div>
                         <input
@@ -3164,7 +3294,9 @@ function LeadPrioritizationModal({
                 </div>
               </div>
             </div>
+            ) : null}
 
+            {spiderView.kind === "centerBox" ? (
             <div
               style={{
                 border: "1px solid var(--border-color)",
@@ -3175,97 +3307,84 @@ function LeadPrioritizationModal({
               }}
             >
               <strong style={{ fontSize: 14 }}>
-                {fr ? "Mini-toiles tailles par centre" : "Center box-size mini spiders"}
+                {fr ? "Priorisation tailles du centre" : "Center box-size prioritization"}
               </strong>
 
-              <div style={{ display: "grid", gap: 10 }}>
-                {centers.map((center) => {
-                  const centerBoxTypes = boxTypes.filter((boxType) => boxType.centerId === center.id);
-                  const miniAxes: SpiderAxis[] = centerBoxTypes.map((boxType) => ({
-                    key: boxType.id,
-                    label: `${boxType.sizeM2}m2`,
-                    value: scoreFromLevel(
-                      scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0,
-                      scoringConfig.levelCount
-                    ),
-                  }));
-                  const centerBoxBudgetUsed = sumLevels(
-                    centerBoxTypes.map(
-                      (boxType) =>
-                        scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0
-                    )
-                  );
-                  const centerBoxBudgetCap = getSpiderBudgetCap(centerBoxTypes.length);
-
-                  return (
-                    <div
-                      key={`center_priority_${center.id}`}
-                      style={{
-                        border: "1px solid var(--border-color)",
-                        borderRadius: 10,
-                        padding: "0.6rem",
-                        display: "grid",
-                        gap: 8,
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{center.name}</div>
-                        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                            {centerBoxBudgetUsed} / {centerBoxBudgetCap}
-                          </span>
-                          <button
-                            type="button"
-                            className="admin-btn admin-btn-secondary"
-                            onClick={() => setCenterBoxSpiderToBalancedMax(center.id)}
-                            style={{ padding: "0.2rem 0.45rem", fontSize: 11 }}
-                          >
-                            {fr ? "Equilibrer au max" : "Balance to max"}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10, alignItems: "center" }}>
-                        <div>
-                          <LeadSpiderChart
-                            axes={buildRenderableSpiderAxes(miniAxes)}
-                            size={160}
-                            stroke="#0ea5e9"
-                            fill="rgba(14,165,233,0.16)"
-                          />
-                        </div>
-                        <div style={{ display: "grid", gap: 6 }}>
-                          {centerBoxTypes.map((boxType) => {
-                            const value =
-                              scoringConfig.boxTypePriorityLevelsByCenter[center.id]?.[boxType.id] ?? 0;
-                            return (
-                              <label key={`box_priority_${center.id}_${boxType.id}`} style={{ display: "grid", gap: 3 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                                  <span>
-                                    {boxType.name} ({boxType.sizeM2}m2)
-                                  </span>
-                                  <strong>{value}</strong>
-                                </div>
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={maxLevel}
-                                  step={1}
-                                  value={value}
-                                  onChange={(event) =>
-                                    setBoxTypeLevel(center.id, boxType.id, Number(event.target.value))
-                                  }
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
+              {selectedCenterForBoxView ? (
+                <div
+                  style={{
+                    border: "1px solid var(--border-color)",
+                    borderRadius: 10,
+                    padding: "0.6rem",
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{selectedCenterForBoxView.name}</div>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {selectedCenterBoxBudgetUsed} / {selectedCenterBoxBudgetCap}
+                      </span>
+                      <button
+                        type="button"
+                        className="admin-btn admin-btn-secondary"
+                        onClick={() => setCenterBoxSpiderToBalancedMax(selectedCenterForBoxView.id)}
+                        style={{ padding: "0.2rem 0.45rem", fontSize: 11 }}
+                      >
+                        {fr ? "Equilibrer au max" : "Balance to max"}
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10, alignItems: "center" }}>
+                    <div>
+                      <LeadSpiderChart
+                        axes={buildRenderableSpiderAxes(selectedCenterBoxAxes)}
+                        size={170}
+                        stroke="#0ea5e9"
+                        fill="rgba(14,165,233,0.16)"
+                      />
+                    </div>
+                    <div style={{ display: "grid", gap: 6 }}>
+                      {selectedCenterBoxTypes.map((boxType) => {
+                        const value =
+                          scoringConfig.boxTypePriorityLevelsByCenter[selectedCenterForBoxView.id]?.[boxType.id] ?? 0;
+                        return (
+                          <label key={`box_priority_${selectedCenterForBoxView.id}_${boxType.id}`} style={{ display: "grid", gap: 3 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                              <span>
+                                {boxType.name} ({boxType.sizeM2}m2)
+                              </span>
+                              <strong>{value}</strong>
+                            </div>
+                            <input
+                              type="range"
+                              min={0}
+                              max={maxLevel}
+                              step={1}
+                              value={value}
+                              onChange={(event) =>
+                                setBoxTypeLevel(
+                                  selectedCenterForBoxView.id,
+                                  boxType.id,
+                                  Number(event.target.value)
+                                )
+                              }
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  {fr ? "Centre introuvable pour cette toile." : "Center not found for this spider."}
+                </div>
+              )}
             </div>
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gap: 10 }}>
@@ -3314,7 +3433,6 @@ function LeadPrioritizationModal({
               >
                 {priorities.map((item) => {
                   const manual = manualByLead[item.key] ?? {};
-                  const heat = heatMeta(item.salesHeat, fr);
 
                   return (
                     <div
@@ -3350,33 +3468,7 @@ function LeadPrioritizationModal({
                         </span>
                       </div>
 
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                        <label style={{ display: "grid", gap: 3 }}>
-                          <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                            {fr ? "Chaleur" : "Heat"}
-                          </span>
-                          <select
-                            value={manual.salesHeat ?? item.salesHeat}
-                            onChange={(event) =>
-                              setManualField(item.key, {
-                                salesHeat: event.target.value as SalesHeatLevel,
-                              })
-                            }
-                            style={{
-                              borderRadius: 8,
-                              border: "1px solid var(--border-color)",
-                              background: "var(--input-bg)",
-                              color: "var(--text-primary)",
-                              padding: "0.35rem 0.45rem",
-                              fontSize: 12,
-                            }}
-                          >
-                            <option value="hot">{fr ? "Chaud (rouge)" : "Hot (red)"}</option>
-                            <option value="warm">{fr ? "Tiede (orange)" : "Warm (orange)"}</option>
-                            <option value="cold">{fr ? "Froid (jaune)" : "Cold (yellow)"}</option>
-                          </select>
-                        </label>
-
+                      <div style={{ display: "grid", gap: 8 }}>
                         <label style={{ display: "grid", gap: 3 }}>
                           <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
                             {fr ? "Personne concernee" : "Concerned person"}
@@ -3408,9 +3500,6 @@ function LeadPrioritizationModal({
                         <span>
                           {fr ? "Score auto" : "Auto score"}: <strong>{item.autoScore}</strong>
                         </span>
-                        <span style={{ color: heat.text }}>
-                          {fr ? "Chaleur" : "Heat"}: <strong>{heat.label}</strong>
-                        </span>
                         <span>
                           {fr ? "Personne" : "Concern"}: <strong>{concernLabel(item.concernKind, fr)}</strong>
                         </span>
@@ -3435,12 +3524,16 @@ function LeadKanbanDetailsModal({
   selection,
   operatorById,
   quoteRows,
+  manualScoring,
+  onManualScoringChange,
   onClose,
 }: {
   fr: boolean;
   selection: LeadModalSelection;
   operatorById: Map<string, OperatorAccount>;
   quoteRows: QuoteRow[];
+  manualScoring: LeadManualScoringInput;
+  onManualScoringChange: (patch: Partial<LeadManualScoringInput>) => void;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -3491,6 +3584,8 @@ function LeadKanbanDetailsModal({
     () => computeLeadQuality(selection, unpaidInvoices.length, conversations.length > 0, fr),
     [selection, unpaidInvoices.length, conversations.length, fr]
   );
+  const selectedSalesHeat = manualScoring.salesHeat ?? "warm";
+  const selectedSalesHeatMeta = heatMeta(selectedSalesHeat, fr);
 
   const assignedOperator = selection.row.assignedOperatorId
     ? operatorById.get(selection.row.assignedOperatorId)
@@ -3796,6 +3891,47 @@ function LeadKanbanDetailsModal({
                   <div>{selection.kind === "unfinished" ? selection.row.source : "quote"}</div>
                 </div>
               </div>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 12 }}>
+                <span style={{ color: "var(--text-secondary)" }}>
+                  {fr ? "Chaleur commerciale" : "Sales heat"}
+                </span>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" }}>
+                  <select
+                    value={selectedSalesHeat}
+                    onChange={(event) =>
+                      onManualScoringChange({
+                        salesHeat: event.target.value as SalesHeatLevel,
+                      })
+                    }
+                    style={{
+                      width: "100%",
+                      borderRadius: 8,
+                      border: "1px solid var(--border-color)",
+                      background: "var(--input-bg)",
+                      color: "var(--text-primary)",
+                      padding: "0.4rem 0.5rem",
+                      fontSize: 12,
+                    }}
+                  >
+                    <option value="hot">{fr ? "Chaud" : "Hot"}</option>
+                    <option value="warm">{fr ? "Tiede" : "Warm"}</option>
+                    <option value="cold">{fr ? "Froid" : "Cold"}</option>
+                  </select>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      borderRadius: 999,
+                      padding: "3px 8px",
+                      background: selectedSalesHeatMeta.bg,
+                      color: selectedSalesHeatMeta.text,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {selectedSalesHeatMeta.label}
+                  </span>
+                </div>
+              </label>
             </div>
 
             <div

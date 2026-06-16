@@ -44,7 +44,7 @@ export type LeadComputedPriority = {
 type CenterLike = { id: string };
 type BoxTypeLike = { id: string; centerId?: string };
 
-const FIXED_LEVEL_COUNT = 4;
+const FIXED_LEVEL_COUNT = 5;
 const DEFAULT_BALANCE_RATIO = 0.75;
 
 const DEFAULT_AXIS_WEIGHTS: LeadScoringAxisWeights = {
@@ -103,6 +103,7 @@ export function buildDefaultLeadScoringConfig(
 ): LeadScoringConfig {
   const levelCount = FIXED_LEVEL_COUNT;
   const maxLevel = getMaxLevel(levelCount);
+  const budgetLevelCap = Math.max(0, maxLevel - 1);
 
   const axisWeights: LeadScoringAxisWeights = { ...DEFAULT_AXIS_WEIGHTS };
   const defaultAxisLevels = buildBalancedLevels(AXIS_ORDER.length, maxLevel);
@@ -143,9 +144,9 @@ export function buildDefaultLeadScoringConfig(
     0
   );
   const maxBudget =
-    getSpiderBudgetCap(AXIS_ORDER.length, maxLevel) +
-    getSpiderBudgetCap(centers.length, maxLevel) +
-    getSpiderBudgetCap(totalBoxVertices, maxLevel);
+    getSpiderBudgetCap(AXIS_ORDER.length, budgetLevelCap) +
+    getSpiderBudgetCap(centers.length, budgetLevelCap) +
+    getSpiderBudgetCap(totalBoxVertices, budgetLevelCap);
 
   return {
     levelCount,
