@@ -5,8 +5,28 @@ import {
   type AcquisitionBoardState,
 } from "@/lib/acquisition-board-store";
 import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
+import { getGroupIdForAccount, getGroupRouteVisibility } from "@/lib/security-store";
+import { LEAD_PRIORITIZATION_FEATURE_KEY } from "@/lib/feature-permissions";
 
 export const dynamic = "force-dynamic";
+
+async function canActorManageLeadScoring(actor: { id: string; role?: string | null; email?: string | null }) {
+  if (isAccountSuperAdmin(actor) || actor.role === "admin") {
+    return true;
+  }
+
+  const groupId = await getGroupIdForAccount(actor.id);
+  if (!groupId) {
+    return true;
+  }
+
+  const permissions = await getGroupRouteVisibility(groupId);
+  if (!permissions.configured) {
+    return true;
+  }
+
+  return permissions.routeKeys.includes(LEAD_PRIORITIZATION_FEATURE_KEY);
+}
 
 export async function GET(req: Request) {
   const actor = await getActorFromRequest(req);
@@ -29,8 +49,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
 
-  const canManageScoringRules =
-    actor.role === "admin" || isAccountSuperAdmin(actor);
+  const canManageScoringRules = await canActorManageLeadScoring(actor);
 
   let payloadToSave: AcquisitionBoardState = body;
   if (!canManageScoringRules) {

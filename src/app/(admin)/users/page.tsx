@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useLocale } from "@/lib/use-locale";
+import { LEAD_PRIORITIZATION_FEATURE_KEY } from "@/lib/feature-permissions";
 import type { UserGroup, UserInvitation } from "@/lib/types";
 
 type UserRow = {
@@ -33,9 +34,10 @@ type TabVisibilityRow = {
   id: string;
   title: string;
   routeKey: string;
+  category: "navigation" | "feature";
 };
 
-type SubTab = "users" | "invitations" | "groups" | "tab-visibility";
+type SubTab = "users" | "invitations" | "groups" | "permissions";
 
 export default function UsersPage() {
   const { locale } = useLocale();
@@ -55,9 +57,7 @@ export default function UsersPage() {
   // Groups state
   const [groups, setGroups] = useState<GroupWithCount[]>([]);
   const [tabVisibilityRows, setTabVisibilityRows] = useState<TabVisibilityRow[]>([]);
-  const [visibilityMode, setVisibilityMode] = useState<"group" | "role">("group");
   const [selectedVisibilityGroupId, setSelectedVisibilityGroupId] = useState("");
-  const [selectedVisibilityRole, setSelectedVisibilityRole] = useState("");
   const [selectedGroupVisibilityConfigured, setSelectedGroupVisibilityConfigured] = useState(false);
   const [selectedGroupVisibleRouteKeys, setSelectedGroupVisibleRouteKeys] = useState<string[]>([]);
   const [tabVisibilitySavingId, setTabVisibilitySavingId] = useState<string | null>(null);
@@ -80,7 +80,7 @@ export default function UsersPage() {
   const [editingGroupName, setEditingGroupName] = useState("");
 
   // Group change inline
-  const [changingGroupUserId, setChangingGroupUserId] = useState<string | null>(null);
+  const [savingGroupUserId, setSavingGroupUserId] = useState<string | null>(null);
 
   const isSuperAdmin = actor?.isSuperAdmin === true;
 
@@ -137,16 +137,66 @@ export default function UsersPage() {
       }>;
 
       const staticRows: TabVisibilityRow[] = [
-        { id: "route:/dashboard", title: locale === "fr" ? "Dashboard" : "Dashboard", routeKey: "/dashboard" },
-        { id: "route:/geo", title: locale === "fr" ? "GEO" : "GEO", routeKey: "/geo" },
-        { id: "route:/vault", title: locale === "fr" ? "Coffre-fort" : "Vault", routeKey: "/vault" },
-        { id: "route:/tickets", title: "Tickets", routeKey: "/tickets" },
-        { id: "route:/crm", title: locale === "fr" ? "Fiche client" : "Client file", routeKey: "/crm" },
-        { id: "route:/acquisition", title: locale === "fr" ? "Lead" : "Lead", routeKey: "/acquisition" },
-        { id: "route:/documentation", title: locale === "fr" ? "Documentation" : "Documentation", routeKey: "/documentation" },
-        { id: "route:/flowise", title: locale === "fr" ? "Assistant" : "Assistant", routeKey: "/flowise" },
-        { id: "route:/users", title: locale === "fr" ? "Utilisateurs" : "Users", routeKey: "/users" },
-        { id: "route:/tarifs", title: locale === "fr" ? "Grille tarifaire" : "Pricing grid", routeKey: "/tarifs" },
+        {
+          id: "route:/dashboard",
+          title: locale === "fr" ? "Dashboard" : "Dashboard",
+          routeKey: "/dashboard",
+          category: "navigation",
+        },
+        {
+          id: "route:/geo",
+          title: locale === "fr" ? "GEO" : "GEO",
+          routeKey: "/geo",
+          category: "navigation",
+        },
+        {
+          id: "route:/vault",
+          title: locale === "fr" ? "Coffre-fort" : "Vault",
+          routeKey: "/vault",
+          category: "navigation",
+        },
+        {
+          id: "route:/tickets",
+          title: "Tickets",
+          routeKey: "/tickets",
+          category: "navigation",
+        },
+        {
+          id: "route:/crm",
+          title: locale === "fr" ? "Fiche client" : "Client file",
+          routeKey: "/crm",
+          category: "navigation",
+        },
+        {
+          id: "route:/acquisition",
+          title: locale === "fr" ? "Lead" : "Lead",
+          routeKey: "/acquisition",
+          category: "navigation",
+        },
+        {
+          id: "route:/documentation",
+          title: locale === "fr" ? "Documentation" : "Documentation",
+          routeKey: "/documentation",
+          category: "navigation",
+        },
+        {
+          id: "route:/flowise",
+          title: locale === "fr" ? "Assistant" : "Assistant",
+          routeKey: "/flowise",
+          category: "navigation",
+        },
+        {
+          id: "route:/tarifs",
+          title: locale === "fr" ? "Grille tarifaire" : "Pricing grid",
+          routeKey: "/tarifs",
+          category: "navigation",
+        },
+        {
+          id: LEAD_PRIORITIZATION_FEATURE_KEY,
+          title: locale === "fr" ? "Priorisation des leads" : "Lead prioritization",
+          routeKey: LEAD_PRIORITIZATION_FEATURE_KEY,
+          category: "feature",
+        },
       ];
 
       const dynamicRows: TabVisibilityRow[] = rows
@@ -157,6 +207,7 @@ export default function UsersPage() {
           id: `tab:${row.id}`,
           title: row.title,
           routeKey: `/tabs/${String(row.slug).trim()}`,
+          category: "navigation",
         }));
 
       const seen = new Set<string>();
@@ -209,90 +260,60 @@ export default function UsersPage() {
     return groups.filter((g) => !g.isAdmin);
   }, [groups, isSuperAdmin]);
 
-  const tabVisibilitySelectableGroups = useMemo(
-    () => (isSuperAdmin ? groups : groups.filter((group) => !group.isAdmin)),
-    [groups, isSuperAdmin]
-  );
-
-  const tabVisibilitySelectableRoles = useMemo(
-    () => {
-      // Super admins can configure both admin and operator roles
-      // Regular admins can only configure operator role
-      if (isSuperAdmin) return [{ value: "admin", label: "Admin" }, { value: "operator", label: "Operator" }];
-      return [{ value: "operator", label: "Operator" }];
-    },
-    [isSuperAdmin]
+  const permissionSelectableGroups = useMemo(
+    () => groups.filter((group) => !group.isAdmin),
+    [groups]
   );
 
   useEffect(() => {
-    if (selectedVisibilityGroupId) return;
-    if (tabVisibilitySelectableGroups.length === 0) return;
-    setSelectedVisibilityGroupId(tabVisibilitySelectableGroups[0].id);
-  }, [tabVisibilitySelectableGroups, selectedVisibilityGroupId]);
+    if (
+      selectedVisibilityGroupId &&
+      permissionSelectableGroups.some((group) => group.id === selectedVisibilityGroupId)
+    ) {
+      return;
+    }
 
-  useEffect(() => {
-    if (selectedVisibilityRole) return;
-    if (tabVisibilitySelectableRoles.length === 0) return;
-    setSelectedVisibilityRole(tabVisibilitySelectableRoles[0].value);
-  }, [tabVisibilitySelectableRoles, selectedVisibilityRole]);
+    if (permissionSelectableGroups.length === 0) {
+      setSelectedVisibilityGroupId("");
+      return;
+    }
+
+    setSelectedVisibilityGroupId(permissionSelectableGroups[0].id);
+  }, [permissionSelectableGroups, selectedVisibilityGroupId]);
 
   const loadSelectedRouteVisibility = useCallback(async () => {
-    if (visibilityMode === "role") {
-      if (!selectedVisibilityRole) return;
-      try {
-        const res = await fetch(`/api/users/tab-visibility?role=${encodeURIComponent(selectedVisibilityRole)}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          setSelectedGroupVisibilityConfigured(false);
-          setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
-          return;
-        }
-
-        const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
-        const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
-        if (payload.configured === true) {
-          const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
-          const allowed = new Set(routeKeys);
-          setSelectedGroupVisibilityConfigured(true);
-          setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
-        } else {
-          setSelectedGroupVisibilityConfigured(false);
-          setSelectedGroupVisibleRouteKeys(allRouteKeys);
-        }
-      } catch {
-        setSelectedGroupVisibilityConfigured(false);
-        setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
-      }
-    } else {
-      if (!selectedVisibilityGroupId) return;
-      try {
-        const res = await fetch(`/api/users/tab-visibility?groupId=${encodeURIComponent(selectedVisibilityGroupId)}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) {
-          setSelectedGroupVisibilityConfigured(false);
-          setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
-          return;
-        }
-
-        const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
-        const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
-        if (payload.configured === true) {
-          const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
-          const allowed = new Set(routeKeys);
-          setSelectedGroupVisibilityConfigured(true);
-          setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
-        } else {
-          setSelectedGroupVisibilityConfigured(false);
-          setSelectedGroupVisibleRouteKeys(allRouteKeys);
-        }
-      } catch {
-        setSelectedGroupVisibilityConfigured(false);
-        setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
-      }
+    if (!selectedVisibilityGroupId) {
+      setSelectedGroupVisibilityConfigured(false);
+      setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+      return;
     }
-  }, [visibilityMode, selectedVisibilityGroupId, selectedVisibilityRole, tabVisibilityRows]);
+
+    try {
+      const res = await fetch(`/api/users/tab-visibility?groupId=${encodeURIComponent(selectedVisibilityGroupId)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setSelectedGroupVisibilityConfigured(false);
+        setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+        return;
+      }
+
+      const payload = (await res.json()) as { configured?: boolean; routeKeys?: string[] };
+      const allRouteKeys = tabVisibilityRows.map((row) => row.routeKey);
+      if (payload.configured === true) {
+        const routeKeys = Array.isArray(payload.routeKeys) ? payload.routeKeys : [];
+        const allowed = new Set(routeKeys);
+        setSelectedGroupVisibilityConfigured(true);
+        setSelectedGroupVisibleRouteKeys(allRouteKeys.filter((routeKey) => allowed.has(routeKey)));
+      } else {
+        setSelectedGroupVisibilityConfigured(false);
+        setSelectedGroupVisibleRouteKeys(allRouteKeys);
+      }
+    } catch {
+      setSelectedGroupVisibilityConfigured(false);
+      setSelectedGroupVisibleRouteKeys(tabVisibilityRows.map((row) => row.routeKey));
+    }
+  }, [selectedVisibilityGroupId, tabVisibilityRows]);
 
   useEffect(() => {
     void loadSelectedRouteVisibility();
@@ -364,23 +385,24 @@ export default function UsersPage() {
     const group = groups.find((g) => g.id === groupId);
     if (!user || !group) return;
 
-    const ok = window.confirm(
-      locale === "fr"
-        ? `Changer le groupe de ${user.fullName} en "${group.name}" ?`
-        : `Change ${user.fullName}'s group to "${group.name}"?`
-    );
-    if (!ok) {
-      setChangingGroupUserId(null);
-      return;
-    }
+    setSavingGroupUserId(userId);
+    try {
+      const res = await fetch(`/api/users/${userId}/group`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId }),
+      });
 
-    await fetch(`/api/users/${userId}/group`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupId }),
-    });
-    setChangingGroupUserId(null);
-    await loadUsers();
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        window.alert(data?.error || (locale === "fr" ? "Erreur de mise a jour du groupe" : "Group update error"));
+        return;
+      }
+
+      await loadUsers();
+    } finally {
+      setSavingGroupUserId(null);
+    }
   };
 
   const handleChangeRole = async (userId: string, newRole: "admin" | "operator") => {
@@ -486,15 +508,15 @@ export default function UsersPage() {
 
   const handleSaveTabVisibility = useCallback(
     async (tabId: string) => {
-      if (visibilityMode === "role" && !selectedVisibilityRole) return;
-      if (visibilityMode === "group" && !selectedVisibilityGroupId) return;
+      if (!selectedVisibilityGroupId) return;
 
       setTabVisibilitySavingId(tabId);
       setTabVisibilityError(null);
       try {
-        const bodyPayload = visibilityMode === "role"
-          ? { role: selectedVisibilityRole, routeKeys: selectedGroupVisibleRouteKeys }
-          : { groupId: selectedVisibilityGroupId, routeKeys: selectedGroupVisibleRouteKeys };
+        const bodyPayload = {
+          groupId: selectedVisibilityGroupId,
+          routeKeys: selectedGroupVisibleRouteKeys,
+        };
 
         const res = await fetch(`/api/users/tab-visibility`, {
           method: "PUT",
@@ -513,7 +535,7 @@ export default function UsersPage() {
         setTabVisibilitySavingId(null);
       }
     },
-    [loadSelectedRouteVisibility, selectedGroupVisibleRouteKeys, selectedVisibilityGroupId, selectedVisibilityRole, visibilityMode]
+    [loadSelectedRouteVisibility, selectedGroupVisibleRouteKeys, selectedVisibilityGroupId]
   );
 
   // ── Helpers ──
@@ -689,46 +711,54 @@ export default function UsersPage() {
     fontWeight: 500,
     background: `${color}20`,
     color,
-    cursor: "pointer",
+    cursor: "default",
   });
 
   const groupBadgeForUser = (user: UserRow) => {
-    const isChanging = changingGroupUserId === user.id;
+    const isSaving = savingGroupUserId === user.id;
     const availableGroups = availableGroupsForChange(user);
     const canChange = user.id !== actor?.id && availableGroups.length > 0;
 
-    if (isChanging && canChange && availableGroups.length > 0) {
+    if (canChange && availableGroups.length > 0) {
       return (
-        <select
-          autoFocus
-          style={{
-            ...inputStyle,
-            width: "auto",
-            padding: "2px 6px",
-            fontSize: "0.75rem",
-          }}
-          value={user.groupId ?? ""}
-          onChange={(e) => handleChangeGroup(user.id, e.target.value)}
-          onBlur={() => setChangingGroupUserId(null)}
-        >
-          <option value="" disabled>
-            {locale === "fr" ? "Choisir un groupe" : "Select group"}
-          </option>
-          {availableGroups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <select
+            style={{
+              ...inputStyle,
+              width: "auto",
+              minWidth: 170,
+              padding: "3px 6px",
+              fontSize: "0.78rem",
+              opacity: isSaving ? 0.8 : 1,
+            }}
+            disabled={isSaving}
+            value={user.groupId ?? ""}
+            onChange={(e) => {
+              const nextGroupId = e.target.value;
+              if (!nextGroupId || nextGroupId === user.groupId) return;
+              void handleChangeGroup(user.id, nextGroupId);
+            }}
+          >
+            <option value="" disabled>
+              {locale === "fr" ? "Choisir un groupe" : "Select group"}
             </option>
-          ))}
-        </select>
+            {availableGroups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
+          {isSaving ? (
+            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+              {locale === "fr" ? "Maj..." : "Updating..."}
+            </span>
+          ) : null}
+        </div>
       );
     }
 
     return (
-      <span
-        style={badgeStyle(user.role === "admin" ? "#8b5cf6" : "#2563eb")}
-        onClick={canChange ? () => setChangingGroupUserId(user.id) : undefined}
-        title={canChange ? (locale === "fr" ? "Cliquer pour modifier" : "Click to change") : ""}
-      >
+      <span style={badgeStyle(user.role === "admin" ? "#8b5cf6" : "#2563eb")}>
         {user.groupName || (locale === "fr" ? "Aucun" : "None")}
       </span>
     );
@@ -876,7 +906,7 @@ export default function UsersPage() {
             { key: "users" as SubTab, label: locale === "fr" ? "Utilisateurs" : "Users" },
             { key: "invitations" as SubTab, label: "Invitations" },
             { key: "groups" as SubTab, label: locale === "fr" ? "Groupes" : "Groups" },
-            { key: "tab-visibility" as SubTab, label: locale === "fr" ? "Visibilité des onglets" : "Tab visibility" },
+            { key: "permissions" as SubTab, label: locale === "fr" ? "Permissions" : "Permissions" },
           ] as const
         ).map((tab) => (
           <button
@@ -1251,8 +1281,8 @@ export default function UsersPage() {
         </div>
       )}
 
-      {/* ═══════ Tab visibility Tab ═══════ */}
-      {activeTab === "tab-visibility" && (
+      {/* ═══════ Permissions Tab ═══════ */}
+      {activeTab === "permissions" && (
         <div>
           <div
             style={{
@@ -1264,47 +1294,23 @@ export default function UsersPage() {
             }}
           >
             <select
-              style={{ ...inputStyle, maxWidth: 200 }}
-              value={visibilityMode}
-              onChange={(e) => {
-                const mode = e.target.value as "group" | "role";
-                setVisibilityMode(mode);
-                setTabVisibilityError(null);
-              }}
+              style={{ ...inputStyle, maxWidth: 320 }}
+              value={selectedVisibilityGroupId}
+              onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
             >
-              <option value="group">{locale === "fr" ? "Par groupe" : "By group"}</option>
-              <option value="role">{locale === "fr" ? "Par statut" : "By status"}</option>
+              <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
+              {permissionSelectableGroups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
             </select>
 
-            {visibilityMode === "group" && (
-              <select
-                style={{ ...inputStyle, maxWidth: 280 }}
-                value={selectedVisibilityGroupId}
-                onChange={(e) => setSelectedVisibilityGroupId(e.target.value)}
-              >
-                <option value="">{locale === "fr" ? "Sélectionner un groupe" : "Select a group"}</option>
-                {tabVisibilitySelectableGroups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            {visibilityMode === "role" && (
-              <select
-                style={{ ...inputStyle, maxWidth: 280 }}
-                value={selectedVisibilityRole}
-                onChange={(e) => setSelectedVisibilityRole(e.target.value)}
-              >
-                <option value="">{locale === "fr" ? "Sélectionner un statut" : "Select a status"}</option>
-                {tabVisibilitySelectableRoles.map((role) => (
-                  <option key={role.value} value={role.value}>
-                    {role.label}
-                  </option>
-                ))}
-              </select>
-            )}
+            <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+              {locale === "fr"
+                ? "Les admins gardent toujours l'acces complet."
+                : "Admins always keep full access."}
+            </span>
           </div>
 
           {tabVisibilityError && (
@@ -1323,26 +1329,52 @@ export default function UsersPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>{locale === "fr" ? "Onglet" : "Tab"}</th>
-                  <th style={thStyle}>{locale === "fr" ? "Visible" : "Visible"}</th>
-                  <th style={thStyle}>Actions</th>
+                  <th style={thStyle}>{locale === "fr" ? "Feature" : "Feature"}</th>
+                  <th style={thStyle}>{locale === "fr" ? "Type" : "Type"}</th>
+                  <th style={thStyle}>{locale === "fr" ? "Autorise" : "Allowed"}</th>
                 </tr>
               </thead>
               <tbody>
-                {tabVisibilityRows.length === 0 ? (
+                {permissionSelectableGroups.length === 0 ? (
                   <tr>
                     <td colSpan={3} style={{ ...tdStyle, textAlign: "center", color: "var(--text-secondary)" }}>
-                      {locale === "fr" ? "Aucun onglet dynamique" : "No dynamic tabs"}
+                      {locale === "fr"
+                        ? "Aucun groupe non-admin disponible pour la configuration des permissions."
+                        : "No non-admin group available for permissions configuration."}
+                    </td>
+                  </tr>
+                ) : tabVisibilityRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} style={{ ...tdStyle, textAlign: "center", color: "var(--text-secondary)" }}>
+                      {locale === "fr" ? "Aucune feature configurable" : "No configurable feature"}
                     </td>
                   </tr>
                 ) : (
                   tabVisibilityRows.map((row) => {
-                    const hasSelection = visibilityMode === "role" ? selectedVisibilityRole.length > 0 : selectedVisibilityGroupId.length > 0;
+                    const hasSelection = selectedVisibilityGroupId.length > 0;
                     const disabled = !hasSelection;
                     const checked = hasSelection ? isGroupVisibleForTab(row.routeKey) : false;
                     return (
                       <tr key={row.id} className="admin-table-row">
-                        <td style={tdStyle}>{row.title}</td>
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 2 }}>
+                            <span>{row.title}</span>
+                            <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
+                              {row.routeKey}
+                            </span>
+                          </div>
+                        </td>
+                        <td style={tdStyle}>
+                          <span style={badgeStyle(row.category === "feature" ? "#0ea5e9" : "#6b7280")}>
+                            {row.category === "feature"
+                              ? locale === "fr"
+                                ? "Feature"
+                                : "Feature"
+                              : locale === "fr"
+                              ? "Navigation"
+                              : "Navigation"}
+                          </span>
+                        </td>
                         <td style={tdStyle}>
                           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: disabled ? "not-allowed" : "pointer" }}>
                             <input
@@ -1357,31 +1389,30 @@ export default function UsersPage() {
                             <span>{checked ? (locale === "fr" ? "Oui" : "Yes") : (locale === "fr" ? "Non" : "No")}</span>
                           </label>
                         </td>
-                        <td style={tdStyle}></td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
-          {/* Bouton global d'enregistrement */}
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: "1rem" }}>
-            <button
-              type="button"
-              style={{ ...btnPrimary, minWidth: 140, fontSize: "1rem" }}
-              disabled={tabVisibilitySavingId !== null || (visibilityMode === "role" ? !selectedVisibilityRole : !selectedVisibilityGroupId)}
-              onClick={() => handleSaveTabVisibility("all")}
-            >
-              {tabVisibilitySavingId !== null
-                ? locale === "fr"
-                  ? "Enregistrement…"
-                  : "Saving…"
-                : locale === "fr"
-                ? "Enregistrer les modifications"
-                : "Save changes"}
-            </button>
+            {/* Bouton global d'enregistrement */}
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "1rem" }}>
+              <button
+                type="button"
+                style={{ ...btnPrimary, minWidth: 140, fontSize: "1rem" }}
+                disabled={tabVisibilitySavingId !== null || !selectedVisibilityGroupId}
+                onClick={() => handleSaveTabVisibility("all")}
+              >
+                {tabVisibilitySavingId !== null
+                  ? locale === "fr"
+                    ? "Enregistrement..."
+                    : "Saving..."
+                  : locale === "fr"
+                  ? "Enregistrer les permissions"
+                  : "Save permissions"}
+              </button>
+            </div>
           </div>
-        </div>
         </div>
       )}
 

@@ -29,6 +29,7 @@ import {
   type LeadScoringPayload,
   type SalesHeatLevel,
 } from "@/lib/lead-prioritization";
+import { LEAD_PRIORITIZATION_FEATURE_KEY } from "@/lib/feature-permissions";
 import { useLocale } from "@/lib/use-locale";
 import { useRightPanel } from "@/components/admin/right-panel/RightPanelProvider";
 
@@ -496,6 +497,8 @@ export default function AcquisitionPage() {
   const [leadModalSelection, setLeadModalSelection] = useState<LeadModalSelection | null>(null);
   const [prioritizationModalOpen, setPrioritizationModalOpen] = useState(false);
   const [viewer, setViewer] = useState<ViewerSessionUser | null>(null);
+  const [hasLeadPrioritizationPermission, setHasLeadPrioritizationPermission] =
+    useState(false);
   const [leadScoringConfig, setLeadScoringConfig] = useState<LeadScoringConfig>(
     () => DEFAULT_LEAD_SCORING_CONFIG
   );
@@ -571,6 +574,47 @@ export default function AcquisitionPage() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const resolveLeadPrioritizationPermission = async () => {
+      if (!viewer) {
+        if (mounted) setHasLeadPrioritizationPermission(false);
+        return;
+      }
+
+      if (viewer.role === "admin" || viewer.isSuperAdmin === true) {
+        if (mounted) setHasLeadPrioritizationPermission(true);
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `/api/navigation/feature-access?featureKey=${encodeURIComponent(LEAD_PRIORITIZATION_FEATURE_KEY)}`,
+          { cache: "no-store" }
+        );
+
+        if (!res.ok) {
+          if (mounted) setHasLeadPrioritizationPermission(false);
+          return;
+        }
+
+        const payload = (await res.json()) as { allowed?: boolean };
+        if (mounted) {
+          setHasLeadPrioritizationPermission(payload.allowed === true);
+        }
+      } catch {
+        if (mounted) setHasLeadPrioritizationPermission(false);
+      }
+    };
+
+    void resolveLeadPrioritizationPermission();
+
+    return () => {
+      mounted = false;
+    };
+  }, [viewer]);
 
   useEffect(() => {
     let mounted = true;
@@ -741,7 +785,9 @@ export default function AcquisitionPage() {
 
   const monthDays = useMemo(() => getMonthDays(presenceMonth), [presenceMonth]);
   const canManageLeadScoringRules =
-    viewer?.role === "admin" || viewer?.isSuperAdmin === true;
+    viewer?.role === "admin" ||
+    viewer?.isSuperAdmin === true ||
+    hasLeadPrioritizationPermission;
   const selectedOperatorAbsences = selectedOperatorId
     ? operatorAbsences[selectedOperatorId] || []
     : [];

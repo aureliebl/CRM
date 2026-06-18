@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActorFromRequest, isAccountSuperAdmin } from "@/lib/server-permissions";
-import { getGroupIdForAccount, getGroupRouteVisibility, getRoleRouteVisibility } from "@/lib/security-store";
+import { getGroupIdForAccount, getGroupRouteVisibility } from "@/lib/security-store";
+import { isRoutePermissionKey } from "@/lib/feature-permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +11,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Super admins always see all tabs
-  if (isAccountSuperAdmin(actor)) {
+  // Admins and super admins always have full access.
+  if (isAccountSuperAdmin(actor) || actor.role === "admin") {
     return NextResponse.json({ configured: false, routeKeys: [] });
   }
 
@@ -20,27 +21,14 @@ export async function GET(req: Request) {
     ? await getGroupRouteVisibility(groupId)
     : { configured: false, routeKeys: [] as string[] };
 
-  const roleVisibility = actor.role
-    ? await getRoleRouteVisibility(actor.role)
-    : { configured: false, routeKeys: [] as string[] };
-
-  // If neither is configured, show everything
-  if (!groupVisibility.configured && !roleVisibility.configured) {
+  // If no explicit group permission config exists, keep all routes visible.
+  if (!groupVisibility.configured) {
     return NextResponse.json({ configured: false, routeKeys: [] });
   }
 
-  // If only one is configured, use that one
-  if (groupVisibility.configured && !roleVisibility.configured) {
-    return NextResponse.json(groupVisibility);
-  }
-  if (!groupVisibility.configured && roleVisibility.configured) {
-    return NextResponse.json(roleVisibility);
-  }
-
-  // Both are configured: use intersection (most restrictive)
-  // A user only sees routes allowed by BOTH their role and their group.
-  // An empty intersection means no routes are visible under these combined restrictions.
-  const roleSet = new Set(roleVisibility.routeKeys);
-  const intersected = groupVisibility.routeKeys.filter((key) => roleSet.has(key));
-  return NextResponse.json({ configured: true, routeKeys: intersected });
+  // Navigation only consumes route-like permissions.
+  return NextResponse.json({
+    configured: true,
+    routeKeys: groupVisibility.routeKeys.filter((key) => isRoutePermissionKey(key)),
+  });
 }
