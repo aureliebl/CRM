@@ -42,10 +42,10 @@ export default function LoginPage() {
     if (!loginRes.ok) {
       const body = (await loginRes.json().catch(() => null)) as { error?: string } | null;
       if (loginRes.status === 401) {
-        setError("Email ou mot de passe incorrect");
+        setError("Email ou mot de passe incorrect TEST");
         return;
       }
-      setError(body?.error || "Impossible de se connecter pour le moment");
+      setError(body?.error || "Impossible de se connecter pour le moment TEST");
       return;
     }
 
